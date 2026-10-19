@@ -1,0 +1,46 @@
+name: Vulnerability scan
+
+# Deliberately unfiltered by path. A workflow-level `paths:` filter leaves a
+# required check permanently pending (see the detect-changes job in ci.yml), so
+# a job that always runs is the shape that can be promoted to a required check
+# later without restructuring its triggers. The scheduled run is the one that
+# matters most: an advisory published against an unchanged dependency is
+# invisible to every push-driven trigger.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    # Weekly. Scheduled workflows here stop firing in a quiet repository, on one
+    # repository-level clock rather than one per workflow — SECURITY.md § Build
+    # and CI supply chain carries the condition, and why a gap in these runs is
+    # a symptom rather than an absence of findings.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Grouped like ci.yml, but without cancel-in-progress: on main the scheduled run
+# and a push run share a ref, and cancelling the weekly scan because someone
+# pushed would drop the one run that exists to fire when nothing else does.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # govulncheck is a tool dependency in go.mod, so `go tool` runs the pinned,
+      # checksum-verified version. It resolves the standard library it reports on
+      # from the go command on PATH — which setup-go takes from go.mod — so the
+      # scan's stdlib baseline is the same version the binary is built with.
+      - name: Scan dependencies and standard library
+        run: go tool govulncheck ./...

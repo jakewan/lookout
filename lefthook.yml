@@ -1,0 +1,37 @@
+pre-commit:
+  parallel: true
+  commands:
+    go-format:
+      glob: "**/*.go"
+      # golangci-lint fmt applies the formatters configured in .golangci.yml
+      # (gofmt + goimports) — the same set CI enforces — so a commit can't pass
+      # the hook with import ordering that would later fail the lint job.
+      run: golangci-lint fmt {staged_files}
+      stage_fixed: true
+      skip: merge
+
+pre-push:
+  piped: true
+  # The disclosure sweep is a script, not a command, so lefthook cannot skip it
+  # for a push it judges to change no files; .lefthook/pre-push/disclosure-sweep.sh
+  # says why. With piped set, a failing step stops the steps after it, so a
+  # failing lint or test may stop the push before the sweep is reached; the
+  # push is refused either way. It warns rather than fails where the denylist is absent (the denylist lives
+  # outside the repository by design), and has no merge skip: a guard against
+  # publishing has no state in which to stand down.
+  scripts:
+    "disclosure-sweep.sh":
+      priority: 1
+      runner: sh
+      use_stdin: true
+  commands:
+    go-lint:
+      priority: 2
+      run: just lint
+      skip: merge
+    go-test:
+      priority: 3
+      # The same form CI runs, so a push that passes here cannot fail CI's test
+      # job for a reason the hook never checked.
+      run: just test-race
+      skip: merge
