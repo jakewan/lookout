@@ -19,6 +19,8 @@ Avoid:
 - Scaffolding headers with no content under them.
 - Hard-wrapping prose at a fixed column. Write one long line per paragraph and let the renderer wrap.
 
+Sweep the drafted title and body with `just sweep-file` before posting; see `.claude/rules/no-personal-details.md` § The disclosure sweep.
+
 ## Commit Messages
 
 (extension point: `squash-commit-format`)
@@ -29,6 +31,8 @@ Conventional Commits: `type(scope): subject`.
 - **Scopes**: a code change scopes to the `internal/` package it centers on — the directory name (illustrative, not a closed list, so a new package carries a scope without editing this rule), or `cli` for the command entry point (`cmd/lookout`). A change spanning several packages scopes to its center of gravity. Cross-cutting work that isn't a single package uses `ci`, `build`, `docs`, `rules`, `dx` (developer-experience: tooling, justfile, hooks), or `deps` (dependency updates, e.g. Dependabot bumps). A changelog-only commit — notably the post-PR-creation commit that anchors an entry to its PR number — belongs to no code area; scope it `docs` with no scope (`docs: ...`).
 - **Body**: short prose stating *why* — the motivation, constraint, or problem solved — sized to the change, not its diff. A small change may need a one-line body or none. Don't restate the diff, don't narrate the journey ("the review surfaced...", "earlier this did X"), and don't re-derive rationale a durable doc (a design decision in `CLAUDE.md`, a doc comment) already records — point to it or omit it.
 - **Issue references**: `Closes #N` (or `Related to #N`); repeat the keyword per issue.
+
+A squash-merge message is composed on GitHub and lands on `main` without crossing the pre-push hook, so sweep it with `just sweep-file` before merging.
 
 ## Changelog
 
@@ -42,7 +46,7 @@ A PR requires a changelog entry when it makes a **user-facing change**:
 - Observable behavior changes (what is refused, what is reported, output shape).
 - **Any change to a versioned contract, or to how an input's health is computed.** Suppliers outside this repository write to these contracts and renderers read from them, so a change reaches code this project does not control.
 - Bug fixes that affect user-visible results.
-- A dependency update that resolves a known advisory — a module in the `require` list; the entry goes under `Security`. `govulncheck` runs on every PR and on `main`, so an advisory reported on `main` but no longer reported on the bump's PR is the signal. A **pinned-toolchain bump is not this case**: it is build tooling, and `SECURITY.md` § Build and CI supply chain records the red-scan-then-bump cycle as the expected rhythm rather than a notable event. It owes no entry even when it clears advisories — unless a maintainer judges a particular advisory severe and genuinely reachable, in which case the entry says why.
+- A dependency update that resolves a known advisory — a module in the `require` list; the entry goes under `Security`. `govulncheck` runs on every PR against `main` and on `main`, so an advisory reported on `main` but no longer reported on the bump's PR is the signal. A **pinned-toolchain bump is not this case**: it is build tooling, and `SECURITY.md` § Build and CI supply chain records the red-scan-then-bump cycle as the expected rhythm rather than a notable event. It owes no entry even when it clears advisories — unless a maintainer judges a particular advisory severe and genuinely reachable, in which case the entry says why.
 - Configuration-format changes.
 
 No entry is needed for: internal refactors with no observable effect, test-only changes, CI/build/tooling, documentation, or agent rules.

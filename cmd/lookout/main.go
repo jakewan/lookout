@@ -1,5 +1,6 @@
-// Command lookout reports how recently each of your workstreams moved, and
-// whether every input it relies on is healthy.
+// Command lookout is the entry point for lookout, which is to report how
+// recently each of your workstreams moved and whether every input it relies on
+// is healthy. It has no subcommands yet, so every invocation is a usage error.
 package main
 
 import (

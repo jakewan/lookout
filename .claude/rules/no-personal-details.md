@@ -20,9 +20,13 @@ This is a public repository. Keep personal and identifying details out of everyt
 
 ## The disclosure sweep
 
-`just sweep` checks the tracked tree and every commit not yet on a remote against a denylist each maintainer keeps at `$XDG_CONFIG_HOME/lookout-sweep/patterns`, outside the repository, since a committed denylist would publish the names it guards. The pre-push hook runs it. Before posting a pull request or issue body, write it to a file and run `just sweep-file <path>` on it.
+`just sweep` checks the tracked tree and every commit not yet on a remote against a denylist each maintainer keeps at `$XDG_CONFIG_HOME/lookout-sweep/patterns`, outside the repository, since a committed denylist would publish the names it guards. The pre-push hook runs the same sweep over what the push publishes: each ref being pushed, its name, an annotated tag's message, and every commit the destination does not hold.
 
-A token sweep cannot catch prose. Re-read anything describing trackers or work settings against the last bullet under What not to introduce; a passing sweep does not settle it. When the pattern file is absent the sweep warns and passes, so a warning means nothing was checked.
+Text composed for GitHub never passes through that hook. Before posting a pull request title or body, an issue, a review or comment, or a squash-merge commit message, write it to a file and run `just sweep-file <path>` on it (paths resolve from the repository root).
+
+A refusal names a match in an unpushed commit by its commit. A later commit cannot clear it, because the push still publishes the earlier one: rewrite that unpushed commit instead. A name match prints the name, term included, so keep sweep output out of anything public.
+
+A token sweep cannot catch prose. Re-read anything describing trackers or work settings against the last bullet under What not to introduce; a passing sweep does not settle it. When the pattern file is absent or lists no terms, the sweep warns and passes, so a warning means nothing was checked.
 
 ## Why
 

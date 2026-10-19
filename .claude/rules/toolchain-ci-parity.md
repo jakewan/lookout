@@ -47,6 +47,8 @@ The failure is loud rather than silent, which makes `just lint` the gate that ca
 
 **The two commands are not interchangeable, and only one of them is safe after a pin change.** `mise lock` refreshes every platform already recorded in the lockfile. An install rewrites the changed tool's entry to the new version and **drops all of its platform blocks**, leaving an entry nothing can be verified against — whether or not it actually installs anything. So a pin bump followed by an install alone silently strips that tool's verification data. Run `mise lock` after any pin change, and read the resulting diff. The symptom of this going wrong is a lockfile entry carrying a version with no platform blocks under it.
 
+Both behaviors were observed directly on mise 2026.7.7 by bumping a pin, running an install by itself, and reading `git diff mise.lock`; `mise lock --help` describes the multi-platform refresh. Mise is not pinned in `mise.toml`, so a contributor's own version governs, and `.github/workflows/toolchain.yml` pins a newer one for the weekly report. The observation is provenance for the one version it ran on, not a standing guarantee, so re-run it if it matters.
+
 ## The govulncheck tool dependency reaches the built binary
 
 `govulncheck` is a `go.mod` tool dependency, so its requirements participate in the main module's version resolution. That is not confined to tooling: a module it requires can be one the binary also links, and an update of `x/vuln` or its dependencies can then raise that module's version in the shipped build.
