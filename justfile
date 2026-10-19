@@ -64,9 +64,14 @@ vuln:
 sweep:
     go run ./internal/devtools/sweep
 
+# Positional arguments reach the command as "$@", each quoted, so a path with
+# spaces or shell characters arrives intact; `--` keeps one that begins with a
+# dash from being read as a flag. Paths resolve from the repository root.
+
 # Sweep drafted PR or issue bodies before posting them
+[positional-arguments]
 sweep-file +files:
-    go run ./internal/devtools/sweep {{ prepend("--file ", files) }}
+    go run ./internal/devtools/sweep -- "$@"
 
 # --bump is required, not cosmetic: every pin in mise.toml is an exact version,
 # and plain `mise outdated` compares against the latest release matching the

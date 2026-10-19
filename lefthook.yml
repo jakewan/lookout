@@ -15,11 +15,15 @@ pre-push:
   commands:
     # First, so a push carrying a denylisted term is refused before slower
     # checks run. It warns rather than fails where the denylist is absent,
-    # since the denylist lives outside the repository by design.
+    # since the denylist lives outside the repository by design. {1} is the
+    # destination remote and stdin lists the refs being pushed (githooks(5),
+    # pre-push), so it sweeps what this push publishes rather than HEAD. No
+    # merge skip: a guard against publishing has no state in which to stand
+    # down.
     disclosure-sweep:
       priority: 1
-      run: just sweep
-      skip: merge
+      run: go run ./internal/devtools/sweep --pre-push {1}
+      use_stdin: true
     go-lint:
       priority: 2
       run: just lint

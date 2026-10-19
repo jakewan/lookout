@@ -5,21 +5,31 @@
 // publish every name it exists to keep private. Each non-blank line not
 // starting with # is a term, matched as a case-insensitive substring.
 //
-// With no arguments it sweeps the tracked tree, names and contents, plus every
-// commit not yet on any remote: each commit's message, the names it adds, and
-// the lines it adds. Added names and lines matter even when a later commit
-// removes them, because pushing publishes every commit, not only the last. With
-// --file it sweeps only the named files, which is how a drafted pull request or
-// issue body is checked before it is posted.
+// It runs in three modes:
+//
+//   - sweep: the tracked tree, names and contents, plus every commit reachable
+//     from HEAD that no remote holds.
+//   - sweep --pre-push <remote>: the same tree, plus what git's pre-push hook
+//     names on stdin — each ref being pushed, its name, an annotated tag's
+//     message, and every commit the destination remote does not hold.
+//   - sweep <file>...: only the named files, which is how a drafted pull
+//     request or issue body is checked before it is posted.
+//
+// For each commit it checks the message, the names it adds, copies to or
+// renames to, and the lines it adds, including lines a merge's conflict
+// resolution adds. Added names and lines matter even when a later commit
+// removes them, because pushing publishes every commit, not only the last.
 package main
 
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"os/exec"
@@ -33,37 +43,33 @@ const (
 	exitError = 2
 )
 
-// commitMarker opens each commit in the history listing. The NUL byte cannot
-// occur in a commit message or a text diff, so the marker is unambiguous.
+// commitMarker opens each commit in a history listing. git emits the NUL
+// itself from %x00 in the format, and a NUL cannot occur in a commit message
+// or a text diff, so the marker is unambiguous; if git ever emitted it
+// differently, no line would match and every commit would be read as one,
+// mislabeling matches rather than missing them.
 const commitMarker = "\x00commit "
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
-type fileList []string
-
-func (f *fileList) String() string { return strings.Join(*f, ",") }
-
-func (f *fileList) Set(v string) error {
-	*f = append(*f, v)
-	return nil
-}
-
-// run sweeps and reports to stderr. A match names its location and never the
-// term itself, so the output can be pasted or logged without leaking it.
-func run(args []string, _, stderr io.Writer) int {
+// run sweeps and reports to stderr. A content match names its file and line,
+// or its commit, and never the matched text. A name match prints the name,
+// which contains the term, so sweep output is for the terminal, not for
+// pasting anywhere public.
+func run(ctx context.Context, args []string, stdin io.Reader, _, stderr io.Writer) int {
 	diag := log.New(stderr, "sweep: ", 0)
 
-	var files fileList
-	fs := flag.NewFlagSet("sweep", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Var(&files, "file", "sweep only this file (repeatable)")
-	if err := fs.Parse(args); err != nil {
+	flags := flag.NewFlagSet("sweep", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	prePush := flags.String("pre-push", "", "sweep what git's pre-push hook names on stdin, for this destination remote")
+	if err := flags.Parse(args); err != nil {
 		return exitError
 	}
-	if fs.NArg() > 0 {
-		diag.Printf("unexpected argument %q", fs.Arg(0))
+	files := flags.Args()
+	if *prePush != "" && len(files) > 0 {
+		diag.Print("--pre-push takes no file arguments")
 		return exitError
 	}
 
@@ -82,22 +88,28 @@ func run(args []string, _, stderr io.Writer) int {
 		diag.Print(err)
 		return exitError
 	}
+	if len(terms) == 0 {
+		diag.Printf("WARNING: the pattern file at %s lists no terms", path)
+		diag.Print("WARNING: nothing was swept; add terms to enable the disclosure check")
+		return exitClean
+	}
 
-	s := &sweeper{terms: terms, diag: diag}
+	s := &sweeper{ctx: ctx, terms: terms, diag: diag}
 	if len(files) > 0 {
-		for _, f := range files {
-			if serr := s.file(f, f); serr != nil {
-				diag.Print(serr)
-				return exitError
-			}
-		}
-	} else if serr := s.repository(); serr != nil {
-		diag.Print(serr)
+		err = s.files(files)
+	} else {
+		err = s.repository(stdin, *prePush)
+	}
+	if err != nil {
+		diag.Print(err)
 		return exitError
 	}
 
 	if s.matches > 0 {
 		diag.Printf("%d match(es) against %s; refusing", s.matches, path)
+		if s.historyMatches > 0 {
+			diag.Print("a later commit cannot clear a match in an unpushed commit: rewrite the commit named above, then push again")
+		}
 		return exitMatch
 	}
 	return exitClean
@@ -136,42 +148,85 @@ func readTerms(path string) ([]string, error) {
 }
 
 type sweeper struct {
-	terms   []string
-	diag    *log.Logger
-	matches int
+	ctx            context.Context
+	terms          []string
+	diag           *log.Logger
+	matches        int
+	historyMatches int
 }
 
-func (s *sweeper) check(location, text string) {
+func (s *sweeper) check(location, text string) bool {
 	lower := strings.ToLower(text)
 	for _, term := range s.terms {
 		if strings.Contains(lower, term) {
 			s.diag.Printf("%s: matches a denylisted term", location)
 			s.matches++
-			return
+			return true
 		}
+	}
+	return false
+}
+
+func (s *sweeper) checkHistory(location, text string) {
+	if s.check(location, text) {
+		s.historyMatches++
 	}
 }
 
-// file sweeps one file, skipping binary content, which carries no prose to leak
-// and would only yield matches nobody can read.
-func (s *sweeper) file(path, label string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("reading %s: %w", label, err)
-	}
-	if bytes.IndexByte(data, 0) >= 0 {
-		return nil
-	}
+func (s *sweeper) checkLines(label, text string) {
 	n := 0
-	for line := range strings.Lines(string(data)) {
+	for line := range strings.Lines(text) {
 		n++
 		s.check(fmt.Sprintf("%s:%d", label, n), line)
+	}
+}
+
+// files sweeps the named files only. A file holding a NUL is refused rather
+// than skipped: UTF-16 text reads that way, and passing it would report a body
+// as checked when it never was.
+func (s *sweeper) files(paths []string) error {
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return fmt.Errorf("reading %s: %w", p, err)
+		}
+		if bytes.IndexByte(data, 0) >= 0 {
+			return fmt.Errorf("%s is not plain text (it contains a NUL byte), so it cannot be swept; save it as UTF-8", p)
+		}
+		s.checkLines(p, string(data))
 	}
 	return nil
 }
 
-func (s *sweeper) repository() error {
-	listing, err := git("ls-files", "-z")
+func (s *sweeper) repository(stdin io.Reader, prePush string) error {
+	top, err := s.git("rev-parse", "--show-toplevel")
+	if err != nil {
+		return err
+	}
+	// ls-files and the file reads below are relative to the working directory,
+	// so a run from a subdirectory would otherwise cover only that subtree.
+	if cerr := os.Chdir(strings.TrimSpace(top)); cerr != nil {
+		return fmt.Errorf("changing to the repository root: %w", cerr)
+	}
+	if terr := s.tree(); terr != nil {
+		return terr
+	}
+
+	if prePush == "" {
+		if _, verr := s.git("rev-parse", "--verify", "--quiet", "HEAD"); verr != nil {
+			return nil
+		}
+		return s.history([]string{"HEAD"}, []string{"--remotes"})
+	}
+	return s.pushed(stdin, prePush)
+}
+
+// tree sweeps every tracked name and the content behind it. Binary content is
+// skipped: it carries no prose to leak and would only yield matches nobody can
+// read. A symlink's published content is its target text, so that is what is
+// checked; a submodule's directory holds nothing this repository publishes.
+func (s *sweeper) tree() error {
+	listing, err := s.git("ls-files", "-z")
 	if err != nil {
 		return err
 	}
@@ -180,62 +235,158 @@ func (s *sweeper) repository() error {
 			continue
 		}
 		s.check("path "+name, name)
-		// A tracked file deleted in the working tree has nothing left to leak
-		// from here; its history is the commit sweep's concern.
-		if _, statErr := os.Stat(name); errors.Is(statErr, os.ErrNotExist) {
+
+		info, lerr := os.Lstat(name)
+		switch {
+		case errors.Is(lerr, fs.ErrNotExist):
+			// Deleted in the working tree: its history is the commit sweep's.
+			continue
+		case lerr != nil:
+			return fmt.Errorf("reading %s: %w", name, lerr)
+		case info.Mode()&fs.ModeSymlink != 0:
+			target, rerr := os.Readlink(name)
+			if rerr != nil {
+				return fmt.Errorf("reading %s: %w", name, rerr)
+			}
+			s.check(name+":1", target)
+			continue
+		case info.IsDir():
 			continue
 		}
-		if ferr := s.file(name, name); ferr != nil {
-			return ferr
+
+		data, rerr := os.ReadFile(name)
+		if rerr != nil {
+			return fmt.Errorf("reading %s: %w", name, rerr)
 		}
+		if bytes.IndexByte(data, 0) >= 0 {
+			continue
+		}
+		s.checkLines(name, string(data))
 	}
-	return s.history()
+	return nil
 }
 
-// history sweeps commits reachable from HEAD that no remote has. A commit any
-// remote already holds is published, and failing this push cannot change that.
-func (s *sweeper) history() error {
-	if _, err := git("rev-parse", "--verify", "--quiet", "HEAD"); err != nil {
+// pushed reads git's pre-push stdin — one "<local ref> <local sha> <remote
+// ref> <remote sha>" line per ref (githooks(5)) — and sweeps each ref's name,
+// an annotated tag's message, and every commit the destination does not hold.
+// Commits on other remotes are swept anyway: holding a commit somewhere else,
+// a private mirror for one, does not make it public here.
+func (s *sweeper) pushed(stdin io.Reader, remote string) error {
+	var tips []string
+	exclude := []string{"--remotes=" + remote}
+	scanner := bufio.NewScanner(stdin)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) != 4 {
+			continue
+		}
+		localRef, localSHA, remoteRef, remoteSHA := fields[0], fields[1], fields[2], fields[3]
+		if isZero(localSHA) {
+			continue // a deletion publishes nothing
+		}
+		s.check("ref "+localRef, localRef)
+		if remoteRef != localRef {
+			s.check("ref "+remoteRef, remoteRef)
+		}
+		if err := s.tag(localRef, localSHA); err != nil {
+			return err
+		}
+		tips = append(tips, localSHA)
+		if !isZero(remoteSHA) && s.exists(remoteSHA) {
+			exclude = append(exclude, remoteSHA)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("reading the refs being pushed: %w", err)
+	}
+	if len(tips) == 0 {
 		return nil
 	}
-	// %x00 asks git to emit the NUL itself; a NUL cannot travel in an argument.
-	out, err := git("log", "--patch", "--no-color", "--no-ext-diff", "--format=%x00commit %h%n%B", "HEAD", "--not", "--remotes")
+	return s.history(tips, exclude)
+}
+
+func isZero(sha string) bool { return strings.Trim(sha, "0") == "" }
+
+func (s *sweeper) exists(sha string) bool {
+	_, err := s.git("cat-file", "-e", sha+"^{commit}")
+	return err == nil
+}
+
+func (s *sweeper) tag(ref, sha string) error {
+	kind, err := s.git("cat-file", "-t", sha)
 	if err != nil {
 		return err
 	}
+	if strings.TrimSpace(kind) != "tag" {
+		return nil
+	}
+	body, err := s.git("cat-file", "tag", sha)
+	if err != nil {
+		return err
+	}
+	// The tag object's header names the tagger; only the message follows the
+	// first blank line.
+	if _, message, ok := strings.Cut(body, "\n\n"); ok {
+		for line := range strings.Lines(message) {
+			s.check("tag "+ref+" message", line)
+		}
+	}
+	return nil
+}
 
+// history sweeps the commits reachable from tips and not from exclude, in
+// three listings so no commit message can be mistaken for diff output.
+func (s *sweeper) history(tips, exclude []string) error {
+	rangeArgs := append(append([]string{}, tips...), append([]string{"--not"}, exclude...)...)
+
+	messages, err := s.git(append([]string{"log", "--format=%x00commit %h%n%B"}, rangeArgs...)...)
+	if err != nil {
+		return err
+	}
 	var commit string
-	inDiff := false
-	scanner := bufio.NewScanner(strings.NewReader(out))
-	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
+	for line := range strings.Lines(messages) {
+		line = strings.TrimSuffix(line, "\n")
+		if c, ok := strings.CutPrefix(line, commitMarker); ok {
+			commit = c
+			continue
+		}
+		s.checkHistory("commit "+commit+" message", line)
+	}
+
+	// remerge shows what a merge's resolution adds beyond an automatic merge,
+	// which is the only content a merge commit carries of its own.
+	// --no-textconv keeps a configured converter from changing what is read.
+	patch, err := s.git(append([]string{"log", "--patch", "--no-color", "--no-ext-diff", "--no-textconv", "--diff-merges=remerge", "--format=%x00commit %h"}, rangeArgs...)...)
+	if err != nil {
+		return err
+	}
+	inHunk := false
+	for line := range strings.Lines(patch) {
+		line = strings.TrimSuffix(line, "\n")
 		switch {
 		case strings.HasPrefix(line, commitMarker):
 			commit = strings.TrimPrefix(line, commitMarker)
-			inDiff = false
-		case strings.HasPrefix(line, "diff --git "):
-			inDiff = true
-		case !inDiff:
-			s.check("commit "+commit+" message", line)
-		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
-			s.check("commit "+commit+" added line", line)
+			inHunk = false
+		case strings.HasPrefix(line, "diff "):
+			inHunk = false // a file header, up to the first hunk
+		case strings.HasPrefix(line, "@@"):
+			inHunk = true
+		case inHunk && strings.HasPrefix(line, "+"):
+			s.checkHistory("commit "+commit+" added line", line)
 		}
 	}
-	if serr := scanner.Err(); serr != nil {
-		return fmt.Errorf("reading history: %w", serr)
-	}
-	return s.historyPaths()
+
+	return s.historyPaths(rangeArgs)
 }
 
-// historyPaths sweeps the names each unpushed commit adds, copies to, or
-// renames to. Only the resulting name is checked: a rename's old name was
-// either published already or added by an earlier unpushed commit, which is
-// swept on its own, so checking it here would refuse a push that removes a leak.
+// historyPaths sweeps the names each commit adds, copies to, or renames to.
+// Only the resulting name is checked: a rename's old name was either published
+// already or added by an earlier commit in the range, which is swept on its
+// own, so checking it here would refuse a push that removes a leak.
 // quotePath is off so a non-ASCII name is listed as written rather than as
 // octal escapes no term would match.
-func (s *sweeper) historyPaths() error {
-	out, err := git("-c", "core.quotePath=false", "log", "--name-only", "--diff-filter=ACR", "--format=%x00commit %h", "HEAD", "--not", "--remotes")
+func (s *sweeper) historyPaths(rangeArgs []string) error {
+	out, err := s.git(append([]string{"-c", "core.quotePath=false", "log", "--name-only", "--diff-filter=ACR", "--diff-merges=remerge", "--format=%x00commit %h"}, rangeArgs...)...)
 	if err != nil {
 		return err
 	}
@@ -246,19 +397,32 @@ func (s *sweeper) historyPaths() error {
 		case strings.HasPrefix(line, commitMarker):
 			commit = strings.TrimPrefix(line, commitMarker)
 		case line != "":
-			s.check("commit "+commit+" path "+line, line)
+			s.checkHistory("commit "+commit+" path "+line, line)
 		}
 	}
 	return nil
 }
 
-func git(args ...string) (string, error) {
+func (s *sweeper) git(args ...string) (string, error) {
 	var stderr bytes.Buffer
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(s.ctx, "git", args...)
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("git %s: %w: %s", subcommand(args), err, strings.TrimSpace(stderr.String()))
 	}
 	return string(out), nil
+}
+
+// subcommand names the git subcommand in args for an error message, skipping
+// the -c options that precede it.
+func subcommand(args []string) string {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-c" {
+			i++
+			continue
+		}
+		return args[i]
+	}
+	return ""
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,7 @@ type repo struct {
 
 func newRepo(t *testing.T) *repo {
 	t.Helper()
+	clearRepositoryEnvironment(t)
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	r := &repo{t: t, dir: t.TempDir()}
@@ -27,14 +29,35 @@ func newRepo(t *testing.T) *repo {
 	return r
 }
 
-func (r *repo) git(args ...string) {
+// clearRepositoryEnvironment unsets the variables git exports to its hooks
+// (githooks(5): "GIT_DIR, GIT_WORK_TREE, etc., are exported"). The pre-push
+// hook runs this suite, and with them inherited every git command below would
+// act on the repository being pushed instead of the throwaway one. The list
+// comes from git itself, so a variable a later git adds is covered too.
+func clearRepositoryEnvironment(t *testing.T) {
+	t.Helper()
+	out, err := exec.Command("git", "rev-parse", "--local-env-vars").Output()
+	if err != nil {
+		t.Fatalf("listing git's repository variables: %v", err)
+	}
+	for name := range strings.FieldsSeq(string(out)) {
+		t.Setenv(name, "") // registers restoration at cleanup
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func (r *repo) git(args ...string) string {
 	r.t.Helper()
-	base := []string{"-c", "user.name=Example", "-c", "user.email=dev@example.com", "-c", "commit.gpgsign=false"}
+	base := []string{"-c", "user.name=Example", "-c", "user.email=dev@example.com", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"}
 	cmd := exec.Command("git", append(base, args...)...)
 	cmd.Dir = r.dir
-	if out, err := cmd.CombinedOutput(); err != nil {
+	out, err := cmd.CombinedOutput()
+	if err != nil {
 		r.t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
+	return strings.TrimSpace(string(out))
 }
 
 func (r *repo) write(name, content string) {
@@ -57,6 +80,18 @@ func (r *repo) commit(message string, files map[string]string) {
 	r.git("commit", "--quiet", "--allow-empty", "-m", message)
 }
 
+// remote adds a bare repository as a remote and pushes the given branches to
+// it, so their commits count as published.
+func (r *repo) remote(name string, branches ...string) {
+	r.t.Helper()
+	dir := r.t.TempDir()
+	r.git("init", "--quiet", "--bare", dir)
+	r.git("remote", "add", name, dir)
+	for _, b := range branches {
+		r.git("push", "--quiet", name, b)
+	}
+}
+
 // setPatterns writes the off-repo pattern file where the sweep looks for it.
 func setPatterns(t *testing.T, content string) {
 	t.Helper()
@@ -71,10 +106,50 @@ func setPatterns(t *testing.T, content string) {
 	}
 }
 
+func sweepWithInput(stdin string, args ...string) (code int, stdout, stderr string) {
+	var out, errOut bytes.Buffer
+	code = run(context.Background(), args, strings.NewReader(stdin), &out, &errOut)
+	return code, out.String(), errOut.String()
+}
+
 func sweep(args ...string) (int, string) {
-	var stdout, stderr bytes.Buffer
-	code := run(args, &stdout, &stderr)
-	return code, stdout.String() + stderr.String()
+	code, stdout, stderr := sweepWithInput("", args...)
+	return code, stdout + stderr
+}
+
+func expectRefused(t *testing.T, code int, out, location string) {
+	t.Helper()
+	if code != exitMatch {
+		t.Errorf("exit code = %d, want %d; output %q", code, exitMatch, out)
+	}
+	if !strings.Contains(out, "sweep: "+location) {
+		t.Errorf("output = %q, want a line locating the match at %q", out, location)
+	}
+}
+
+func expectClean(t *testing.T, code int, out string) {
+	t.Helper()
+	if code != exitClean {
+		t.Errorf("exit code = %d, want %d; output %q", code, exitClean, out)
+	}
+}
+
+func TestHelperIgnoresInheritedRepositoryEnvironment(t *testing.T) {
+	decoy := t.TempDir()
+	if out, err := exec.Command("git", "init", "--quiet", decoy).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	t.Setenv("GIT_DIR", filepath.Join(decoy, ".git"))
+
+	newRepo(t).commit("initial", map[string]string{"README.md": "hello\n"})
+
+	out, err := exec.Command("git", "--git-dir", filepath.Join(decoy, ".git"), "rev-list", "--all", "--count").Output()
+	if err != nil {
+		t.Fatalf("counting the decoy's commits: %v", err)
+	}
+	if got := strings.TrimSpace(string(out)); got != "0" {
+		t.Fatalf("the decoy repository named by GIT_DIR gained %s commit(s); the helper must act only on its throwaway repository", got)
+	}
 }
 
 func TestMissingPatternFileWarnsLoudlyAndPasses(t *testing.T) {
@@ -83,11 +158,21 @@ func TestMissingPatternFileWarnsLoudlyAndPasses(t *testing.T) {
 
 	code, out := sweep()
 
-	if code != exitClean {
-		t.Errorf("exit code = %d, want %d", code, exitClean)
-	}
+	expectClean(t, code, out)
 	if !strings.Contains(out, "WARNING") || !strings.Contains(out, filepath.Join("lookout-sweep", "patterns")) {
 		t.Errorf("output = %q, want a loud warning naming the missing pattern file", out)
+	}
+}
+
+func TestPatternFileWithNoTermsWarnsLoudlyAndPasses(t *testing.T) {
+	newRepo(t).commit("initial", map[string]string{"README.md": "acme corp\n"})
+	setPatterns(t, "# nothing yet\n\n")
+
+	code, out := sweep()
+
+	expectClean(t, code, out)
+	if !strings.Contains(out, "WARNING") {
+		t.Errorf("output = %q, want a loud warning: a denylist with no terms checks nothing", out)
 	}
 }
 
@@ -95,13 +180,11 @@ func TestCleanRepositoryPassesSilently(t *testing.T) {
 	newRepo(t).commit("initial", map[string]string{"README.md": "hello\n"})
 	setPatterns(t, "acme corp\n")
 
-	code, out := sweep()
+	code, stdout, stderr := sweepWithInput("")
 
-	if code != exitClean {
-		t.Errorf("exit code = %d, want %d; output %q", code, exitClean, out)
-	}
-	if out != "" {
-		t.Errorf("output = %q, want nothing", out)
+	expectClean(t, code, stdout+stderr)
+	if stdout != "" || stderr != "" {
+		t.Errorf("stdout = %q, stderr = %q; want nothing on either", stdout, stderr)
 	}
 }
 
@@ -110,23 +193,22 @@ func TestBlankLinesAndCommentsInPatternFileAreIgnored(t *testing.T) {
 	// A blank line read as a pattern would match every line of every file.
 	setPatterns(t, "# employer names\n\n   \nacme corp\n")
 
-	if code, out := sweep(); code != exitClean {
-		t.Errorf("exit code = %d, want %d; output %q", code, exitClean, out)
-	}
+	code, out := sweep()
+	expectClean(t, code, out)
 }
 
-func TestMatchesAreReportedAndFailThePush(t *testing.T) {
+func TestContentMatchesAreRefused(t *testing.T) {
 	tests := []struct {
 		name     string
 		setup    func(r *repo)
-		wantName string
+		location string
 	}{
 		{
 			name: "tracked file, matched case-insensitively",
 			setup: func(r *repo) {
 				r.commit("initial", map[string]string{"docs/notes.md": "line one\nworks at ACME Corp\n"})
 			},
-			wantName: "docs/notes.md:2",
+			location: "docs/notes.md:2",
 		},
 		{
 			name: "unpushed commit message",
@@ -134,7 +216,7 @@ func TestMatchesAreReportedAndFailThePush(t *testing.T) {
 				r.commit("initial", map[string]string{"README.md": "hello\n"})
 				r.commit("fix the Acme Corp import", nil)
 			},
-			wantName: "commit",
+			location: "commit ",
 		},
 		{
 			name: "content added then removed before pushing",
@@ -142,25 +224,77 @@ func TestMatchesAreReportedAndFailThePush(t *testing.T) {
 				r.commit("add notes", map[string]string{"notes.md": "acme corp\n"})
 				r.commit("scrub notes", map[string]string{"notes.md": "clean\n"})
 			},
-			wantName: "commit",
+			location: "commit ",
+		},
+		{
+			name: "message line after one that looks like a diff header",
+			setup: func(r *repo) {
+				r.commit("initial", map[string]string{"README.md": "hello\n"})
+				r.commit("quote a patch\n\ndiff --git a/x b/x\nfor acme corp\n", nil)
+			},
+			location: "commit ",
+		},
+		{
+			name: "added line whose content begins with ++, removed before pushing",
+			setup: func(r *repo) {
+				r.commit("add notes", map[string]string{"notes.md": "++acme corp\n"})
+				r.commit("scrub notes", map[string]string{"notes.md": "clean\n"})
+			},
+			location: "commit ",
+		},
+		{
+			name: "tracked symlink whose target names the term",
+			setup: func(r *repo) {
+				if err := os.Symlink("acme-corp/notes.md", filepath.Join(r.dir, "link")); err != nil {
+					t.Fatal(err)
+				}
+				r.commit("add link", nil)
+				r.remote("origin", "main")
+			},
+			location: "link:1",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.setup(newRepo(t))
-			setPatterns(t, "acme corp\n")
+			setPatterns(t, "acme corp\nacme-corp\n")
 
 			code, out := sweep()
-
-			if code != exitMatch {
-				t.Errorf("exit code = %d, want %d; output %q", code, exitMatch, out)
-			}
-			if !strings.Contains(out, tt.wantName) {
-				t.Errorf("output = %q, want it to locate the match (%q)", out, tt.wantName)
-			}
+			expectRefused(t, code, out, tt.location)
 		})
 	}
+}
+
+// TestMergeResolutionsAreSwept covers the one place a merge commit carries
+// content of its own: lines written while resolving a conflict.
+func TestMergeResolutionsAreSwept(t *testing.T) {
+	r := newRepo(t)
+	r.commit("initial", map[string]string{"notes.md": "base\n"})
+	r.git("checkout", "--quiet", "-b", "topic")
+	r.commit("topic edit", map[string]string{"notes.md": "topic\n"})
+	r.git("checkout", "--quiet", "main")
+	r.commit("main edit", map[string]string{"notes.md": "main\n"})
+	r.remote("origin", "main", "topic")
+	cmd := exec.Command("git", "-c", "user.name=Example", "-c", "user.email=dev@example.com", "-c", "commit.gpgsign=false", "merge", "--quiet", "topic")
+	cmd.Dir = r.dir
+	if cmd.Run() == nil {
+		t.Fatal("the merge succeeded; the spec needs it to stop on a conflict")
+	}
+	if _, err := os.Stat(filepath.Join(r.dir, ".git", "MERGE_HEAD")); err != nil {
+		t.Fatalf("no merge in progress after the conflicting merge: %v", err)
+	}
+	r.write("notes.md", "acme corp\n")
+	r.git("add", "notes.md")
+	r.git("commit", "--quiet", "-m", "merge topic")
+	if parents := strings.Fields(r.git("log", "-1", "--format=%P")); len(parents) != 2 {
+		t.Fatalf("the resolution commit has %d parent(s), want a merge commit", len(parents))
+	}
+	r.commit("scrub notes", map[string]string{"notes.md": "clean\n"})
+	setPatterns(t, "acme corp\n")
+
+	code, out := sweep()
+	expectRefused(t, code, out, "commit ")
 }
 
 // TestPathsAreSwept covers names as well as contents: pushing a file publishes
@@ -169,14 +303,27 @@ func TestPathsAreSwept(t *testing.T) {
 	tests := []struct {
 		name     string
 		setup    func(r *repo)
-		wantName string
+		location string
 	}{
 		{
+			// Already on the remote, so only the tree check can see it.
 			name: "tracked path",
 			setup: func(r *repo) {
 				r.commit("add notes", map[string]string{"docs/Acme-Corp-rollout.md": "clean\n"})
+				r.remote("origin", "main")
 			},
-			wantName: "path docs/Acme-Corp-rollout.md",
+			location: "path docs/Acme-Corp-rollout.md",
+		},
+		{
+			name: "tracked path deleted from the working tree",
+			setup: func(r *repo) {
+				r.commit("add notes", map[string]string{"acme-corp.md": "clean\n"})
+				r.remote("origin", "main")
+				if err := os.Remove(filepath.Join(r.dir, "acme-corp.md")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			location: "path acme-corp.md",
 		},
 		{
 			name: "path renamed away before pushing",
@@ -185,17 +332,7 @@ func TestPathsAreSwept(t *testing.T) {
 				r.git("mv", "acme-corp.md", "notes.md")
 				r.commit("rename notes", nil)
 			},
-			wantName: "path",
-		},
-		{
-			name: "tracked path deleted from the working tree",
-			setup: func(r *repo) {
-				r.commit("add notes", map[string]string{"acme-corp.md": "clean\n"})
-				if err := os.Remove(filepath.Join(r.dir, "acme-corp.md")); err != nil {
-					t.Fatal(err)
-				}
-			},
-			wantName: "path acme-corp.md",
+			location: "commit ",
 		},
 	}
 
@@ -205,13 +342,7 @@ func TestPathsAreSwept(t *testing.T) {
 			setPatterns(t, "acme-corp\n")
 
 			code, out := sweep()
-
-			if code != exitMatch {
-				t.Errorf("exit code = %d, want %d; output %q", code, exitMatch, out)
-			}
-			if !strings.Contains(out, tt.wantName) {
-				t.Errorf("output = %q, want it to locate the match (%q)", out, tt.wantName)
-			}
+			expectRefused(t, code, out, tt.location)
 		})
 	}
 }
@@ -222,39 +353,132 @@ func TestPathsAreSwept(t *testing.T) {
 func TestRenamingAPublishedPathAwayIsAllowed(t *testing.T) {
 	r := newRepo(t)
 	r.commit("add notes", map[string]string{"acme-corp.md": "clean\n"})
-	remote := t.TempDir()
-	r.git("init", "--quiet", "--bare", remote)
-	r.git("remote", "add", "origin", remote)
-	r.git("push", "--quiet", "origin", "main")
+	r.remote("origin", "main")
 	r.git("mv", "acme-corp.md", "notes.md")
 	r.commit("rename notes", nil)
 	setPatterns(t, "acme-corp\n")
 
-	if code, out := sweep(); code != exitClean {
-		t.Errorf("exit code = %d, want %d; output %q", code, exitClean, out)
-	}
+	code, out := sweep()
+	expectClean(t, code, out)
 }
 
 func TestCommitsAlreadyOnARemoteAreNotRescanned(t *testing.T) {
 	r := newRepo(t)
 	r.commit("mention acme corp", map[string]string{"README.md": "hello\n"})
-	remote := t.TempDir()
-	r.git("init", "--quiet", "--bare", remote)
-	r.git("remote", "add", "origin", remote)
-	r.git("push", "--quiet", "origin", "main")
+	r.remote("origin", "main")
 	setPatterns(t, "acme corp\n")
 
-	if code, out := sweep(); code != exitClean {
-		t.Errorf("exit code = %d, want %d: a published commit cannot be unpublished by failing a later push; output %q", code, exitClean, out)
+	code, out := sweep()
+	expectClean(t, code, out)
+}
+
+func TestRunsFromASubdirectoryOverTheWholeTree(t *testing.T) {
+	r := newRepo(t)
+	r.commit("initial", map[string]string{"docs/readme.md": "hello\n", "notes.md": "acme corp\n"})
+	r.remote("origin", "main")
+	t.Chdir(filepath.Join(r.dir, "docs"))
+	setPatterns(t, "acme corp\n")
+
+	code, out := sweep()
+	expectRefused(t, code, out, "notes.md:1")
+}
+
+func TestRefusalSaysALaterCommitCannotClearIt(t *testing.T) {
+	r := newRepo(t)
+	r.commit("add notes", map[string]string{"notes.md": "acme corp\n"})
+	r.commit("scrub notes", map[string]string{"notes.md": "clean\n"})
+	setPatterns(t, "acme corp\n")
+
+	_, out := sweep()
+
+	if !strings.Contains(out, "rewrite") {
+		t.Errorf("output = %q, want it to say the unpushed commit must be rewritten, since a new commit cannot clear the match", out)
 	}
+}
+
+func TestPrePushSweepsTheRefsBeingPushed(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func(r *repo) string // returns the hook's stdin
+		location string
+	}{
+		{
+			name: "a branch other than HEAD",
+			setup: func(r *repo) string {
+				r.commit("initial", map[string]string{"README.md": "hello\n"})
+				r.remote("origin", "main")
+				r.git("checkout", "--quiet", "-b", "other")
+				r.commit("mention acme corp", nil)
+				sha := r.git("rev-parse", "HEAD")
+				r.git("checkout", "--quiet", "main")
+				return "refs/heads/other " + sha + " refs/heads/other " + strings.Repeat("0", 40) + "\n"
+			},
+			location: "commit ",
+		},
+		{
+			name: "the name of the ref being pushed",
+			setup: func(r *repo) string {
+				r.commit("initial", map[string]string{"README.md": "hello\n"})
+				r.remote("origin", "main")
+				r.git("branch", "acme-corp-fix")
+				sha := r.git("rev-parse", "HEAD")
+				return "refs/heads/acme-corp-fix " + sha + " refs/heads/acme-corp-fix " + strings.Repeat("0", 40) + "\n"
+			},
+			location: "ref refs/heads/acme-corp-fix",
+		},
+		{
+			name: "an annotated tag's message",
+			setup: func(r *repo) string {
+				r.commit("initial", map[string]string{"README.md": "hello\n"})
+				r.remote("origin", "main")
+				r.git("tag", "-a", "v0.1.0", "-m", "for acme corp")
+				sha := r.git("rev-parse", "v0.1.0")
+				return "refs/tags/v0.1.0 " + sha + " refs/tags/v0.1.0 " + strings.Repeat("0", 40) + "\n"
+			},
+			location: "tag refs/tags/v0.1.0",
+		},
+		{
+			name: "commits another remote holds but the destination does not",
+			setup: func(r *repo) string {
+				r.commit("mention acme corp", map[string]string{"README.md": "hello\n"})
+				r.remote("backup", "main")
+				r.remote("origin")
+				sha := r.git("rev-parse", "HEAD")
+				return "refs/heads/main " + sha + " refs/heads/main " + strings.Repeat("0", 40) + "\n"
+			},
+			location: "commit ",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdin := tt.setup(newRepo(t))
+			setPatterns(t, "acme corp\nacme-corp\n")
+
+			code, stdout, stderr := sweepWithInput(stdin, "--pre-push", "origin")
+			expectRefused(t, code, stdout+stderr, tt.location)
+		})
+	}
+}
+
+func TestPrePushIgnoresDeletions(t *testing.T) {
+	r := newRepo(t)
+	r.commit("initial", map[string]string{"README.md": "hello\n"})
+	r.remote("origin", "main")
+	setPatterns(t, "acme corp\n")
+	zero := strings.Repeat("0", 40)
+
+	code, stdout, stderr := sweepWithInput("(delete) "+zero+" refs/heads/old "+r.git("rev-parse", "HEAD")+"\n", "--pre-push", "origin")
+	expectClean(t, code, stdout+stderr)
 }
 
 func TestFileModeScansOnlyTheNamedFiles(t *testing.T) {
 	r := newRepo(t)
 	r.commit("initial", map[string]string{"notes.md": "acme corp\n"})
 	setPatterns(t, "acme corp\n")
-	clean := filepath.Join(t.TempDir(), "clean-body.md")
-	leaky := filepath.Join(t.TempDir(), "leaky-body.md")
+	dir := t.TempDir()
+	clean := filepath.Join(dir, "clean-body.md")
+	leaky := filepath.Join(dir, "leaky-body.md")
 	if err := os.WriteFile(clean, []byte("Closes #1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -262,25 +486,35 @@ func TestFileModeScansOnlyTheNamedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if code, out := sweep("--file", clean); code != exitClean {
-		t.Errorf("clean body: exit code = %d, want %d; output %q", code, exitClean, out)
+	code, out := sweep(clean)
+	expectClean(t, code, out)
+
+	code, out = sweep(clean, leaky)
+	expectRefused(t, code, out, leaky+":2")
+}
+
+func TestFileModeRefusesABinaryFile(t *testing.T) {
+	newRepo(t).commit("initial", map[string]string{"README.md": "hello\n"})
+	setPatterns(t, "acme corp\n")
+	body := filepath.Join(t.TempDir(), "body.md")
+	// UTF-16 text reads as binary to a byte scan, and skipping it would pass a
+	// body that was never actually checked.
+	if err := os.WriteFile(body, []byte("a\x00c\x00m\x00e\x00"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	code, out := sweep("--file", leaky)
-	if code != exitMatch {
-		t.Errorf("leaky body: exit code = %d, want %d; output %q", code, exitMatch, out)
-	}
-	if !strings.Contains(out, leaky+":2") {
-		t.Errorf("leaky body: output = %q, want it to locate the match", out)
+
+	if code, out := sweep(body); code != exitError {
+		t.Errorf("exit code = %d, want %d; output %q", code, exitError, out)
 	}
 }
 
-func TestPatternsAreNeverEchoed(t *testing.T) {
+func TestContentMatchesNeverEchoTheTerm(t *testing.T) {
 	newRepo(t).commit("initial", map[string]string{"notes.md": "acme corp\n"})
 	setPatterns(t, "acme corp\n")
 
 	_, out := sweep()
 
 	if strings.Contains(strings.ToLower(out), "acme corp") {
-		t.Errorf("output = %q: it repeats the matched term, which would carry it into CI logs or pasted output", out)
+		t.Errorf("output = %q: it repeats the matched term from a file's contents", out)
 	}
 }
