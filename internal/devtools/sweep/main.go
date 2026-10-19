@@ -11,14 +11,16 @@
 //     from HEAD that no remote holds.
 //   - sweep --pre-push <remote>: the same tree, plus what git's pre-push hook
 //     names on stdin — each ref being pushed, its name, an annotated tag's
-//     message, and every commit the destination remote does not hold.
+//     tagger and message, and every commit the destination remote does not
+//     hold.
 //   - sweep <file>...: only the named files, which is how a drafted pull
 //     request or issue body is checked before it is posted.
 //
-// For each commit it checks the message, the names it adds, copies to or
-// renames to, and the lines it adds, including lines a merge's conflict
-// resolution adds. Added names and lines matter even when a later commit
-// removes them, because pushing publishes every commit, not only the last.
+// For each commit it checks the message, the author's and committer's names and
+// email domains, the names it adds, copies to or renames to, and the lines it
+// adds, including lines a merge's conflict resolution adds. Added names and
+// lines matter even when a later commit removes them, because pushing
+// publishes every commit, not only the last.
 package main
 
 import (
@@ -167,10 +169,12 @@ func (s *sweeper) check(location, text string) bool {
 	return false
 }
 
-func (s *sweeper) checkHistory(location, text string) {
+func (s *sweeper) checkHistory(location, text string) bool {
 	if s.check(location, text) {
 		s.historyMatches++
+		return true
 	}
+	return false
 }
 
 func (s *sweeper) checkLines(label, text string) {
@@ -324,14 +328,31 @@ func (s *sweeper) tag(ref, sha string) error {
 	if err != nil {
 		return err
 	}
-	// The tag object's header names the tagger; only the message follows the
-	// first blank line.
-	if _, message, ok := strings.Cut(body, "\n\n"); ok {
-		for line := range strings.Lines(message) {
-			s.check("tag "+ref+" message", line)
+	// The tag object's header names the tagger as "tagger Name <email> time
+	// zone"; the message follows the first blank line.
+	header, message, _ := strings.Cut(body, "\n\n")
+	for line := range strings.Lines(header) {
+		if rest, ok := strings.CutPrefix(strings.TrimSuffix(line, "\n"), "tagger "); ok {
+			name, email, _ := strings.Cut(rest, " <")
+			email, _, _ = strings.Cut(email, ">")
+			s.identity("tag "+ref+" tagger", name, email, s.check)
 		}
 	}
+	for line := range strings.Lines(message) {
+		s.check("tag "+ref+" message", line)
+	}
 	return nil
+}
+
+// identity sweeps a name and the domain of an email address. The local part is
+// left out: git authorship publishes the author's own address by design, and a
+// term that guards that address in prose would otherwise refuse every commit.
+// The domain is what a work identity gives away.
+func (s *sweeper) identity(location, name, email string, check func(location, text string) bool) {
+	check(location+" name", name)
+	if at := strings.LastIndex(email, "@"); at >= 0 {
+		check(location+" email domain", email[at+1:])
+	}
 }
 
 // history sweeps the commits reachable from tips and not from exclude, in
@@ -351,6 +372,19 @@ func (s *sweeper) history(tips, exclude []string) error {
 			continue
 		}
 		s.checkHistory("commit "+commit+" message", line)
+	}
+
+	people, err := s.git(append([]string{"log", "--format=%h%x00%an%x00%ae%x00%cn%x00%ce"}, rangeArgs...)...)
+	if err != nil {
+		return err
+	}
+	for line := range strings.Lines(people) {
+		f := strings.Split(strings.TrimSuffix(line, "\n"), "\x00")
+		if len(f) != 5 {
+			continue
+		}
+		s.identity("commit "+f[0]+" author", f[1], f[2], s.checkHistory)
+		s.identity("commit "+f[0]+" committer", f[3], f[4], s.checkHistory)
 	}
 
 	// remerge shows what a merge's resolution adds beyond an automatic merge,

@@ -20,7 +20,7 @@ This is a public repository. Keep personal and identifying details out of everyt
 
 ## The disclosure sweep
 
-`just sweep` checks the tracked tree and every commit not yet on a remote against a denylist each maintainer keeps at `$XDG_CONFIG_HOME/lookout-sweep/patterns`, outside the repository, since a committed denylist would publish the names it guards. The pre-push hook runs the same sweep over what the push publishes: each ref being pushed, its name, an annotated tag's message, and every commit the destination does not hold.
+`just sweep` checks the tracked tree and every commit not yet on a remote against a denylist each maintainer keeps at `$XDG_CONFIG_HOME/lookout-sweep/patterns`, outside the repository, since a committed denylist would publish the names it guards. The pre-push hook runs the same sweep over what the push publishes: each ref being pushed, its name, an annotated tag's tagger and message, and every commit the destination does not hold, including its author's and committer's names and email domains. An email's local part is not checked, since git authorship publishes the author's own address by design.
 
 Text composed for GitHub never passes through that hook. Before posting a pull request title or body, an issue, a review or comment, or a squash-merge commit message, write it to a file and run `just sweep-file <path>` on it (paths resolve from the repository root).
 

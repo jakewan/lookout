@@ -266,6 +266,75 @@ func TestContentMatchesAreRefused(t *testing.T) {
 	}
 }
 
+// TestCommitIdentityIsSwept covers the names and email domains a commit
+// publishes. A commit made under a work identity publishes the employer's
+// domain even when every line it adds is clean.
+func TestCommitIdentityIsSwept(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func(r *repo)
+		location string
+	}{
+		{
+			name: "author email domain",
+			setup: func(r *repo) {
+				r.write("README.md", "hello\n")
+				r.git("add", "README.md")
+				r.git("commit", "--quiet", "-m", "initial", "--author", "Example <dev@acme-corp.example>")
+			},
+			location: "commit ",
+		},
+		{
+			name: "committer name",
+			setup: func(r *repo) {
+				r.write("README.md", "hello\n")
+				r.git("add", "README.md")
+				r.git("-c", "user.name=Acme-Corp Bot", "commit", "--quiet", "-m", "initial")
+			},
+			location: "commit ",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setup(newRepo(t))
+			setPatterns(t, "acme-corp\n")
+
+			code, out := sweep()
+			expectRefused(t, code, out, tt.location)
+			if !strings.Contains(out, "author") && !strings.Contains(out, "committer") {
+				t.Errorf("output = %q, want it to say the match is in the commit's identity", out)
+			}
+		})
+	}
+}
+
+// TestEmailLocalPartsAreNotSwept pins the other half of the identity check:
+// git authorship publishes the author's own address by design, so a
+// denylist term guarding that address in prose must not refuse every commit.
+func TestEmailLocalPartsAreNotSwept(t *testing.T) {
+	r := newRepo(t)
+	r.write("README.md", "hello\n")
+	r.git("add", "README.md")
+	r.git("commit", "--quiet", "-m", "initial", "--author", "Example <devlocal@example.com>")
+	setPatterns(t, "devlocal@\n")
+
+	code, out := sweep()
+	expectClean(t, code, out)
+}
+
+func TestPrePushSweepsATaggersIdentity(t *testing.T) {
+	r := newRepo(t)
+	r.commit("initial", map[string]string{"README.md": "hello\n"})
+	r.remote("origin", "main")
+	r.git("-c", "user.email=release@acme-corp.example", "tag", "-a", "v0.1.0", "-m", "first release")
+	sha := r.git("rev-parse", "v0.1.0")
+	setPatterns(t, "acme-corp\n")
+
+	code, stdout, stderr := sweepWithInput("refs/tags/v0.1.0 "+sha+" refs/tags/v0.1.0 "+strings.Repeat("0", 40)+"\n", "--pre-push", "origin")
+	expectRefused(t, code, stdout+stderr, "tag refs/tags/v0.1.0 tagger")
+}
+
 // TestMergeResolutionsAreSwept covers the one place a merge commit carries
 // content of its own: lines written while resolving a conflict.
 func TestMergeResolutionsAreSwept(t *testing.T) {
