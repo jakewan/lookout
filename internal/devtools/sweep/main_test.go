@@ -335,6 +335,53 @@ func TestPrePushSweepsATaggersIdentity(t *testing.T) {
 	expectRefused(t, code, stdout+stderr, "tag refs/tags/v0.1.0 tagger")
 }
 
+// TestMergedTagHeadersAreSwept covers the copy of a signed tag a merge commit
+// embeds in its mergetag header: the tag's name, tagger and message are
+// published inside the commit itself, and none of them need appear in the
+// commit's message. git writes the header only when merging a signed tag, and
+// a spec has no key to sign with, so the commit object is written directly in
+// the shape git gives it (continuation lines indented by one space).
+func TestMergedTagHeadersAreSwept(t *testing.T) {
+	tests := []struct {
+		name string
+		tag  string
+	}{
+		{"tag name", " type commit\n tag acme-corp-v1\n tagger Example <dev@example.com> 0 +0000\n \n first release\n"},
+		{"tagger", " type commit\n tag v1\n tagger Example <dev@acme-corp.example> 0 +0000\n \n first release\n"},
+		{"tag message", " type commit\n tag v1\n tagger Example <dev@example.com> 0 +0000\n \n cut for acme-corp\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newRepo(t)
+			r.commit("initial", map[string]string{"README.md": "hello\n"})
+			r.remote("origin", "main")
+			parent := r.git("rev-parse", "HEAD")
+			raw := "tree " + r.git("rev-parse", "HEAD^{tree}") + "\n" +
+				"parent " + parent + "\n" +
+				"author Example <dev@example.com> 0 +0000\n" +
+				"committer Example <dev@example.com> 0 +0000\n" +
+				"mergetag object " + parent + "\n" + tt.tag +
+				"\nMerge tag 'v1'\n"
+			cmd := exec.Command("git", "hash-object", "-t", "commit", "-w", "--stdin")
+			cmd.Dir = r.dir
+			cmd.Stdin = strings.NewReader(raw)
+			out, err := cmd.Output()
+			if err != nil {
+				t.Fatalf("writing the commit object: %v", err)
+			}
+			r.git("update-ref", "refs/heads/main", strings.TrimSpace(string(out)))
+			setPatterns(t, "acme-corp\n")
+
+			code, sweepOut := sweep()
+			expectRefused(t, code, sweepOut, "commit ")
+			if !strings.Contains(sweepOut, "mergetag") {
+				t.Errorf("output = %q, want it to say the match is in the merged tag", sweepOut)
+			}
+		})
+	}
+}
+
 // TestMergeResolutionsAreSwept covers the one place a merge commit carries
 // content of its own: lines written while resolving a conflict.
 func TestMergeResolutionsAreSwept(t *testing.T) {

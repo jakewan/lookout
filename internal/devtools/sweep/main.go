@@ -17,8 +17,9 @@
 //     request or issue body is checked before it is posted.
 //
 // For each commit it checks the message, the author's and committer's names and
-// email domains, the names it adds, copies to or renames to, and the lines it
-// adds, including lines a merge's conflict resolution adds. Added names and
+// email domains, any signed tag a merge embeds, the names it adds, copies to or
+// renames to, and the lines it adds, including lines a merge's conflict
+// resolution adds. Added names and
 // lines matter even when a later commit removes them, because pushing
 // publishes every commit, not only the last.
 package main
@@ -341,26 +342,30 @@ func (s *sweeper) tag(ref, sha string) error {
 	if err != nil {
 		return err
 	}
-	// The tag object's header carries its own name ("tag <name>"), which need
-	// not match the ref being pushed and is published with the object, and its
-	// tagger ("tagger Name <email> time zone"); the message follows the first
-	// blank line.
+	s.tagBody("tag "+ref, body, s.check)
+	return nil
+}
+
+// tagBody sweeps a tag object's text. Its header carries the tag's own name
+// ("tag <name>"), which need not match any ref pointing at it and is published
+// with the object, and its tagger ("tagger Name <email> time zone"); the
+// message follows the first blank line.
+func (s *sweeper) tagBody(location, body string, check func(location, text string) bool) {
 	header, message, _ := strings.Cut(body, "\n\n")
 	for line := range strings.Lines(header) {
 		line = strings.TrimSuffix(line, "\n")
 		if name, ok := strings.CutPrefix(line, "tag "); ok {
-			s.check("tag "+ref+" name", name)
+			check(location+" name", name)
 		}
 		if rest, ok := strings.CutPrefix(line, "tagger "); ok {
 			name, email, _ := strings.Cut(rest, " <")
 			email, _, _ = strings.Cut(email, ">")
-			s.identity("tag "+ref+" tagger", name, email, s.check)
+			s.identity(location+" tagger", name, email, check)
 		}
 	}
 	for line := range strings.Lines(message) {
-		s.check("tag "+ref+" message", line)
+		check(location+" message", line)
 	}
-	return nil
 }
 
 // identity sweeps a name and the domain of an email address. The local part is
@@ -406,6 +411,10 @@ func (s *sweeper) history(tips, exclude []string) error {
 		s.identity("commit "+f[0]+" committer", f[3], f[4], s.checkHistory)
 	}
 
+	if merr := s.mergeTags(rangeArgs); merr != nil {
+		return merr
+	}
+
 	// remerge shows what a merge's resolution adds beyond an automatic merge,
 	// which is the only content a merge commit carries of its own.
 	// --no-textconv keeps a configured converter from changing what is read,
@@ -432,6 +441,49 @@ func (s *sweeper) history(tips, exclude []string) error {
 	}
 
 	return s.historyPaths(rangeArgs)
+}
+
+// mergeTags sweeps the signed tags merge commits embed in a mergetag header.
+// None of the tag's text need appear in the commit's message, so the other
+// listings never see it. In the raw format a commit starts at "commit <sha>"
+// in column 0, its message is indented by four spaces, and a multi-line
+// header continues on lines indented by one, so the three cannot be confused.
+func (s *sweeper) mergeTags(rangeArgs []string) error {
+	out, err := s.git(append([]string{"log", "--pretty=raw", "--no-patch"}, rangeArgs...)...)
+	if err != nil {
+		return err
+	}
+	var commit string
+	var tag *strings.Builder
+	flush := func() {
+		if tag != nil {
+			s.tagBody("commit "+commit+" mergetag", tag.String(), s.checkHistory)
+			tag = nil
+		}
+	}
+	for line := range strings.Lines(out) {
+		line = strings.TrimSuffix(line, "\n")
+		switch {
+		case strings.HasPrefix(line, "commit "):
+			flush()
+			commit = strings.TrimPrefix(line, "commit ")
+			if len(commit) > 7 {
+				commit = commit[:7]
+			}
+		case strings.HasPrefix(line, "mergetag "):
+			flush()
+			tag = &strings.Builder{}
+			tag.WriteString(strings.TrimPrefix(line, "mergetag "))
+			tag.WriteByte('\n')
+		case tag != nil && strings.HasPrefix(line, " "):
+			tag.WriteString(strings.TrimPrefix(line, " "))
+			tag.WriteByte('\n')
+		default:
+			flush()
+		}
+	}
+	flush()
+	return nil
 }
 
 // historyPaths sweeps the names each commit adds, copies to, or renames to.
