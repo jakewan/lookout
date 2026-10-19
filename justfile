@@ -60,7 +60,7 @@ tidy-check:
 vuln:
     go tool govulncheck ./...
 
-# Sweep the tree and unpushed commits for terms in the off-repo denylist
+# Sweep the tree and commits no remote-tracking ref reaches for terms in the off-repo denylist
 sweep:
     go run ./internal/devtools/sweep
 

@@ -8,7 +8,9 @@
 // It runs in three modes:
 //
 //   - sweep: the tracked tree, names and contents, plus every commit reachable
-//     from HEAD that no remote holds.
+//     from HEAD that no remote-tracking ref reaches. Those refs are this
+//     repository's record of what it fetched, not what any remote holds now,
+//     so this mode is a working check; the pre-push mode is the guard.
 //   - sweep --pre-push <remote>: the same tree, plus what git's pre-push hook
 //     names on stdin — each ref being pushed, its name, an annotated tag's
 //     own name, tagger and message, and every commit the destination remote
@@ -19,9 +21,8 @@
 // For each commit it checks the message, the author's and committer's names and
 // email domains, any signed tag a merge embeds, the names it adds, copies to or
 // renames to, and the lines it adds, including lines a merge's conflict
-// resolution adds. Added names and
-// lines matter even when a later commit removes them, because pushing
-// publishes every commit, not only the last.
+// resolution adds. Added names and lines matter even when a later commit
+// removes them, because pushing publishes every commit, not only the last.
 package main
 
 import (
@@ -319,9 +320,11 @@ func (s *sweeper) pushed(stdin io.Reader, remote, pushURL string) error {
 }
 
 // published lists the commits the destination's refs point at, among those
-// this repository has, for use as history exclusions. Terminal prompts are
-// off so an authentication challenge fails the listing instead of hanging the
-// hook; the push itself authenticates separately.
+// this repository has, for use as history exclusions. GIT_TERMINAL_PROMPT=0
+// turns off git's own credential prompts, so an HTTPS challenge fails the
+// listing rather than waiting on input; it does not reach ssh, which may still
+// ask for a passphrase where no agent holds the key. A failed listing sweeps
+// everything outgoing, so either way nothing is excluded on a guess.
 func (s *sweeper) published(remote, pushURL string) []string {
 	target := pushURL
 	if target == "" {
@@ -401,7 +404,7 @@ func (s *sweeper) identity(location, name, email string, check func(location, te
 }
 
 // history sweeps the commits reachable from tips and not from exclude, in
-// three listings so no commit message can be mistaken for diff output.
+// separate listings so no commit message can be mistaken for diff output.
 func (s *sweeper) history(tips, exclude []string) error {
 	rangeArgs := append(append([]string{}, tips...), append([]string{"--not"}, exclude...)...)
 

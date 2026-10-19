@@ -14,9 +14,9 @@ pre-push:
   piped: true
   # The disclosure sweep is a script, not a command, so lefthook cannot skip it
   # for a push it judges to change no files; .lefthook/pre-push/disclosure-sweep.sh
-  # says why. lefthook runs scripts after commands, so a failing lint or test
-  # stops the push before the sweep is reached; the push is refused either way.
-  # It warns rather than fails where the denylist is absent (the denylist lives
+  # says why. With piped set, a failing step stops the steps after it, so a
+  # failing lint or test may stop the push before the sweep is reached; the
+  # push is refused either way. It warns rather than fails where the denylist is absent (the denylist lives
   # outside the repository by design), and has no merge skip: a guard against
   # publishing has no state in which to stand down.
   scripts:

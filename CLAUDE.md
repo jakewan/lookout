@@ -39,7 +39,7 @@ just fmt                # golangci-lint fmt ./... — the formatter set CI enfor
 just tidy-check         # fail if go.mod/go.sum are not tidy (CI runs the same check)
 just vuln               # govulncheck over dependencies and the standard library
 just toolchain-outdated # report mise-managed pins behind upstream (what the weekly report runs)
-just sweep              # disclosure sweep over the tree and unpushed commits (the pre-push hook sweeps the refs being pushed)
+just sweep              # disclosure sweep over the tree and commits no remote-tracking ref reaches (the pre-push hook sweeps the refs being pushed)
 just sweep-file <path>… # disclosure sweep over drafted text bound for GitHub
 just install            # build and install to ~/.local/bin
 ```
