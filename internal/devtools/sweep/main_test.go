@@ -685,6 +685,23 @@ func TestTheDestinationIsAskedWhatItHolds(t *testing.T) {
 	expectClean(t, code, stdout+stderr)
 }
 
+// TestWithoutAPushURLNothingIsExcluded covers the manual form of pre-push mode:
+// with no URL there is no destination to ask, and the remote's name would
+// resolve to its fetch URL, which can be a different repository.
+func TestWithoutAPushURLNothingIsExcluded(t *testing.T) {
+	r := newRepo(t)
+	r.commit("mention acme corp", map[string]string{"README.md": "hello\n"})
+	r.remote("origin", "main") // the private fetch source, holding the history
+	public := t.TempDir()
+	r.git("init", "--quiet", "--bare", public)
+	r.git("remote", "set-url", "--push", "origin", public)
+	sha := r.git("rev-parse", "HEAD")
+	setPatterns(t, "acme corp\n")
+
+	code, stdout, stderr := sweepWithInput("refs/heads/main "+sha+" refs/heads/main "+strings.Repeat("0", 40)+"\n", "--pre-push", "origin")
+	expectRefused(t, code, stdout+stderr, "commit ")
+}
+
 func TestAnUnreachableDestinationIsSweptInFull(t *testing.T) {
 	r := newRepo(t)
 	r.commit("mention acme corp", map[string]string{"README.md": "hello\n"})

@@ -11,10 +11,11 @@
 //     from HEAD that no remote-tracking ref reaches. Those refs are this
 //     repository's record of what it fetched, not what any remote holds now,
 //     so this mode is a working check; the pre-push mode is the guard.
-//   - sweep --pre-push <remote>: the same tree, plus what git's pre-push hook
-//     names on stdin — each ref being pushed, its name, an annotated tag's
-//     own name, tagger and message, and every commit the destination remote
-//     does not hold.
+//   - sweep --pre-push <remote> --url <url>: the same tree, plus what git's
+//     pre-push hook names on stdin — each ref being pushed, its name, an
+//     annotated tag's own name, tagger and message, and every commit the
+//     destination at <url> does not hold. Without --url no commit counts as
+//     held, so everything outgoing is swept.
 //   - sweep <file>...: only the named files, which is how a drafted pull
 //     request or issue body is checked before it is posted.
 //
@@ -225,7 +226,7 @@ func (s *sweeper) repository(stdin io.Reader, prePush, pushURL string) error {
 		}
 		return s.history([]string{"HEAD"}, []string{"--remotes"})
 	}
-	return s.pushed(stdin, prePush, pushURL)
+	return s.pushed(stdin, pushURL)
 }
 
 // tree sweeps every tracked name and the content behind it. Binary content is
@@ -285,9 +286,9 @@ func (s *sweeper) tree() error {
 // they record where history was fetched from, which a separate push URL or a
 // changed remote URL makes a different repository. Where the listing fails,
 // nothing is excluded and everything outgoing is swept.
-func (s *sweeper) pushed(stdin io.Reader, remote, pushURL string) error {
+func (s *sweeper) pushed(stdin io.Reader, pushURL string) error {
 	var tips []string
-	exclude := s.published(remote, pushURL)
+	exclude := s.published(pushURL)
 	scanner := bufio.NewScanner(stdin)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
@@ -325,16 +326,19 @@ func (s *sweeper) pushed(stdin io.Reader, remote, pushURL string) error {
 // listing rather than waiting on input; it does not reach ssh, which may still
 // ask for a passphrase where no agent holds the key. A failed listing sweeps
 // everything outgoing, so either way nothing is excluded on a guess.
-func (s *sweeper) published(remote, pushURL string) []string {
-	target := pushURL
-	if target == "" {
-		target = remote
+//
+// Without a push URL nothing is excluded. Listing the remote by name would
+// query its fetch URL, which a separate push URL makes a different repository.
+func (s *sweeper) published(pushURL string) []string {
+	if pushURL == "" {
+		s.diag.Print("no push URL given (--url); sweeping everything outgoing")
+		return nil
 	}
-	cmd := exec.CommandContext(s.ctx, "git", "ls-remote", target)
+	cmd := exec.CommandContext(s.ctx, "git", "ls-remote", pushURL)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	out, err := cmd.Output()
 	if err != nil {
-		s.diag.Printf("could not list the refs at %s (%v); sweeping everything outgoing", target, err)
+		s.diag.Printf("could not list the refs at %s (%v); sweeping everything outgoing", pushURL, err)
 		return nil
 	}
 	var exclude []string
