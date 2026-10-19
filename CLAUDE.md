@@ -13,7 +13,8 @@ It is the data layer only. It emits a readout for a renderer to consume and does
 Early. The `lookout` command exists and dispatches subcommands, but none are implemented yet: it prints usage and refuses anything else.
 
 ```
-cmd/lookout/     # binary entry point
+cmd/lookout/              # binary entry point
+internal/devtools/sweep/  # disclosure sweep run before every push; not part of the binary
 ```
 
 Packages arrive under `internal/` when a change needs them — do not create them speculatively.
@@ -38,10 +39,12 @@ just fmt                # golangci-lint fmt ./... — the formatter set CI enfor
 just tidy-check         # fail if go.mod/go.sum are not tidy (CI runs the same check)
 just vuln               # govulncheck over dependencies and the standard library
 just toolchain-outdated # report mise-managed pins behind upstream (what the weekly report runs)
+just sweep              # disclosure sweep over the tree and unpushed commits (what the pre-push hook runs)
+just sweep-file <path>… # disclosure sweep over drafted PR or issue bodies
 just install            # build and install to ~/.local/bin
 ```
 
-Formatting is enforced by golangci-lint's configured formatters (`gofmt`, `goimports`) — there is no separate format-check step. The `lefthook` hooks run formatting on commit and lint/test on push.
+Formatting is enforced by golangci-lint's configured formatters (`gofmt`, `goimports`) — there is no separate format-check step. The `lefthook` hooks run formatting on commit and the disclosure sweep, lint, and tests on push.
 
 ## Development approach
 

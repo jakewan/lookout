@@ -60,6 +60,14 @@ tidy-check:
 vuln:
     go tool govulncheck ./...
 
+# Sweep the tree and unpushed commits for terms in the off-repo denylist
+sweep:
+    go run ./internal/devtools/sweep
+
+# Sweep drafted PR or issue bodies before posting them
+sweep-file +files:
+    go run ./internal/devtools/sweep {{ prepend("--file ", files) }}
+
 # --bump is required, not cosmetic: every pin in mise.toml is an exact version,
 # and plain `mise outdated` compares against the latest release matching the
 # requested spec — which for an exact pin is always the pin itself, so it

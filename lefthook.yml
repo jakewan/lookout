@@ -13,12 +13,19 @@ pre-commit:
 pre-push:
   piped: true
   commands:
-    go-lint:
+    # First, so a push carrying a denylisted term is refused before slower
+    # checks run. It warns rather than fails where the denylist is absent,
+    # since the denylist lives outside the repository by design.
+    disclosure-sweep:
       priority: 1
+      run: just sweep
+      skip: merge
+    go-lint:
+      priority: 2
       run: just lint
       skip: merge
     go-test:
-      priority: 2
+      priority: 3
       # The same form CI runs, so a push that passes here cannot fail CI's test
       # job for a reason the hook never checked.
       run: just test-race

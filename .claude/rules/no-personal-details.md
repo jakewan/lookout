@@ -18,6 +18,12 @@ This is a public repository. Keep personal and identifying details out of everyt
 - When an example needs a path or name, use an obvious placeholder (`owner/repo`, `/path/to/config.yml`, `example.com`, `your-name`, `ABC-123`) rather than a real one.
 - **Test fixtures are a live surface here rather than a theoretical one.** The specs seed repository slugs, branch names, session working directories, and ticket keys — exactly the shape of string that carries a real project name, checkout path, or employer identifier when written from habit.
 
+## The disclosure sweep
+
+`just sweep` checks the tracked tree and every commit not yet on a remote against a denylist each maintainer keeps at `$XDG_CONFIG_HOME/lookout-sweep/patterns`, outside the repository, since a committed denylist would publish the names it guards. The pre-push hook runs it. Before posting a pull request or issue body, write it to a file and run `just sweep-file <path>` on it.
+
+A token sweep cannot catch prose. Re-read anything describing trackers or work settings against the last bullet under What not to introduce; a passing sweep does not settle it. When the pattern file is absent the sweep warns and passes, so a warning means nothing was checked.
+
 ## Why
 
 A public repo is read by anyone. Scattering personal or environment-specific details leaks information, dates the content to one machine or person, and makes the project read as someone's private workspace rather than a reusable tool. Keeping it impersonal keeps it portable and respectful of privacy.
