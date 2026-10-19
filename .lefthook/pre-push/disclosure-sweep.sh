@@ -3,7 +3,7 @@
 # command whenever HEAD shows no file changes against its push target (its "no
 # matching push files"), which is the case for pushing a branch other than HEAD
 # or a push whose leak a later commit removed. Scripts carry no such check
-# (lefthook v2.1.12, internal/run/controller/command/build_script.go). If a
+# (lefthook v2.2.2, internal/run/controller/command/build_script.go). If a
 # later lefthook added one, this sweep would be skipped silently, so re-check
 # that file when moving the lefthook pin.
 #
