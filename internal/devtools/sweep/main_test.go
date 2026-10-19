@@ -629,10 +629,10 @@ func TestPrePushSweepsAnAnnotatedTagsOwnName(t *testing.T) {
 	expectRefused(t, code, stdout+stderr, "tag refs/tags/release name")
 }
 
-// TestTrackingRefsCountOnlyForTheURLTheyWereFetchedFrom pins where the
-// "already published" evidence comes from: a remote's tracking refs describe
-// its fetch URL, so they say nothing about a different URL being pushed to.
-func TestTrackingRefsCountOnlyForTheURLTheyWereFetchedFrom(t *testing.T) {
+// TestHistoryIsExcludedOnlyForTheURLBeingPushedTo pins whose holdings count:
+// the commits a remote's fetch URL holds say nothing about a different URL
+// being pushed to.
+func TestHistoryIsExcludedOnlyForTheURLBeingPushedTo(t *testing.T) {
 	r := newRepo(t)
 	r.commit("mention acme corp", map[string]string{"README.md": "hello\n"})
 	r.remote("origin", "main")
@@ -648,6 +648,56 @@ func TestTrackingRefsCountOnlyForTheURLTheyWereFetchedFrom(t *testing.T) {
 
 	code, stdout, stderr = sweepWithInput(stdin, "--pre-push", "origin", "--url", public)
 	expectRefused(t, code, stdout+stderr, "commit ")
+}
+
+// TestTrackingRefsLeftFromAnEarlierURLAreNotTrusted covers a remote whose URL
+// changed after its tracking refs were fetched: the refs describe the old
+// repository, and the new one being pushed to holds none of that history.
+func TestTrackingRefsLeftFromAnEarlierURLAreNotTrusted(t *testing.T) {
+	r := newRepo(t)
+	r.commit("mention acme corp", map[string]string{"README.md": "hello\n"})
+	r.remote("origin", "main") // the private source, now holding the history
+	public := t.TempDir()
+	r.git("init", "--quiet", "--bare", public)
+	r.git("remote", "set-url", "origin", public)
+	sha := r.git("rev-parse", "HEAD")
+	setPatterns(t, "acme corp\n")
+
+	code, stdout, stderr := sweepWithInput("refs/heads/main "+sha+" refs/heads/main "+strings.Repeat("0", 40)+"\n", "--pre-push", "origin", "--url", public)
+	expectRefused(t, code, stdout+stderr, "commit ")
+}
+
+// TestTheDestinationIsAskedWhatItHolds pins where the evidence of publication
+// comes from: the destination's own refs, whether or not this repository ever
+// fetched them.
+func TestTheDestinationIsAskedWhatItHolds(t *testing.T) {
+	r := newRepo(t)
+	r.commit("mention acme corp", map[string]string{"README.md": "hello\n"})
+	dest := t.TempDir()
+	r.git("init", "--quiet", "--bare", dest)
+	r.git("push", "--quiet", dest, "main") // by URL: no tracking refs are written
+	r.git("remote", "add", "origin", dest)
+	r.commit("clean follow-up", map[string]string{"notes.md": "clean\n"})
+	sha := r.git("rev-parse", "HEAD")
+	setPatterns(t, "acme corp\n")
+
+	code, stdout, stderr := sweepWithInput("refs/heads/main "+sha+" refs/heads/main "+strings.Repeat("0", 40)+"\n", "--pre-push", "origin", "--url", dest)
+	expectClean(t, code, stdout+stderr)
+}
+
+func TestAnUnreachableDestinationIsSweptInFull(t *testing.T) {
+	r := newRepo(t)
+	r.commit("mention acme corp", map[string]string{"README.md": "hello\n"})
+	r.remote("origin", "main")
+	sha := r.git("rev-parse", "HEAD")
+	missing := filepath.Join(t.TempDir(), "no-such-repository")
+	setPatterns(t, "acme corp\n")
+
+	code, stdout, stderr := sweepWithInput("refs/heads/main "+sha+" refs/heads/main "+strings.Repeat("0", 40)+"\n", "--pre-push", "origin", "--url", missing)
+	expectRefused(t, code, stdout+stderr, "commit ")
+	if !strings.Contains(stdout+stderr, "could not list") {
+		t.Errorf("output = %q, want it to say the destination could not be listed, so everything outgoing was swept", stdout+stderr)
+	}
 }
 
 func TestPrePushIgnoresDeletions(t *testing.T) {

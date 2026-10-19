@@ -279,19 +279,14 @@ func (s *sweeper) tree() error {
 // an annotated tag's name, tagger and message, and every commit the
 // destination does not hold.
 //
-// What the destination holds is known two ways. The remote SHA on each line
-// comes from the destination itself during the push. The remote's tracking
-// refs describe the URL they were fetched from, so they count only when that
-// is the URL being pushed to: a remote with a separate push URL, or one whose
-// URL changed, would otherwise vouch for history the destination has never
-// seen. Commits on other remotes are swept anyway: holding a commit somewhere
-// else, a private mirror for one, does not make it public here.
+// What the destination holds is asked of the destination itself, by listing
+// its refs at the URL being pushed to. Local tracking refs are not consulted:
+// they record where history was fetched from, which a separate push URL or a
+// changed remote URL makes a different repository. Where the listing fails,
+// nothing is excluded and everything outgoing is swept.
 func (s *sweeper) pushed(stdin io.Reader, remote, pushURL string) error {
 	var tips []string
-	var exclude []string
-	if fetchURL, err := s.git("remote", "get-url", remote); err == nil && pushURL != "" && strings.TrimSpace(fetchURL) == pushURL {
-		exclude = append(exclude, "--remotes="+remote)
-	}
+	exclude := s.published(remote, pushURL)
 	scanner := bufio.NewScanner(stdin)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
@@ -321,6 +316,32 @@ func (s *sweeper) pushed(stdin io.Reader, remote, pushURL string) error {
 		return nil
 	}
 	return s.history(tips, exclude)
+}
+
+// published lists the commits the destination's refs point at, among those
+// this repository has, for use as history exclusions. Terminal prompts are
+// off so an authentication challenge fails the listing instead of hanging the
+// hook; the push itself authenticates separately.
+func (s *sweeper) published(remote, pushURL string) []string {
+	target := pushURL
+	if target == "" {
+		target = remote
+	}
+	cmd := exec.CommandContext(s.ctx, "git", "ls-remote", target)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	out, err := cmd.Output()
+	if err != nil {
+		s.diag.Printf("could not list the refs at %s (%v); sweeping everything outgoing", target, err)
+		return nil
+	}
+	var exclude []string
+	for line := range strings.Lines(string(out)) {
+		sha, _, ok := strings.Cut(line, "\t")
+		if ok && s.exists(sha) {
+			exclude = append(exclude, sha)
+		}
+	}
+	return exclude
 }
 
 func isZero(sha string) bool { return strings.Trim(sha, "0") == "" }
