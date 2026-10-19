@@ -5,11 +5,12 @@
 // publish every name it exists to keep private. Each non-blank line not
 // starting with # is a term, matched as a case-insensitive substring.
 //
-// With no arguments it sweeps the tracked tree plus every commit not yet on any
-// remote: each commit's message and the lines it adds. Added lines matter even
-// when a later commit removes them, because pushing publishes every commit, not
-// only the last. With --file it sweeps only the named files, which is how a
-// drafted pull request or issue body is checked before it is posted.
+// With no arguments it sweeps the tracked tree, names and contents, plus every
+// commit not yet on any remote: each commit's message, the names it adds, and
+// the lines it adds. Added names and lines matter even when a later commit
+// removes them, because pushing publishes every commit, not only the last. With
+// --file it sweeps only the named files, which is how a drafted pull request or
+// issue body is checked before it is posted.
 package main
 
 import (
@@ -178,6 +179,7 @@ func (s *sweeper) repository() error {
 		if name == "" {
 			continue
 		}
+		s.check("path "+name, name)
 		// A tracked file deleted in the working tree has nothing left to leak
 		// from here; its history is the commit sweep's concern.
 		if _, statErr := os.Stat(name); errors.Is(statErr, os.ErrNotExist) {
@@ -222,6 +224,30 @@ func (s *sweeper) history() error {
 	}
 	if serr := scanner.Err(); serr != nil {
 		return fmt.Errorf("reading history: %w", serr)
+	}
+	return s.historyPaths()
+}
+
+// historyPaths sweeps the names each unpushed commit adds, copies to, or
+// renames to. Only the resulting name is checked: a rename's old name was
+// either published already or added by an earlier unpushed commit, which is
+// swept on its own, so checking it here would refuse a push that removes a leak.
+// quotePath is off so a non-ASCII name is listed as written rather than as
+// octal escapes no term would match.
+func (s *sweeper) historyPaths() error {
+	out, err := git("-c", "core.quotePath=false", "log", "--name-only", "--diff-filter=ACR", "--format=%x00commit %h", "HEAD", "--not", "--remotes")
+	if err != nil {
+		return err
+	}
+	var commit string
+	for line := range strings.Lines(out) {
+		line = strings.TrimSuffix(line, "\n")
+		switch {
+		case strings.HasPrefix(line, commitMarker):
+			commit = strings.TrimPrefix(line, commitMarker)
+		case line != "":
+			s.check("commit "+commit+" path "+line, line)
+		}
 	}
 	return nil
 }

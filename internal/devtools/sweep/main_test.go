@@ -163,6 +163,78 @@ func TestMatchesAreReportedAndFailThePush(t *testing.T) {
 	}
 }
 
+// TestPathsAreSwept covers names as well as contents: pushing a file publishes
+// its path, so a clean file under a denylisted name leaks the name.
+func TestPathsAreSwept(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func(r *repo)
+		wantName string
+	}{
+		{
+			name: "tracked path",
+			setup: func(r *repo) {
+				r.commit("add notes", map[string]string{"docs/Acme-Corp-rollout.md": "clean\n"})
+			},
+			wantName: "path docs/Acme-Corp-rollout.md",
+		},
+		{
+			name: "path renamed away before pushing",
+			setup: func(r *repo) {
+				r.commit("add notes", map[string]string{"acme-corp.md": "clean\n"})
+				r.git("mv", "acme-corp.md", "notes.md")
+				r.commit("rename notes", nil)
+			},
+			wantName: "path",
+		},
+		{
+			name: "tracked path deleted from the working tree",
+			setup: func(r *repo) {
+				r.commit("add notes", map[string]string{"acme-corp.md": "clean\n"})
+				if err := os.Remove(filepath.Join(r.dir, "acme-corp.md")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantName: "path acme-corp.md",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setup(newRepo(t))
+			setPatterns(t, "acme-corp\n")
+
+			code, out := sweep()
+
+			if code != exitMatch {
+				t.Errorf("exit code = %d, want %d; output %q", code, exitMatch, out)
+			}
+			if !strings.Contains(out, tt.wantName) {
+				t.Errorf("output = %q, want it to locate the match (%q)", out, tt.wantName)
+			}
+		})
+	}
+}
+
+// TestRenamingAPublishedPathAwayIsAllowed pins the direction of the history
+// path check: the push that removes a published leak must not be the one the
+// leak refuses.
+func TestRenamingAPublishedPathAwayIsAllowed(t *testing.T) {
+	r := newRepo(t)
+	r.commit("add notes", map[string]string{"acme-corp.md": "clean\n"})
+	remote := t.TempDir()
+	r.git("init", "--quiet", "--bare", remote)
+	r.git("remote", "add", "origin", remote)
+	r.git("push", "--quiet", "origin", "main")
+	r.git("mv", "acme-corp.md", "notes.md")
+	r.commit("rename notes", nil)
+	setPatterns(t, "acme-corp\n")
+
+	if code, out := sweep(); code != exitClean {
+		t.Errorf("exit code = %d, want %d; output %q", code, exitClean, out)
+	}
+}
+
 func TestCommitsAlreadyOnARemoteAreNotRescanned(t *testing.T) {
 	r := newRepo(t)
 	r.commit("mention acme corp", map[string]string{"README.md": "hello\n"})
