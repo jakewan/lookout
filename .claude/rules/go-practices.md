@@ -38,7 +38,7 @@ Conventions for Go code in this repository.
 ## Documentation
 
 - Exported types, functions, and packages carry godoc comments beginning with the symbol's name (`// New builds …`). The `revive` `exported` lint rule enforces this — a missing or malformed comment fails CI.
-- Comments explain **why** — rationale, constraints — not **what** the code already says.
+- The repo-wide comment conventions — why-not-what, and comment durability — live in `.claude/rules/comment-conventions.md`.
 
 ## Modernization
 

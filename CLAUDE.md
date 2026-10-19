@@ -62,7 +62,9 @@ Go authoring conventions are in `.claude/rules/go-practices.md` (loaded when Cla
 
 ## Conventions in this repo
 
+- `.claude/rules/comment-conventions.md` — repo-wide comment conventions (why-not-what, comment durability); always loaded.
 - `.claude/rules/go-practices.md` — Go authoring conventions (loaded when Claude reads a Go file).
+- `.claude/rules/github-actions-pinning.md` — pin every action to a commit SHA (loaded when Claude reads a workflow).
 - `.claude/rules/pr-conventions.md` — PR descriptions, commit format, changelog policy, branch freshness, fix-vs-defer.
 - `.claude/rules/pr-waste-patterns.md` — what counts as reviewer-distracting waste in a diff.
 - `.claude/rules/no-personal-details.md` — keep personal, employer, and identifying details out of this public repo.
