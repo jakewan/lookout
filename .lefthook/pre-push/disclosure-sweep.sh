@@ -7,8 +7,8 @@
 # later lefthook added one, this sweep would be skipped silently, so re-check
 # that file when moving the lefthook pin.
 #
-# $1 is the destination remote and stdin lists the refs being pushed
-# (githooks(5), pre-push).
+# $1 is the destination remote, $2 the URL being pushed to, and stdin lists the
+# refs being pushed (githooks(5), pre-push).
 set -eu
 cd "$(git rev-parse --show-toplevel)"
-exec go run ./internal/devtools/sweep --pre-push "$1"
+exec go run ./internal/devtools/sweep --pre-push "$1" --url "${2:-}"

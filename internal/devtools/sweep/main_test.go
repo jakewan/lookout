@@ -530,6 +530,79 @@ func TestPrePushSweepsTheRefsBeingPushed(t *testing.T) {
 	}
 }
 
+// TestBinaryContentIsSweptAsBytes covers files a line scan cannot read: text
+// embedded in a binary file is published like any other.
+func TestBinaryContentIsSweptAsBytes(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func(r *repo)
+		location string
+	}{
+		{
+			name: "tracked binary file",
+			setup: func(r *repo) {
+				r.commit("add blob", map[string]string{"data.bin": "header\x00ACME Corp\n"})
+				r.remote("origin", "main")
+			},
+			location: "data.bin (binary)",
+		},
+		{
+			name: "binary file added then removed before pushing",
+			setup: func(r *repo) {
+				r.commit("add blob", map[string]string{"data.bin": "header\x00ACME Corp\n"})
+				r.git("rm", "--quiet", "data.bin")
+				r.commit("remove blob", nil)
+			},
+			location: "commit ",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setup(newRepo(t))
+			setPatterns(t, "acme corp\n")
+
+			code, out := sweep()
+			expectRefused(t, code, out, tt.location)
+		})
+	}
+}
+
+func TestPrePushSweepsAnAnnotatedTagsOwnName(t *testing.T) {
+	r := newRepo(t)
+	r.commit("initial", map[string]string{"README.md": "hello\n"})
+	r.remote("origin", "main")
+	r.git("tag", "-a", "acme-corp-release", "-m", "first release")
+	sha := r.git("rev-parse", "acme-corp-release")
+	r.git("update-ref", "refs/tags/release", sha)
+	r.git("tag", "-d", "acme-corp-release")
+	setPatterns(t, "acme-corp\n")
+
+	code, stdout, stderr := sweepWithInput("refs/tags/release "+sha+" refs/tags/release "+strings.Repeat("0", 40)+"\n", "--pre-push", "origin")
+	expectRefused(t, code, stdout+stderr, "tag refs/tags/release name")
+}
+
+// TestTrackingRefsCountOnlyForTheURLTheyWereFetchedFrom pins where the
+// "already published" evidence comes from: a remote's tracking refs describe
+// its fetch URL, so they say nothing about a different URL being pushed to.
+func TestTrackingRefsCountOnlyForTheURLTheyWereFetchedFrom(t *testing.T) {
+	r := newRepo(t)
+	r.commit("mention acme corp", map[string]string{"README.md": "hello\n"})
+	r.remote("origin", "main")
+	fetchURL := r.git("remote", "get-url", "origin")
+	public := t.TempDir()
+	r.git("init", "--quiet", "--bare", public)
+	sha := r.git("rev-parse", "HEAD")
+	stdin := "refs/heads/main " + sha + " refs/heads/main " + strings.Repeat("0", 40) + "\n"
+	setPatterns(t, "acme corp\n")
+
+	code, stdout, stderr := sweepWithInput(stdin, "--pre-push", "origin", "--url", fetchURL)
+	expectClean(t, code, stdout+stderr)
+
+	code, stdout, stderr = sweepWithInput(stdin, "--pre-push", "origin", "--url", public)
+	expectRefused(t, code, stdout+stderr, "commit ")
+}
+
 func TestPrePushIgnoresDeletions(t *testing.T) {
 	r := newRepo(t)
 	r.commit("initial", map[string]string{"README.md": "hello\n"})

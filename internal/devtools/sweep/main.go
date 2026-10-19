@@ -11,8 +11,8 @@
 //     from HEAD that no remote holds.
 //   - sweep --pre-push <remote>: the same tree, plus what git's pre-push hook
 //     names on stdin — each ref being pushed, its name, an annotated tag's
-//     tagger and message, and every commit the destination remote does not
-//     hold.
+//     own name, tagger and message, and every commit the destination remote
+//     does not hold.
 //   - sweep <file>...: only the named files, which is how a drafted pull
 //     request or issue body is checked before it is posted.
 //
@@ -66,6 +66,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, _, stderr io.Write
 	flags := flag.NewFlagSet("sweep", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	prePush := flags.String("pre-push", "", "sweep what git's pre-push hook names on stdin, for this destination remote")
+	pushURL := flags.String("url", "", "with --pre-push, the URL being pushed to (the hook's second argument)")
 	if err := flags.Parse(args); err != nil {
 		return exitError
 	}
@@ -100,7 +101,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, _, stderr io.Write
 	if len(files) > 0 {
 		err = s.files(files)
 	} else {
-		err = s.repository(stdin, *prePush)
+		err = s.repository(stdin, *prePush, *pushURL)
 	}
 	if err != nil {
 		diag.Print(err)
@@ -202,7 +203,7 @@ func (s *sweeper) files(paths []string) error {
 	return nil
 }
 
-func (s *sweeper) repository(stdin io.Reader, prePush string) error {
+func (s *sweeper) repository(stdin io.Reader, prePush, pushURL string) error {
 	top, err := s.git("rev-parse", "--show-toplevel")
 	if err != nil {
 		return err
@@ -222,13 +223,14 @@ func (s *sweeper) repository(stdin io.Reader, prePush string) error {
 		}
 		return s.history([]string{"HEAD"}, []string{"--remotes"})
 	}
-	return s.pushed(stdin, prePush)
+	return s.pushed(stdin, prePush, pushURL)
 }
 
 // tree sweeps every tracked name and the content behind it. Binary content is
-// skipped: it carries no prose to leak and would only yield matches nobody can
-// read. A symlink's published content is its target text, so that is what is
-// checked; a submodule's directory holds nothing this repository publishes.
+// matched as raw bytes, which catches text embedded in it but not text a format
+// compresses or encodes as UTF-16. A symlink's published content is its target
+// text, so that is what is checked; a submodule's directory holds nothing this
+// repository publishes.
 func (s *sweeper) tree() error {
 	listing, err := s.git("ls-files", "-z")
 	if err != nil {
@@ -263,6 +265,7 @@ func (s *sweeper) tree() error {
 			return fmt.Errorf("reading %s: %w", name, rerr)
 		}
 		if bytes.IndexByte(data, 0) >= 0 {
+			s.check(name+" (binary)", string(data))
 			continue
 		}
 		s.checkLines(name, string(data))
@@ -272,12 +275,22 @@ func (s *sweeper) tree() error {
 
 // pushed reads git's pre-push stdin — one "<local ref> <local sha> <remote
 // ref> <remote sha>" line per ref (githooks(5)) — and sweeps each ref's name,
-// an annotated tag's message, and every commit the destination does not hold.
-// Commits on other remotes are swept anyway: holding a commit somewhere else,
-// a private mirror for one, does not make it public here.
-func (s *sweeper) pushed(stdin io.Reader, remote string) error {
+// an annotated tag's name, tagger and message, and every commit the
+// destination does not hold.
+//
+// What the destination holds is known two ways. The remote SHA on each line
+// comes from the destination itself during the push. The remote's tracking
+// refs describe the URL they were fetched from, so they count only when that
+// is the URL being pushed to: a remote with a separate push URL, or one whose
+// URL changed, would otherwise vouch for history the destination has never
+// seen. Commits on other remotes are swept anyway: holding a commit somewhere
+// else, a private mirror for one, does not make it public here.
+func (s *sweeper) pushed(stdin io.Reader, remote, pushURL string) error {
 	var tips []string
-	exclude := []string{"--remotes=" + remote}
+	var exclude []string
+	if fetchURL, err := s.git("remote", "get-url", remote); err == nil && pushURL != "" && strings.TrimSpace(fetchURL) == pushURL {
+		exclude = append(exclude, "--remotes="+remote)
+	}
 	scanner := bufio.NewScanner(stdin)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
@@ -328,11 +341,17 @@ func (s *sweeper) tag(ref, sha string) error {
 	if err != nil {
 		return err
 	}
-	// The tag object's header names the tagger as "tagger Name <email> time
-	// zone"; the message follows the first blank line.
+	// The tag object's header carries its own name ("tag <name>"), which need
+	// not match the ref being pushed and is published with the object, and its
+	// tagger ("tagger Name <email> time zone"); the message follows the first
+	// blank line.
 	header, message, _ := strings.Cut(body, "\n\n")
 	for line := range strings.Lines(header) {
-		if rest, ok := strings.CutPrefix(strings.TrimSuffix(line, "\n"), "tagger "); ok {
+		line = strings.TrimSuffix(line, "\n")
+		if name, ok := strings.CutPrefix(line, "tag "); ok {
+			s.check("tag "+ref+" name", name)
+		}
+		if rest, ok := strings.CutPrefix(line, "tagger "); ok {
 			name, email, _ := strings.Cut(rest, " <")
 			email, _, _ = strings.Cut(email, ">")
 			s.identity("tag "+ref+" tagger", name, email, s.check)
@@ -389,8 +408,10 @@ func (s *sweeper) history(tips, exclude []string) error {
 
 	// remerge shows what a merge's resolution adds beyond an automatic merge,
 	// which is the only content a merge commit carries of its own.
-	// --no-textconv keeps a configured converter from changing what is read.
-	patch, err := s.git(append([]string{"log", "--patch", "--no-color", "--no-ext-diff", "--no-textconv", "--diff-merges=remerge", "--format=%x00commit %h"}, rangeArgs...)...)
+	// --no-textconv keeps a configured converter from changing what is read,
+	// and --text diffs binary files as text, so their bytes reach the hunks
+	// instead of a one-line "Binary files differ".
+	patch, err := s.git(append([]string{"log", "--patch", "--text", "--no-color", "--no-ext-diff", "--no-textconv", "--diff-merges=remerge", "--format=%x00commit %h"}, rangeArgs...)...)
 	if err != nil {
 		return err
 	}
