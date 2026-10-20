@@ -33,6 +33,7 @@ type Workstream struct {
 	AgeSeconds       *int64     `json:"age_seconds"`
 	Events           []Event    `json:"events"`
 	InputsIncomplete []string   `json:"inputs_incomplete"`
+	MembersUnread    []string   `json:"members_unread"`
 }
 
 // Event is one touch within the event window.
@@ -66,7 +67,7 @@ func Build(cfg *config.Config, readings map[string]supplied.Reading, now time.Ti
 	type key struct{ input, id string }
 	claimed := map[key]bool{}
 	for _, ws := range cfg.Workstreams {
-		w := Workstream{Name: ws.Name, Events: make([]Event, 0), InputsIncomplete: make([]string, 0)}
+		w := Workstream{Name: ws.Name, Events: make([]Event, 0), InputsIncomplete: make([]string, 0), MembersUnread: make([]string, 0)}
 		for _, m := range ws.Members {
 			claimed[key{m.Input, m.ID}] = true
 			reading := readings[m.Input]
@@ -76,6 +77,7 @@ func Build(cfg *config.Config, readings map[string]supplied.Reading, now time.Ti
 			}
 			i := slices.IndexFunc(reading.Items, func(it supplied.Item) bool { return it.ID == m.ID })
 			if i < 0 {
+				w.MembersUnread = append(w.MembersUnread, m.Input+":"+m.ID)
 				continue
 			}
 			it := reading.Items[i]

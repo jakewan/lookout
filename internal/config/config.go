@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -78,9 +79,9 @@ func Locate(getenv func(string) string, setting string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	found, err := filepath.Glob(filepath.Join(dir, "*.yml"))
+	found, err := settingFiles(dir)
 	if err != nil {
-		return "", fmt.Errorf("listing %s: %w", dir, err)
+		return "", err
 	}
 	switch len(found) {
 	case 0:
@@ -93,6 +94,27 @@ func Locate(getenv func(string) string, setting string) (string, error) {
 		names = append(names, settingName(p))
 	}
 	return "", fmt.Errorf("several settings are configured in %s (%s): choose one with --setting <name> or LOOKOUT_CONFIG", dir, strings.Join(names, ", "))
+}
+
+// settingFiles lists the configuration files in dir: regular *.yml files whose
+// names do not start with a dot, so an editor's lock or backup file is never
+// taken for a setting.
+func settingFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("listing %s: %w", dir, err)
+	}
+	found := make([]string, 0, len(entries))
+	for _, e := range entries {
+		name := e.Name()
+		if e.Type().IsRegular() && filepath.Ext(name) == ".yml" && !strings.HasPrefix(name, ".") {
+			found = append(found, filepath.Join(dir, name))
+		}
+	}
+	return found, nil
 }
 
 func dir(getenv func(string) string) (string, error) {
@@ -209,6 +231,16 @@ func load(path string) (*Config, error) {
 			w.Members = append(w.Members, member)
 		}
 		cfg.Workstreams = append(cfg.Workstreams, w)
+	}
+
+	// Naming an item of an input states that the input should have records,
+	// whether or not expect_records says so.
+	for i := range cfg.Inputs {
+		for _, w := range cfg.Workstreams {
+			if slices.ContainsFunc(w.Members, func(m Member) bool { return m.Input == cfg.Inputs[i].Name }) {
+				cfg.Inputs[i].ExpectRecords = true
+			}
+		}
 	}
 	return cfg, nil
 }

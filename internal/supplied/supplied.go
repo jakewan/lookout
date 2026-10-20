@@ -34,6 +34,10 @@ type Reading struct {
 	Items  []Item
 }
 
+// clockTolerance is how far ahead of this machine's clock a supplier's
+// timestamp may be before lookout reports clock skew.
+const clockTolerance = 5 * time.Minute
+
 type document struct {
 	Input          string            `json:"input"`
 	FetchedAt      time.Time         `json:"fetched_at"`
@@ -112,9 +116,10 @@ func (rd *Reader) Read(in config.Input, now time.Time) Reading {
 	}
 
 	// A file written for another input says nothing about this one, so none of
-	// its own claims, its supplier status included, reach this record.
+	// its own claims, its supplier status included, reach this record. It
+	// contributes nothing, as a missing file does, so it ranks with one.
 	if doc.Input != in.Name {
-		r.Health.Lower(health.Degraded, health.InputMismatch)
+		r.Health.Lower(health.Error, health.InputMismatch)
 		return r
 	}
 	fetched := doc.FetchedAt.UTC()
@@ -133,6 +138,11 @@ func (rd *Reader) Read(in config.Input, now time.Time) Reading {
 	if doc.AttemptedAt.After(doc.FetchedAt) {
 		r.Health.Lower(health.Degraded, health.SupplierFailed)
 	}
+	// A time ahead of this machine's clock would read as fresh indefinitely, so
+	// beyond a tolerance for ordinary drift it is a finding, not a freshness.
+	if horizon := now.Add(clockTolerance); doc.FetchedAt.After(horizon) || doc.AttemptedAt.After(horizon) {
+		r.Health.Lower(health.Degraded, health.ClockSkew)
+	}
 	if doc.SupplierStatus == "degraded" {
 		r.Health.Lower(health.Degraded, health.SupplierDegraded)
 	}
@@ -142,6 +152,14 @@ func (rd *Reader) Read(in config.Input, now time.Time) Reading {
 	}
 	if in.ExpectRecords && len(doc.Items) == 0 {
 		r.Health.Lower(health.Degraded, health.Empty)
+	}
+	seen := make(map[string]bool, len(items))
+	for _, it := range items {
+		if seen[it.ID] {
+			r.Health.Lower(health.Degraded, health.DuplicateID)
+			break
+		}
+		seen[it.ID] = true
 	}
 
 	r.Items = items

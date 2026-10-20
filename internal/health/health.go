@@ -24,6 +24,8 @@ const (
 	SupplierDegraded = "supplier_degraded"
 	MissingFields    = "missing_fields"
 	Empty            = "empty"
+	ClockSkew        = "clock_skew"
+	DuplicateID      = "duplicate_id"
 )
 
 // Record is one input's health.

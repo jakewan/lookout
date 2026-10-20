@@ -1,13 +1,23 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/jakewan/lookout/schema/supplied.v1.json",
+  "$id": "https://raw.githubusercontent.com/jakewan/lookout/main/schema/supplied.v1.json",
   "title": "lookout supplied file, version 1",
-  "description": "What an outside supplier writes for lookout to read: one input's items, already reduced, with the supplier's own account of how the fetch went. A supplier knows nothing about workstreams.",
+  "description": "What an outside supplier writes for lookout to read: one input's items, already reduced, with the supplier's own account of how the fetch went. A supplier knows nothing about workstreams. lookout asserts every format keyword, which JSON Schema 2020-12 validators skip by default, so enable format validation when checking against this file. The contract is closed: a field it does not list is a violation, and a later version changes its name.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "input", "supplier", "fetched_at", "attempted_at", "supplier_status", "items"],
+  "required": [
+    "schema",
+    "input",
+    "supplier",
+    "fetched_at",
+    "attempted_at",
+    "supplier_status",
+    "items"
+  ],
   "properties": {
-    "schema": { "const": "supplied.v1" },
+    "schema": {
+      "const": "supplied.v1"
+    },
     "input": {
       "description": "The input name the setting's configuration gives this file.",
       "$ref": "#/$defs/name"
@@ -27,7 +37,13 @@
       "type": "string",
       "format": "date-time"
     },
-    "supplier_status": { "enum": ["ok", "degraded", "error"] },
+    "supplier_status": {
+      "enum": [
+        "ok",
+        "degraded",
+        "error"
+      ]
+    },
     "reason": {
       "description": "The supplier's explanation of a degraded or error status, for people.",
       "type": "string"
@@ -35,12 +51,17 @@
     "missing_fields": {
       "description": "Fields the supplier could not fill for any item.",
       "type": "array",
-      "items": { "type": "string", "minLength": 1 },
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
       "uniqueItems": true
     },
     "items": {
       "type": "array",
-      "items": { "$ref": "#/$defs/item" }
+      "items": {
+        "$ref": "#/$defs/item"
+      }
     }
   },
   "$defs": {
@@ -51,21 +72,41 @@
     "item": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "last_touched", "state", "links", "attrs"],
+      "required": [
+        "id",
+        "last_touched",
+        "state",
+        "links",
+        "attrs"
+      ],
       "properties": {
         "id": {
           "description": "Unique within the input, and stable across fetches, so a workstream can name it.",
           "type": "string",
           "minLength": 1
         },
-        "title": { "type": "string" },
-        "last_touched": { "type": "string", "format": "date-time" },
-        "started_at": { "type": "string", "format": "date-time" },
+        "title": {
+          "type": "string"
+        },
+        "last_touched": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
         "due": {
           "description": "When the item falls due: a calendar date, or an exact time.",
           "anyOf": [
-            { "type": "string", "format": "date" },
-            { "type": "string", "format": "date-time" }
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "string",
+              "format": "date-time"
+            }
           ]
         },
         "state": {
@@ -78,10 +119,19 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["rel", "href"],
+            "required": [
+              "rel",
+              "href"
+            ],
             "properties": {
-              "rel": { "type": "string", "minLength": 1 },
-              "href": { "type": "string", "format": "uri" }
+              "rel": {
+                "type": "string",
+                "minLength": 1
+              },
+              "href": {
+                "type": "string",
+                "format": "uri"
+              }
             }
           }
         },

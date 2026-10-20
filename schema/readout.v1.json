@@ -1,15 +1,30 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/jakewan/lookout/schema/readout.v1.json",
+  "$id": "https://raw.githubusercontent.com/jakewan/lookout/main/schema/readout.v1.json",
   "title": "lookout readout, version 1",
-  "description": "What `lookout read --json` writes for a renderer: one setting's workstreams in their stated order, the activity no workstream claims, and the health of every expected input.",
+  "description": "What `lookout read --json` writes for a renderer: one setting's workstreams in their stated order, the activity no workstream claims, and the health of every expected input. Version 1 only ever gains fields, so a renderer should ignore any it does not know.",
   "type": "object",
-  "additionalProperties": false,
-  "required": ["schema", "setting", "generated_at", "event_window_seconds", "workstreams", "unplaced", "health"],
+  "required": [
+    "schema",
+    "setting",
+    "generated_at",
+    "event_window_seconds",
+    "workstreams",
+    "unplaced",
+    "health"
+  ],
   "properties": {
-    "schema": { "const": "readout.v1" },
-    "setting": { "type": "string", "minLength": 1 },
-    "generated_at": { "type": "string", "format": "date-time" },
+    "schema": {
+      "const": "readout.v1"
+    },
+    "setting": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
     "event_window_seconds": {
       "description": "How far back from generated_at each workstream's events reach.",
       "type": "integer",
@@ -18,44 +33,73 @@
     "workstreams": {
       "description": "In the order the configuration states.",
       "type": "array",
-      "items": { "$ref": "#/$defs/workstream" }
+      "items": {
+        "$ref": "#/$defs/workstream"
+      }
     },
     "unplaced": {
       "description": "Items from readable inputs that no workstream names.",
       "type": "array",
-      "items": { "$ref": "#/$defs/placed_item" }
+      "items": {
+        "$ref": "#/$defs/placed_item"
+      }
     },
     "health": {
       "description": "One record per expected input, in the order the configuration lists them.",
       "type": "array",
-      "items": { "$ref": "https://github.com/jakewan/lookout/schema/health.v1.json" }
+      "items": {
+        "$ref": "https://raw.githubusercontent.com/jakewan/lookout/main/schema/health.v1.json"
+      }
     }
   },
   "$defs": {
     "workstream": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["name", "last_touched", "idle_seconds", "started_at", "age_seconds", "events", "inputs_incomplete"],
+      "required": [
+        "name",
+        "last_touched",
+        "idle_seconds",
+        "started_at",
+        "age_seconds",
+        "events",
+        "inputs_incomplete",
+        "members_unread"
+      ],
       "properties": {
-        "name": { "type": "string", "minLength": 1 },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
         "last_touched": {
           "description": "The latest touch across the workstream's items; null when none was read.",
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time"
         },
         "idle_seconds": {
           "description": "Time from last_touched to generated_at.",
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         },
         "started_at": {
           "description": "The earliest start across the workstream's items; null when no item says.",
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time"
         },
         "age_seconds": {
           "description": "Time from started_at to generated_at.",
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         },
         "events": {
@@ -63,30 +107,57 @@
           "type": "array",
           "items": {
             "type": "object",
-            "additionalProperties": false,
-            "required": ["input", "id", "at"],
+            "required": [
+              "input",
+              "id",
+              "at"
+            ],
             "properties": {
-              "input": { "type": "string" },
-              "id": { "type": "string" },
-              "title": { "type": "string" },
-              "at": { "type": "string", "format": "date-time" }
+              "input": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time"
+              }
             }
           }
         },
         "inputs_incomplete": {
           "description": "Inputs this workstream draws on whose health is error or degraded, so its figures may understate.",
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
+        },
+        "members_unread": {
+          "description": "Members, as <input>:<id>, whose item no input supplied, so the configuration may name work that has moved or closed.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
     "placed_item": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["input", "item"],
+      "required": [
+        "input",
+        "item"
+      ],
       "properties": {
-        "input": { "type": "string" },
-        "item": { "$ref": "https://github.com/jakewan/lookout/schema/supplied.v1.json#/$defs/item" }
+        "input": {
+          "type": "string"
+        },
+        "item": {
+          "$ref": "https://raw.githubusercontent.com/jakewan/lookout/main/schema/supplied.v1.json#/$defs/item"
+        }
       }
     }
   }

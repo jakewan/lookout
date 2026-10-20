@@ -111,6 +111,7 @@ type readoutDoc struct {
 		StartedAt        *string  `json:"started_at"`
 		AgeSeconds       *int64   `json:"age_seconds"`
 		InputsIncomplete []string `json:"inputs_incomplete"`
+		MembersUnread    []string `json:"members_unread"`
 		Events           []struct {
 			Input string `json:"input"`
 			ID    string `json:"id"`
@@ -240,6 +241,12 @@ func TestReadEmitsReadoutInStatedOrder(t *testing.T) {
 	if onboarding.LastTouched != nil || onboarding.IdleSeconds != nil || len(onboarding.Events) != 0 {
 		t.Errorf("onboarding = %+v, want no touches: its only member was not read", onboarding)
 	}
+	if !slices.Equal(onboarding.MembersUnread, []string{"tracker:ABC-9"}) {
+		t.Errorf("onboarding members_unread = %v, want the member its input did not supply", onboarding.MembersUnread)
+	}
+	if len(billing.MembersUnread) != 0 {
+		t.Errorf("billing members_unread = %v, want none", billing.MembersUnread)
+	}
 
 	if len(doc.Unplaced) != 1 || doc.Unplaced[0].Input != "tracker" || doc.Unplaced[0].Item["id"] != "ABC-3" {
 		t.Errorf("unplaced = %+v, want only ABC-3", doc.Unplaced)
@@ -309,7 +316,7 @@ func TestReadHealth(t *testing.T) {
 		}, nil), status: "degraded", reasons: []string{"schema"}, violation: true, foreign: true},
 		{name: "written for another input that reports error", file: suppliedDoc("calendar", healthyItems, map[string]any{
 			"supplier_status": "error", "fetched_at": stamp(30 * time.Hour),
-		}), status: "degraded", reasons: []string{"input_mismatch"}, foreign: true},
+		}), status: "error", reasons: []string{"input_mismatch"}, foreign: true},
 		{name: "supplier reason is carried", file: suppliedDoc("tracker", healthyItems, map[string]any{
 			"supplier_status": "degraded", "reason": "estimates hidden by the source",
 		}), status: "degraded", reasons: []string{"supplier_degraded"}, reason: "estimates hidden by the source"},
@@ -326,7 +333,7 @@ func TestReadHealth(t *testing.T) {
 		}, nil), status: "degraded", reasons: []string{"schema"}, violation: true},
 		{name: "not JSON", file: "{not json", status: "degraded", reasons: []string{"schema"}, violation: true},
 		{name: "written for another input", file: suppliedDoc("calendar", healthyItems, nil),
-			status: "degraded", reasons: []string{"input_mismatch"}},
+			status: "error", reasons: []string{"input_mismatch"}},
 		{name: "supplier reports error", file: suppliedDoc("tracker", healthyItems, map[string]any{
 			"supplier_status": "error", "reason": "source refused the request",
 		}), status: "error", reasons: []string{"supplier_error"}, reason: "source refused the request"},
@@ -342,6 +349,18 @@ func TestReadHealth(t *testing.T) {
 		{name: "empty where records are expected", file: suppliedDoc("tracker", []any{}, nil), expect: true,
 			status: "degraded", reasons: []string{"empty"}},
 		{name: "empty where none are expected", file: suppliedDoc("tracker", []any{}, nil), status: "ok"},
+		{name: "fetched in the future", file: suppliedDoc("tracker", healthyItems, map[string]any{
+			"fetched_at": now.Add(time.Hour).Format(time.RFC3339), "attempted_at": now.Add(time.Hour).Format(time.RFC3339),
+		}), status: "degraded", reasons: []string{"clock_skew"}},
+		{name: "attempted in the future", file: suppliedDoc("tracker", healthyItems, map[string]any{
+			"attempted_at": now.Add(time.Hour).Format(time.RFC3339),
+		}), status: "degraded", reasons: []string{"supplier_failed", "clock_skew"}},
+		{name: "within clock tolerance", file: suppliedDoc("tracker", healthyItems, map[string]any{
+			"fetched_at": now.Add(time.Minute).Format(time.RFC3339), "attempted_at": now.Add(time.Minute).Format(time.RFC3339),
+		}), status: "ok"},
+		{name: "duplicate item id", file: suppliedDoc("tracker", []any{
+			item("ABC-1", time.Hour, nil), item("ABC-1", 2*time.Hour, nil),
+		}, nil), status: "degraded", reasons: []string{"duplicate_id"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -398,6 +417,32 @@ workstreams: []
 
 // directory marks a TestReadHealth case whose supplied path is a directory.
 type directory struct{}
+
+// TestReadTreatsAWorkstreamMemberAsAnExpectation pins that naming an item of an
+// input states that the input should have records, so an empty file is not
+// read as a quiet day.
+func TestReadTreatsAWorkstreamMemberAsAnExpectation(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", `
+inputs:
+  - name: tracker
+    supplied: tracker.json
+    max_age: 24h
+workstreams:
+  - name: billing
+    members: ["tracker:ABC-1"]
+`)
+	f.supplied("tracker.json", suppliedDoc("tracker", []any{}, nil))
+
+	doc := f.read()
+
+	if h := doc.health(t, "tracker"); h.Status != "degraded" || !slices.Equal(h.Reasons, []string{"empty"}) {
+		t.Errorf("health = %+v, want degraded: a workstream names one of its items", h)
+	}
+	if w := doc.Workstreams[0]; !slices.Equal(w.InputsIncomplete, []string{"tracker"}) {
+		t.Errorf("inputs_incomplete = %v", w.InputsIncomplete)
+	}
+}
 
 // TestReadIgnoresInputsTheSettingDoesNotExpect pins the hidden state: a
 // supplied file the configuration does not name is never read or reported.
@@ -538,6 +583,18 @@ func TestReadSelectsOneSetting(t *testing.T) {
 	t.Run("the only configuration is used", func(t *testing.T) {
 		f := newFixture(t)
 		f.write("personal.yml", minimal)
+		if doc := f.read(); doc.Setting != "personal" {
+			t.Errorf("setting = %q", doc.Setting)
+		}
+	})
+
+	t.Run("editor leftovers and directories are not settings", func(t *testing.T) {
+		f := newFixture(t)
+		f.write("personal.yml", minimal)
+		f.write(".#personal.yml", minimal)
+		if err := os.Mkdir(filepath.Join(f.dir, "old.yml"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if doc := f.read(); doc.Setting != "personal" {
 			t.Errorf("setting = %q", doc.Setting)
 		}

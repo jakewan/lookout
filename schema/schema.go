@@ -13,7 +13,7 @@ import (
 //go:embed *.json
 var files embed.FS
 
-const base = "https://github.com/jakewan/lookout/schema/"
+const base = "https://raw.githubusercontent.com/jakewan/lookout/main/schema/"
 
 // Compile returns the named contract, such as "supplied.v1", ready to validate
 // a decoded JSON document. Every contract is registered first, so one may refer

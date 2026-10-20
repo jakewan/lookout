@@ -42,7 +42,7 @@ Three invariants carry over from the problem this answers:
 - the stated order the ranking reads
 - which inputs the setting expects, so the dashboard can tell an absent input from a broken one
 
-A setting is selected explicitly, and two settings are never merged into one view.
+Where several settings are configured, one is selected explicitly, and two settings are never merged into one view.
 
 The configuration file owns the stated order; any planning page refers to it rather than holding a second copy. Discovery proposes changes to the file and never makes them: activity matching no workstream appears in its own group, with a one-step adopt-or-dismiss, so the configuration's own staleness is visible on the dashboard and its upkeep is a decision at the moment something new appears, not a separate chore. The configuration describes the user's own systems, so it lives on the user's machine, never in lookout's repository.
 
