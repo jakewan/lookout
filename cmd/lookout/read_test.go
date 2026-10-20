@@ -549,8 +549,8 @@ func TestReadSelectsOneSetting(t *testing.T) {
 	t.Run("an unknown setting is named", func(t *testing.T) {
 		f := newFixture(t)
 		f.write("personal.yml", minimal)
-		code, _, stderr := f.run("read", "--json", "--setting", "wrok")
-		if code == 0 || !strings.Contains(stderr, `"wrok"`) {
+		code, _, stderr := f.run("read", "--json", "--setting", "absent")
+		if code == 0 || !strings.Contains(stderr, `"absent"`) {
 			t.Errorf("exit code = %d, stderr = %q, want a refusal naming the setting", code, stderr)
 		}
 	})

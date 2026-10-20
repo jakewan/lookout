@@ -10,12 +10,19 @@ It is the data layer only. It emits a readout for a renderer to consume and does
 
 ## Status and layout
 
-Early. The `lookout` command has no subcommands yet: it prints usage and refuses every argument.
+Early. `lookout read --json` reads supplied files only; the git, GitHub, and session adapters, and the commands that edit the configuration, are not built yet.
 
 ```
-cmd/lookout/              # binary entry point
+cmd/lookout/              # binary entry point and its behavior specs
+schema/                   # the published contracts, embedded so lookout enforces the same files
+internal/config/          # locating and loading one setting's configuration file
+internal/supplied/        # reading a supplied file and judging its input's health
+internal/health/          # the health record every input reports
+internal/readout/         # assembling the readout
 internal/devtools/sweep/  # disclosure sweep run before every push; not part of the binary
 ```
+
+A change to a file under `schema/` changes a published contract: suppliers and renderers outside this repository read it.
 
 Packages arrive under `internal/` when a change needs them — do not create them speculatively.
 
