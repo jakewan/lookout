@@ -533,7 +533,16 @@ func TestStateIsPrivateAndBelongsToOneConfiguration(t *testing.T) {
 	}
 	f.env["LOOKOUT_CONFIG"] = other
 	code, _, stderr := f.run("read", "--json")
-	if code != exitFailure || !strings.Contains(stderr, other) || !strings.Contains(stderr, filepath.Join(f.dir, "personal.yml")) {
+	// State names files by their resolved paths, and a temporary directory may
+	// sit behind a symlink.
+	resolve := func(p string) string {
+		r, err := filepath.EvalSymlinks(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	if code != exitFailure || !strings.Contains(stderr, resolve(other)) || !strings.Contains(stderr, resolve(filepath.Join(f.dir, "personal.yml"))) {
 		t.Errorf("exit code = %d, stderr = %q, want a refusal naming both configuration files", code, stderr)
 	}
 }
@@ -613,13 +622,23 @@ func TestCompleteRefusesAnEmptyCompletedKey(t *testing.T) {
 }
 
 func TestAGestureAgainstAMissingConfigurationRecordsNothing(t *testing.T) {
-	f := newFixture(t)
-	f.env["LOOKOUT_CONFIG"] = filepath.Join(f.dir, "personal.yaml")
-	if code, _, _ := f.run("adopt", "tracker:ABC-3", "billing"); code != exitFailure {
-		t.Errorf("exit code = %d, want a failure", code)
-	}
-	if _, err := os.Stat(f.stateDir("personal")); !os.IsNotExist(err) {
-		t.Errorf("state directory exists, claimed by a file that does not: %v", err)
+	for name, target := range map[string]string{
+		"no such file": "personal.yaml",
+		"a directory":  "personal",
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			if err := os.Mkdir(filepath.Join(f.dir, "personal"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			f.env["LOOKOUT_CONFIG"] = filepath.Join(f.dir, target)
+			if code, _, _ := f.run("adopt", "tracker:ABC-3", "billing"); code != exitFailure {
+				t.Errorf("exit code = %d, want a failure", code)
+			}
+			if _, err := os.Stat(f.stateDir("personal")); !os.IsNotExist(err) {
+				t.Errorf("state directory exists, claimed by something that is not a configuration file: %v", err)
+			}
+		})
 	}
 }
 

@@ -93,8 +93,12 @@ func Locate(getenv func(string) string, setting string) (string, error) {
 		return path, nil
 	}
 	if path := getenv("LOOKOUT_CONFIG"); path != "" {
-		if _, statErr := os.Stat(path); statErr != nil {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
 			return "", fmt.Errorf("LOOKOUT_CONFIG names %s: %w", path, statErr)
+		}
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("LOOKOUT_CONFIG names %s, which is not a file", path)
 		}
 		return path, nil
 	}
