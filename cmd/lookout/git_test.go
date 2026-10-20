@@ -79,6 +79,23 @@ func (f *fixture) rawCommitBranch(dir, name, timestamp string) {
 	f.git(dir, "update-ref", "refs/heads/"+name, commit)
 }
 
+// locked removes every permission from dir for the rest of the spec, so
+// nothing inside it can be listed or read.
+func (f *fixture) locked(dir string) {
+	f.t.Helper()
+	if os.Geteuid() == 0 {
+		f.t.Skip("permissions do not bind the superuser")
+	}
+	if err := os.Chmod(dir, 0); err != nil {
+		f.t.Fatal(err)
+	}
+	f.t.Cleanup(func() {
+		if err := os.Chmod(dir, 0o755); err != nil {
+			f.t.Error(err)
+		}
+	})
+}
+
 // repo creates a repository at ~/rel whose origin is origin, or which has no
 // remote when origin is empty.
 func (f *fixture) repo(rel, origin string) string {
@@ -196,6 +213,12 @@ func TestReadHidesEachRepositorysDefaultBranch(t *testing.T) {
 			f.branch(dir, "trunk", time.Hour)
 			f.branch(dir, "main", time.Hour)
 		}, visible: []string{"code:alice/app:main", "code:alice/app:x"}},
+		{name: "origin/HEAD names a branch ending in a non-breaking space", build: func(f *fixture, dir string) {
+			f.git(dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk\u00a0")
+			f.branch(dir, "trunk\u00a0", time.Hour)
+			f.branch(dir, "trunk", time.Hour)
+			f.branch(dir, "main", time.Hour)
+		}, visible: []string{"code:alice/app:main", "code:alice/app:trunk", "code:alice/app:x"}},
 		{name: "main without origin/HEAD", build: func(f *fixture, dir string) {
 			f.branch(dir, "main", time.Hour)
 		}, visible: []string{"code:alice/app:x"}},
@@ -530,6 +553,14 @@ func TestReadGitHealth(t *testing.T) {
 		{name: "a literal entry whose origin is no forge says so", repos: `["~/code/mirror"]`, build: func(f *fixture) {
 			f.branch(f.repo("code/mirror", "/srv/mirrors/alice/app.git"), "feat", time.Hour)
 		}, status: "ok", details: []string{"~/code/mirror: its origin is not a forge address, so the owner fence keeps it out"}, fetched: true},
+		{name: "a directory lookout cannot look inside is counted, not skipped", repos: `["~/code/*"]`, build: func(f *fixture) {
+			f.branch(f.repo("code/app", "git@github.com:alice/app.git"), "feat", time.Hour)
+			f.locked(f.repo("code/mallory-locked", "git@github.com:mallory/x.git"))
+		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"~/code/*: 1 repository could not be read"}, items: 1, fetched: true},
+		{name: "a literal directory lookout cannot look inside is not called a non-repository", repos: `["~/code/app", "~/code/locked"]`, build: func(f *fixture) {
+			f.branch(f.repo("code/app", "git@github.com:alice/app.git"), "feat", time.Hour)
+			f.locked(f.repo("code/locked", "git@github.com:alice/locked.git"))
+		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"~/code/locked: git could not read it"}, items: 1, fetched: true},
 		{name: "a literal entry with no origin says so", repos: `["~/code/solo"]`, build: func(f *fixture) {
 			f.branch(f.repo("code/solo", ""), "feat", time.Hour)
 		}, status: "ok", details: []string{"~/code/solo: no origin remote, so the owner fence keeps it out"}, fetched: true},
@@ -635,6 +666,43 @@ func TestReadReportsGitMissingFromPath(t *testing.T) {
 
 	if h.Status != "error" || !slices.Equal(h.Reasons, []string{"git_failed"}) || !slices.Equal(h.Details, []string{"git: not found on PATH"}) {
 		t.Errorf("health = %+v, want an error saying git was not found", h)
+	}
+}
+
+// TestReadTakesTheConfigurationsDirectoryLiterally pins that pattern syntax is
+// read only in the entry the user wrote, never in the directory a relative
+// entry is read from.
+func TestReadTakesTheConfigurationsDirectoryLiterally(t *testing.T) {
+	f := newFixture(t).withGit()
+	base := f.home("settings[1]")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f.env["LOOKOUT_CONFIG"] = filepath.Join(base, "personal.yml")
+	if err := os.WriteFile(f.env["LOOKOUT_CONFIG"], []byte(`
+forge_owners: [alice]
+inputs:
+  - name: code
+    kind: git
+    repos: [app, "code/*", gone]
+workstreams: []
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.branch(f.repo("settings[1]/app", "git@github.com:alice/app.git"), "feat", time.Hour)
+	f.branch(f.repo("settings[1]/code/tool", "git@github.com:alice/tool.git"), "feat", time.Hour)
+	// The directory the brackets would match as a pattern.
+	f.branch(f.repo("settings1/app", "git@github.com:alice/decoy.git"), "feat", time.Hour)
+
+	doc := f.read()
+
+	if ids := unplacedIDs(doc); !slices.Equal(ids, []string{"code:alice/app:feat", "code:alice/tool:feat"}) {
+		t.Errorf("unplaced = %v, want the repositories under the configuration's own directory", ids)
+	}
+	// A literal entry stays literal, so a missing one is reported as missing
+	// rather than as a pattern that matched nothing.
+	if h := doc.health(t, "code"); h.Status != "degraded" || !slices.Equal(h.Details, []string{"gone: no such directory"}) {
+		t.Errorf("health = %+v, want only the missing literal entry reported", h)
 	}
 }
 

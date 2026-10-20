@@ -104,13 +104,12 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc Scope, now time.T
 		if ctx.Err() != nil {
 			return out
 		}
-		dirs, literal, reason, cause := r.resolve(entry, in.Dir)
+		dirs, unreadable, literal, reason, cause := r.resolve(entry, in.Dir)
 		if reason != "" {
 			fail(reason, entry+": "+cause)
 			continue
 		}
 
-		unreadable := 0
 		for _, dir := range dirs {
 			repo, err := r.open(ctx, dir)
 			if err != nil {
@@ -236,64 +235,113 @@ type attrs struct {
 // resolve finds the repositories one repos entry names: a literal path must be
 // one, and a pattern keeps only the matches that are. Where it finds none, it
 // returns the health reason and the cause to report against the entry.
-func (r *Reader) resolve(entry, base string) (dirs []string, literal bool, reason, cause string) {
-	expanded := r.expand(entry, base)
-	if !hasMeta(expanded) {
-		info, err := os.Stat(expanded)
-		switch {
+// unreadable counts the matches whose contents lookout could not inspect, so
+// they are reported rather than taken for directories that are not
+// repositories.
+func (r *Reader) resolve(entry, base string) (dirs []string, unreadable int, literal bool, reason, cause string) {
+	prefix, rest := r.split(entry, base)
+	if !hasMeta(rest) {
+		path := filepath.Join(prefix, rest)
+		switch kind, err := probe(path); {
 		case errors.Is(err, fs.ErrNotExist):
-			return nil, true, health.Missing, "no such directory"
-		case err != nil || !info.IsDir() || !looksLikeRepository(expanded):
-			return nil, true, health.NotARepository, "not a git repository"
+			return nil, 0, true, health.Missing, "no such directory"
+		case err != nil:
+			return nil, 0, true, health.GitFailed, "git could not read it"
+		case kind != repositoryDir:
+			return nil, 0, true, health.NotARepository, "not a git repository"
 		}
-		return []string{expanded}, true, "", ""
+		return []string{path}, 0, true, "", ""
 	}
-	// Config.Parse refused a malformed pattern, so this is only reached by an
-	// Input built some other way.
-	matches, err := filepath.Glob(expanded)
+	// Only the entry is a pattern; the directory it is read from is taken as
+	// it stands, whatever characters its name holds. Config.Parse refused a
+	// malformed pattern, so the error is only reached by an Input built some
+	// other way.
+	matches, err := filepath.Glob(filepath.Join(escapeMeta(prefix), rest))
 	if err != nil {
-		return nil, false, health.Missing, "not a valid pattern"
+		return nil, 0, false, health.Missing, "not a valid pattern"
 	}
 	for _, m := range matches {
-		if info, statErr := os.Stat(m); statErr == nil && info.IsDir() && looksLikeRepository(m) {
+		switch kind, probeErr := probe(m); {
+		case probeErr != nil && !errors.Is(probeErr, fs.ErrNotExist):
+			unreadable++
+		case kind == repositoryDir:
 			dirs = append(dirs, m)
 		}
 	}
-	if len(dirs) == 0 {
-		return nil, false, health.Missing, "matches no repository"
+	if len(dirs) == 0 && unreadable == 0 {
+		return nil, 0, false, health.Missing, "matches no repository"
 	}
-	return dirs, false, "", ""
+	return dirs, unreadable, false, "", ""
 }
 
-// expand resolves a leading ~ to the invocation's home directory, and a
-// relative entry against base, the configuration's directory.
-func (r *Reader) expand(entry, base string) string {
-	home := r.getenv("HOME")
+// split separates the directory an entry is read from, its home directory for
+// ~/ or the configuration's directory for a relative entry, from the entry as
+// written, since only the latter may be a pattern.
+func (r *Reader) split(entry, base string) (prefix, rest string) {
 	switch {
 	case entry == "~":
-		return home
+		return r.getenv("HOME"), ""
 	case strings.HasPrefix(entry, "~/"):
-		return filepath.Join(home, entry[2:])
+		return r.getenv("HOME"), entry[2:]
 	case !filepath.IsAbs(entry):
-		return filepath.Join(base, entry)
+		return base, entry
 	}
-	return entry
+	return "", entry
 }
 
 func hasMeta(p string) bool { return strings.ContainsAny(p, `*?[\`) }
 
-// looksLikeRepository decides from the disk whether dir is a repository, not
-// from git's exit status: git exits 128 alike for a plain directory and for a
-// repository it refuses to read, and a broken repository must be reported
-// rather than skipped. A checkout or linked worktree has a .git entry; a bare
-// repository has HEAD and objects of its own.
-func looksLikeRepository(dir string) bool {
+// escapeMeta quotes the characters filepath.Match reads as syntax, so a
+// directory's name matches only itself.
+func escapeMeta(p string) string {
+	var b strings.Builder
+	for _, c := range p {
+		if strings.ContainsRune(`*?[\`, c) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(c)
+	}
+	return b.String()
+}
+
+// dirKind is what probe finds at a path.
+type dirKind int
+
+const (
+	otherDir dirKind = iota
+	repositoryDir
+)
+
+// probe decides from the disk whether dir is a repository, not from git's exit
+// status: git exits 128 alike for a plain directory and for a repository it
+// refuses to read, and a broken repository must be reported rather than
+// skipped. A checkout or linked worktree has a .git entry; a bare repository
+// has HEAD and objects of its own. An error other than a missing entry means
+// lookout could not look, which is not the same as finding nothing.
+func probe(dir string) (dirKind, error) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return otherDir, err
+	}
+	if !info.IsDir() {
+		return otherDir, nil
+	}
 	if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
-		return true
+		return repositoryDir, nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return otherDir, err
 	}
 	head, headErr := os.Stat(filepath.Join(dir, "HEAD"))
 	objects, objErr := os.Stat(filepath.Join(dir, "objects"))
-	return headErr == nil && objErr == nil && head.Mode().IsRegular() && objects.IsDir()
+	for _, e := range []error{headErr, objErr} {
+		if e != nil && !errors.Is(e, fs.ErrNotExist) {
+			return otherDir, e
+		}
+	}
+	if headErr == nil && objErr == nil && head.Mode().IsRegular() && objects.IsDir() {
+		return repositoryDir, nil
+	}
+	return otherDir, nil
 }
 
 // fenceCause says why the owner fence keeps repo out, or is "" where it admits
@@ -467,7 +515,9 @@ func (r *Reader) symbolicRef(ctx context.Context, dir, gitDir, ref string) (stri
 	if err != nil {
 		return "", false, err
 	}
-	return strings.TrimSpace(out), true, nil
+	// A refname may end in whitespace other than ASCII, so only the line
+	// terminator git adds is removed.
+	return strings.TrimSuffix(out, "\n"), true, nil
 }
 
 // worktrees maps each checked-out branch to the worktrees that have it. With
