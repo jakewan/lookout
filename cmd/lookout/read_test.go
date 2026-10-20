@@ -112,7 +112,11 @@ type readoutDoc struct {
 		AgeSeconds       *int64   `json:"age_seconds"`
 		InputsIncomplete []string `json:"inputs_incomplete"`
 		MembersUnread    []string `json:"members_unread"`
-		Events           []struct {
+		Items            []struct {
+			Input string         `json:"input"`
+			Item  map[string]any `json:"item"`
+		} `json:"items"`
+		Events []struct {
 			Input string `json:"input"`
 			ID    string `json:"id"`
 			Title string `json:"title"`
@@ -358,6 +362,32 @@ func TestReadHealth(t *testing.T) {
 		{name: "within clock tolerance", file: suppliedDoc("tracker", healthyItems, map[string]any{
 			"fetched_at": now.Add(time.Minute).Format(time.RFC3339), "attempted_at": now.Add(time.Minute).Format(time.RFC3339),
 		}), status: "ok"},
+		{name: "item touched in the future", file: suppliedDoc("tracker", []any{
+			map[string]any{"id": "ABC-1", "last_touched": now.Add(365 * 24 * time.Hour).Format(time.RFC3339), "state": "open", "links": []any{}, "attrs": map[string]any{}},
+		}, nil), status: "degraded", reasons: []string{"clock_skew"}},
+		{name: "item started in the future", file: suppliedDoc("tracker", []any{
+			item("ABC-1", time.Hour, map[string]any{"started_at": now.Add(24 * time.Hour).Format(time.RFC3339)}),
+		}, nil), status: "degraded", reasons: []string{"clock_skew"}},
+		{name: "item due in the future is fine", file: suppliedDoc("tracker", []any{
+			item("ABC-1", time.Hour, map[string]any{"due": "2031-01-01"}),
+		}, nil), status: "ok"},
+		{name: "supplier error survives a schema failure", file: suppliedDoc("tracker", []any{
+			map[string]any{"id": "ABC-1", "last_touched": stamp(time.Hour), "links": []any{}, "attrs": map[string]any{}},
+		}, map[string]any{"supplier_status": "error"}), status: "error", reasons: []string{"schema", "supplier_error"}, violation: true, foreign: true},
+		{name: "supplier error survives an undecodable value", file: suppliedDoc("tracker", healthyItems, map[string]any{
+			"supplier_status": "error", "fetched_at": "2030-06-15t11:00:00Z", "attempted_at": "2030-06-15t11:00:00Z",
+		}), status: "error", reasons: []string{"schema", "supplier_error"}, violation: true, foreign: true},
+		{name: "another input's file failing its schema", file: suppliedDoc("calendar", []any{
+			map[string]any{"id": "ABC-1", "last_touched": stamp(time.Hour), "links": []any{}, "attrs": map[string]any{}},
+		}, nil), status: "error", reasons: []string{"input_mismatch"}, foreign: true},
+		// Valid RFC 3339 with an offset, but year 10000 in UTC, which no JSON
+		// timestamp can carry; it must stay inside this input's health.
+		{name: "timestamp past year 9999 in UTC", file: suppliedDoc("tracker", healthyItems, map[string]any{
+			"fetched_at": "9999-12-31T23:59:59-01:00", "attempted_at": "9999-12-31T23:59:59-01:00",
+		}), status: "degraded", reasons: []string{"schema"}, violation: true, foreign: true},
+		{name: "item timestamp past year 9999 in UTC", file: suppliedDoc("tracker", []any{
+			map[string]any{"id": "ABC-1", "last_touched": "9999-12-31T23:59:59-01:00", "state": "open", "links": []any{}, "attrs": map[string]any{}},
+		}, nil), status: "degraded", reasons: []string{"schema"}, violation: true, foreign: true},
 		{name: "duplicate item id", file: suppliedDoc("tracker", []any{
 			item("ABC-1", time.Hour, nil), item("ABC-1", 2*time.Hour, nil),
 		}, nil), status: "degraded", reasons: []string{"duplicate_id"}},
@@ -568,6 +598,9 @@ workstreams:
 
 	if h := doc.health(t, "obligations"); h.Status != "ok" {
 		t.Errorf("health = %+v, want both due forms accepted", h)
+	}
+	if items := doc.Workstreams[0].Items; len(items) != 1 || items[0].Input != "obligations" || items[0].Item["due"] != "2030-07-01" {
+		t.Errorf("household items = %+v, want the passport with its due date: adopting an obligation must not hide its deadline", items)
 	}
 	if e := doc.Workstreams[0].Events; len(e) != 1 || e[0].Title != "Renew passport" {
 		t.Errorf("household events = %+v", e)

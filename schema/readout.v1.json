@@ -63,7 +63,8 @@
         "age_seconds",
         "events",
         "inputs_incomplete",
-        "members_unread"
+        "members_unread",
+        "items"
       ],
       "properties": {
         "name": {
@@ -141,6 +142,13 @@
           "type": "array",
           "items": {
             "type": "string"
+          }
+        },
+        "items": {
+          "description": "Each member item an input supplied, in the order the configuration lists the members, exactly as its supplier wrote it.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/placed_item"
           }
         }
       }

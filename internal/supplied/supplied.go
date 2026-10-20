@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"time"
@@ -91,9 +92,7 @@ func (rd *Reader) Read(in config.Input, now time.Time) Reading {
 		return r
 	}
 	if validateErr := rd.schema.Validate(inst); validateErr != nil {
-		r.Health.Lower(health.Degraded, health.Schema)
-		r.Health.SchemaViolations = append(r.Health.SchemaViolations, violations(validateErr)...)
-		return r
+		return untrusted(r, in, data, violations(validateErr))
 	}
 
 	// The schema accepts some RFC 3339 forms Go's time parser refuses, such as a
@@ -103,16 +102,20 @@ func (rd *Reader) Read(in config.Input, now time.Time) Reading {
 	var doc document
 	items := make([]Item, 0)
 	decodeErr := json.Unmarshal(data, &doc)
+	if decodeErr == nil {
+		decodeErr = encodable(doc.FetchedAt, &doc.AttemptedAt)
+	}
 	for i := 0; decodeErr == nil && i < len(doc.Items); i++ {
 		var f itemFields
 		if decodeErr = json.Unmarshal(doc.Items[i], &f); decodeErr == nil {
+			decodeErr = encodable(f.LastTouched, f.StartedAt)
+		}
+		if decodeErr == nil {
 			items = append(items, Item{ID: f.ID, Title: f.Title, LastTouched: f.LastTouched, StartedAt: f.StartedAt, Raw: doc.Items[i]})
 		}
 	}
 	if decodeErr != nil {
-		r.Health.Lower(health.Degraded, health.Schema)
-		r.Health.SchemaViolations = append(r.Health.SchemaViolations, "a value lookout cannot decode: "+decodeErr.Error())
-		return r
+		return untrusted(r, in, data, []string{"a value lookout cannot decode: " + decodeErr.Error()})
 	}
 
 	// A file written for another input says nothing about this one, so none of
@@ -140,7 +143,14 @@ func (rd *Reader) Read(in config.Input, now time.Time) Reading {
 	}
 	// A time ahead of this machine's clock would read as fresh indefinitely, so
 	// beyond a tolerance for ordinary drift it is a finding, not a freshness.
-	if horizon := now.Add(clockTolerance); doc.FetchedAt.After(horizon) || doc.AttemptedAt.After(horizon) {
+	// Activity times count too, since a future touch would pin a workstream at
+	// zero idle. A due date is meant to lie ahead, so it does not.
+	horizon := now.Add(clockTolerance)
+	skewed := doc.FetchedAt.After(horizon) || doc.AttemptedAt.After(horizon)
+	for _, it := range items {
+		skewed = skewed || it.LastTouched.After(horizon) || (it.StartedAt != nil && it.StartedAt.After(horizon))
+	}
+	if skewed {
 		r.Health.Lower(health.Degraded, health.ClockSkew)
 	}
 	if doc.SupplierStatus == "degraded" {
@@ -164,6 +174,51 @@ func (rd *Reader) Read(in config.Input, now time.Time) Reading {
 
 	r.Items = items
 	return r
+}
+
+// untrusted records a file whose contents cannot be used. Its items are
+// withheld, but where the envelope still says plainly which input it is for,
+// or that its supplier failed, that stronger evidence is kept rather than
+// softened into a schema problem.
+func untrusted(r Reading, in config.Input, data []byte, problems []string) Reading {
+	var env struct {
+		Input          string `json:"input"`
+		SupplierStatus string `json:"supplier_status"`
+	}
+	if json.Unmarshal(data, &env) == nil && env.Input != "" && env.Input != in.Name {
+		r.Health.Lower(health.Error, health.InputMismatch)
+		return r
+	}
+	r.Health.Lower(health.Degraded, health.Schema)
+	r.Health.SchemaViolations = append(r.Health.SchemaViolations, problems...)
+	if env.SupplierStatus == "error" {
+		r.Health.Lower(health.Error, health.SupplierError)
+	}
+	return r
+}
+
+// encodable reports a time the readout could not write: RFC 3339 admits an
+// offset that carries a year-9999 time past year 9999 in UTC, which JSON
+// timestamps cannot express.
+func encodable(t time.Time, more ...*time.Time) error {
+	check := func(t time.Time) error {
+		if y := t.UTC().Year(); y < 0 || y > 9999 {
+			return fmt.Errorf("%s falls outside years 0000 to 9999 in UTC", t.Format(time.RFC3339))
+		}
+		return nil
+	}
+	if err := check(t); err != nil {
+		return err
+	}
+	for _, m := range more {
+		if m == nil {
+			continue
+		}
+		if err := check(*m); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // violations flattens a validation failure into one line per failed keyword,

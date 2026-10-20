@@ -34,6 +34,7 @@ type Workstream struct {
 	Events           []Event    `json:"events"`
 	InputsIncomplete []string   `json:"inputs_incomplete"`
 	MembersUnread    []string   `json:"members_unread"`
+	Items            []Placed   `json:"items"`
 }
 
 // Event is one touch within the event window.
@@ -67,7 +68,7 @@ func Build(cfg *config.Config, readings map[string]supplied.Reading, now time.Ti
 	type key struct{ input, id string }
 	claimed := map[key]bool{}
 	for _, ws := range cfg.Workstreams {
-		w := Workstream{Name: ws.Name, Events: make([]Event, 0), InputsIncomplete: make([]string, 0), MembersUnread: make([]string, 0)}
+		w := Workstream{Name: ws.Name, Events: make([]Event, 0), InputsIncomplete: make([]string, 0), MembersUnread: make([]string, 0), Items: make([]Placed, 0, len(ws.Members))}
 		for _, m := range ws.Members {
 			claimed[key{m.Input, m.ID}] = true
 			reading := readings[m.Input]
@@ -81,6 +82,7 @@ func Build(cfg *config.Config, readings map[string]supplied.Reading, now time.Ti
 				continue
 			}
 			it := reading.Items[i]
+			w.Items = append(w.Items, Placed{Input: m.Input, Item: it.Raw})
 			touched := it.LastTouched.UTC()
 			if w.LastTouched == nil || touched.After(*w.LastTouched) {
 				w.LastTouched = &touched
