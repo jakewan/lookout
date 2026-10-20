@@ -914,3 +914,27 @@ func TestEditsAcceptAwkwardOneLineValues(t *testing.T) {
 		})
 	}
 }
+
+// TestAFirstReadNeverMixesOldStateWithANewConfiguration covers a read of a
+// setting with no state yet, which takes no lock, while gestures create the
+// state and change the configuration before the read loads it.
+func TestAFirstReadNeverMixesOldStateWithANewConfiguration(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.supplied("tracker.json", trackerItems())
+	afterStateOpen = func() {
+		afterStateOpen = func() {}
+		f.mustRun("dismiss", "tracker:ABC-3")
+		f.mustRun("order", "onboarding")
+	}
+	t.Cleanup(func() { afterStateOpen = func() {} })
+
+	doc := f.read()
+
+	if !slices.Equal(workstreamNames(doc), []string{"onboarding", "billing"}) {
+		t.Fatalf("workstreams = %v, want the new order", workstreamNames(doc))
+	}
+	if ids := unplacedIDs(doc); len(ids) != 0 {
+		t.Errorf("unplaced = %v: the readout shows the new order with the dismissal undone", ids)
+	}
+}

@@ -36,27 +36,52 @@ func locate(env environment, setting string, mode state.Mode) (*located, error) 
 	return &located{path: path, store: store}, nil
 }
 
-func currentReadout(env environment, setting string) (_ readout.Readout, err error) {
+func currentReadout(env environment, setting string) (readout.Readout, error) {
+	// A second attempt finds the state and holds its lock, so a third is
+	// reached only if the state keeps vanishing and reappearing.
+	for range 3 {
+		out, again, err := readOnce(env, setting)
+		if err != nil || !again {
+			return out, err
+		}
+	}
+	return readout.Readout{}, errors.New("the state directory kept appearing while lookout read it: run the command again")
+}
+
+// readOnce builds the readout, or reports that it must be built again. A read
+// of a setting with no state yet holds no lock, so where state appeared before
+// the configuration was loaded, a gesture may have changed both, and the read
+// starts over holding the lock. A gesture creates the state before it changes
+// anything, so a read that finds none afterward saw no gesture at all.
+func readOnce(env environment, setting string) (_ readout.Readout, again bool, err error) {
 	loc, err := locate(env, setting, state.Read)
 	if err != nil {
-		return readout.Readout{}, err
+		return readout.Readout{}, false, err
 	}
 	defer func() { err = errors.Join(err, loc.store.Close()) }()
+	afterStateOpen()
 	cfg, err := config.Load(loc.path)
 	if err != nil {
-		return readout.Readout{}, err
+		return readout.Readout{}, false, err
+	}
+	if loc.store.Appeared() {
+		return readout.Readout{}, true, nil
 	}
 	reader, err := supplied.NewReader()
 	if err != nil {
-		return readout.Readout{}, err
+		return readout.Readout{}, false, err
 	}
 	now := env.now()
 	readings := make(map[string]supplied.Reading, len(cfg.Inputs))
 	for _, in := range cfg.Inputs {
 		readings[in.Name] = reader.Read(in, now)
 	}
-	return readout.Build(cfg, readings, loc.store.Dismissals(), now), nil
+	return readout.Build(cfg, readings, loc.store.Dismissals(), now), false, nil
 }
+
+// afterStateOpen runs once a read holds its state; specs use it to run
+// gestures in between.
+var afterStateOpen = func() {}
 
 // newFlags is a command's flag set with the --setting flag every command takes.
 func newFlags(name string) (*flag.FlagSet, *string) {

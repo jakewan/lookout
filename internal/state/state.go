@@ -75,6 +75,16 @@ type Store struct {
 	lock     *os.File
 }
 
+// Appeared reports whether state was created after a Read that found none
+// and so holds no lock: what was read alongside it may already be out of date.
+func (s *Store) Appeared() bool {
+	if s.lock != nil {
+		return false
+	}
+	_, err := os.Stat(s.dir)
+	return err == nil
+}
+
 // Close releases the state.
 func (s *Store) Close() error {
 	if s.lock == nil {
