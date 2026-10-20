@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jakewan/lookout/internal/config"
+	"github.com/jakewan/lookout/internal/git"
 	"github.com/jakewan/lookout/internal/readout"
 	"github.com/jakewan/lookout/internal/state"
 	"github.com/jakewan/lookout/internal/supplied"
@@ -61,7 +62,7 @@ func readOnce(ctx context.Context, env environment, setting string) (readout.Rea
 		return readout.Readout{}, again, err
 	}
 	now := env.now()
-	readings, err := readInputs(ctx, cfg, now)
+	readings, err := readInputs(ctx, env, cfg, now)
 	if err != nil {
 		return readout.Readout{}, false, err
 	}
@@ -90,14 +91,21 @@ func settingNow(env environment, setting string) (_ *config.Config, _ map[string
 
 // readInputs reads every input the configuration expects. A run interrupted
 // part way fails, since the inputs it cut short would read as broken.
-func readInputs(ctx context.Context, cfg *config.Config, now time.Time) (map[string]readout.Reading, error) {
-	reader, err := supplied.NewReader()
+func readInputs(ctx context.Context, env environment, cfg *config.Config, now time.Time) (map[string]readout.Reading, error) {
+	files, err := supplied.NewReader()
 	if err != nil {
 		return nil, err
 	}
+	repos := git.NewReader(env.getenv)
 	readings := make(map[string]readout.Reading, len(cfg.Inputs))
 	for _, in := range cfg.Inputs {
-		readings[in.Name] = reader.Read(ctx, in, now)
+		switch in.Kind {
+		case config.KindGit:
+			scope := git.Scope{Owners: cfg.ForgeOwners, Since: now.Add(-cfg.DiscoveryWindow), Members: cfg.MemberIDs(in.Name)}
+			readings[in.Name] = repos.Read(ctx, in, scope, now)
+		default:
+			readings[in.Name] = files.Read(ctx, in, now)
+		}
 	}
 	if ctx.Err() != nil {
 		return nil, errors.New("reading inputs: interrupted")

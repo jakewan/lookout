@@ -19,10 +19,6 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// clockTolerance is how far ahead of this machine's clock a supplier's
-// timestamp may be before lookout reports clock skew.
-const clockTolerance = 5 * time.Minute
-
 type document struct {
 	Input          string            `json:"input"`
 	FetchedAt      time.Time         `json:"fetched_at"`
@@ -134,7 +130,7 @@ func (rd *Reader) Read(ctx context.Context, in config.Input, now time.Time) read
 	// beyond a tolerance for ordinary drift it is a finding, not a freshness.
 	// Activity times count too, since a future touch would pin a workstream at
 	// zero idle. A due date is meant to lie ahead, so it does not.
-	horizon := now.Add(clockTolerance)
+	horizon := now.Add(health.ClockTolerance)
 	skewed := doc.FetchedAt.After(horizon) || doc.AttemptedAt.After(horizon)
 	for _, it := range items {
 		skewed = skewed || it.LastTouched.After(horizon) || (it.StartedAt != nil && it.StartedAt.After(horizon))

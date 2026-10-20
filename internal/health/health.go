@@ -29,7 +29,13 @@ const (
 	Empty            = "empty"
 	ClockSkew        = "clock_skew"
 	DuplicateID      = "duplicate_id"
+	NotARepository   = "not_a_repository"
+	GitFailed        = "git_failed"
 )
+
+// ClockTolerance is how far ahead of this machine's clock an input's
+// timestamp may be before lookout reports clock skew.
+const ClockTolerance = 5 * time.Minute
 
 // Record is one input's health.
 type Record struct {
