@@ -144,6 +144,8 @@ type healthDoc struct {
 	MissingFields    []string `json:"missing_fields"`
 	SchemaViolations []string `json:"schema_violations"`
 	SupplierReason   *string  `json:"supplier_reason"`
+	Details          []string `json:"details"`
+	ExcludedCount    *int     `json:"excluded_count"`
 }
 
 func (d readoutDoc) health(t *testing.T, input string) healthDoc {
@@ -268,6 +270,9 @@ func TestReadEmitsReadoutInStatedOrder(t *testing.T) {
 	}
 	if h.FetchedAt == nil || *h.FetchedAt != stamp(time.Hour) {
 		t.Errorf("fetched_at = %v", h.FetchedAt)
+	}
+	if h.Details == nil || len(h.Details) != 0 || h.ExcludedCount == nil || *h.ExcludedCount != 0 {
+		t.Errorf("details = %v, excluded_count = %v, want an empty list and zero: a supplied file has nothing to fence", h.Details, h.ExcludedCount)
 	}
 }
 
