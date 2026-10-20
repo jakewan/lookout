@@ -10,15 +10,16 @@ It is the data layer only. It emits a readout for a renderer to consume and does
 
 ## Status and layout
 
-Early. `lookout read --json` is the only command, and it reads supplied files only. The git, GitHub, and session adapters, the commands that edit the configuration or write state, and the baseline snapshot are not built yet.
+Early. `lookout read --json` and `lookout unplaced` report on supplied files only; `adopt`, `order` and `complete` edit the configuration file, and `dismiss` writes state, each recording a gesture. The git, GitHub, and session adapters and the baseline snapshot are not built yet.
 
 ```
 cmd/lookout/              # binary entry point and its behavior specs
 schema/                   # the published contracts, embedded so lookout enforces the same files
-internal/config/          # locating and loading one setting's configuration file
+internal/config/          # locating, loading, and editing one setting's configuration file
 internal/supplied/        # reading a supplied file and judging its input's health
 internal/health/          # the health record every input reports
 internal/readout/         # assembling the readout
+internal/state/           # one setting's tool history: the gesture log and the dismissals replayed from it
 internal/devtools/sweep/  # disclosure sweep run before every push; not part of the binary
 ```
 

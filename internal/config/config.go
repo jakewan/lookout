@@ -43,9 +43,28 @@ type Input struct {
 }
 
 // Workstream is one user-defined line of work and the items that belong to it.
+// Completed is the local date, as YYYY-MM-DD, the user marked it finished, or
+// empty while it is live.
 type Workstream struct {
-	Name    string
-	Members []Member
+	Name      string
+	Members   []Member
+	Completed string
+}
+
+// dateLayout is how configuration dates are written: a calendar date with no
+// zone, read in the zone of the clock lookout runs under.
+const dateLayout = "2006-01-02"
+
+// CompletedThrough is the instant a completed workstream's date ends in loc:
+// an item touched after it has moved since the workstream was finished.
+func (w Workstream) CompletedThrough(loc *time.Location) time.Time {
+	day, err := time.ParseInLocation(dateLayout, w.Completed, loc)
+	if err != nil {
+		// Parse rejects an invalid date, so only a Workstream built by hand reaches
+		// here; treating it as never ending keeps its members claimed.
+		return time.Time{}
+	}
+	return day.AddDate(0, 0, 1)
 }
 
 // Member names one item by its input and its id within that input.
@@ -68,12 +87,23 @@ func Locate(getenv func(string) string, setting string) (string, error) {
 			return "", fmt.Errorf("setting %q is not a valid name: use lowercase letters, digits, - and _", setting)
 		}
 		path := filepath.Join(dir, setting+".yml")
-		if _, statErr := os.Stat(path); statErr != nil {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
 			return "", fmt.Errorf("no configuration for setting %q: %w", setting, statErr)
+		}
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("the configuration for setting %q, %s, is not a file", setting, path)
 		}
 		return path, nil
 	}
 	if path := getenv("LOOKOUT_CONFIG"); path != "" {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			return "", fmt.Errorf("LOOKOUT_CONFIG names %s: %w", path, statErr)
+		}
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("LOOKOUT_CONFIG names %s, which is not a file", path)
+		}
 		return path, nil
 	}
 	if err != nil {
@@ -91,7 +121,7 @@ func Locate(getenv func(string) string, setting string) (string, error) {
 	}
 	names := make([]string, 0, len(found))
 	for _, p := range found {
-		names = append(names, settingName(p))
+		names = append(names, strings.TrimSuffix(filepath.Base(p), filepath.Ext(p)))
 	}
 	return "", fmt.Errorf("several settings are configured in %s (%s): choose one with --setting <name> or LOOKOUT_CONFIG", dir, strings.Join(names, ", "))
 }
@@ -127,16 +157,32 @@ func dir(getenv func(string) string) (string, error) {
 	return "", errors.New("cannot find the configuration directory: neither XDG_CONFIG_HOME nor HOME is set")
 }
 
-func settingName(path string) string {
-	return strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+// Name is the setting a configuration file at path configures: its file name
+// without the extension. It must be a valid name whichever route located the
+// file, because state is kept per setting name.
+func Name(path string) (string, error) {
+	name, err := settingName(path)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", path, err)
+	}
+	return name, nil
+}
+
+func settingName(path string) (string, error) {
+	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	if !namePattern.MatchString(name) {
+		return "", fmt.Errorf("%q is not a valid setting name: name the file with lowercase letters, digits, - and _, such as personal.yml", name)
+	}
+	return name, nil
 }
 
 type fileShape struct {
 	EventWindow string      `yaml:"event_window"`
 	Inputs      []inputFile `yaml:"inputs"`
 	Workstreams []struct {
-		Name    string   `yaml:"name"`
-		Members []string `yaml:"members"`
+		Name      string   `yaml:"name"`
+		Members   []string `yaml:"members"`
+		Completed string   `yaml:"completed"`
 	} `yaml:"workstreams"`
 }
 
@@ -161,6 +207,24 @@ func load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading configuration: %w", err)
 	}
+	return parse(data, path)
+}
+
+// Parse checks configuration text as if it were read from path, which names
+// the setting and anchors relative supplied paths. Every error names path.
+func Parse(data []byte, path string) (*Config, error) {
+	cfg, err := parse(data, path)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return cfg, nil
+}
+
+func parse(data []byte, path string) (*Config, error) {
+	setting, err := settingName(path)
+	if err != nil {
+		return nil, err
+	}
 	var shape fileShape
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -168,7 +232,7 @@ func load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing configuration: %w", decodeErr)
 	}
 
-	cfg := &Config{Setting: settingName(path), Path: path, EventWindow: defaultEventWindow}
+	cfg := &Config{Setting: setting, Path: path, EventWindow: defaultEventWindow}
 	if shape.EventWindow != "" {
 		if cfg.EventWindow, err = duration("event_window", shape.EventWindow); err != nil {
 			return nil, err
@@ -215,7 +279,12 @@ func load(path string) (*Config, error) {
 		if slices.ContainsFunc(cfg.Workstreams, func(w Workstream) bool { return w.Name == ws.Name }) {
 			return nil, fmt.Errorf("workstream %q is listed twice", ws.Name)
 		}
-		w := Workstream{Name: ws.Name}
+		w := Workstream{Name: ws.Name, Completed: ws.Completed}
+		if ws.Completed != "" {
+			if _, dateErr := time.Parse(dateLayout, ws.Completed); dateErr != nil {
+				return nil, fmt.Errorf("workstream %q completed %q is not a date such as 2030-06-15", ws.Name, ws.Completed)
+			}
+		}
 		for _, m := range ws.Members {
 			input, id, ok := strings.Cut(m, ":")
 			if !ok || id == "" {

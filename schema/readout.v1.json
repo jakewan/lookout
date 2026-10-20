@@ -11,7 +11,9 @@
     "event_window_seconds",
     "workstreams",
     "unplaced",
-    "health"
+    "health",
+    "dismissed_count",
+    "completed_count"
   ],
   "properties": {
     "schema": {
@@ -31,14 +33,14 @@
       "minimum": 0
     },
     "workstreams": {
-      "description": "In the order the configuration states.",
+      "description": "In the order the configuration states. A workstream the user completed is left out; completed_count says how many were.",
       "type": "array",
       "items": {
         "$ref": "#/$defs/workstream"
       }
     },
     "unplaced": {
-      "description": "Items from readable inputs that no workstream names.",
+      "description": "Items from readable inputs that no live workstream names. A completed workstream's member returns here once touched after the day it was completed, and an item the user dismissed returns once touched after the dismissal; until then dismissed_count counts it.",
       "type": "array",
       "items": {
         "$ref": "#/$defs/placed_item"
@@ -50,6 +52,16 @@
       "items": {
         "$ref": "https://raw.githubusercontent.com/jakewan/lookout/main/schema/health.v1.json"
       }
+    },
+    "dismissed_count": {
+      "description": "Items left out of unplaced because the user dismissed them and they have not been touched since, so an empty unplaced is not mistaken for a quiet day.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "completed_count": {
+      "description": "Completed workstreams left out of workstreams.",
+      "type": "integer",
+      "minimum": 0
     }
   },
   "$defs": {
