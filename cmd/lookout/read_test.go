@@ -133,6 +133,7 @@ type healthDoc struct {
 	RecordCount      int      `json:"record_count"`
 	MissingFields    []string `json:"missing_fields"`
 	SchemaViolations []string `json:"schema_violations"`
+	SupplierReason   *string  `json:"supplier_reason"`
 }
 
 func (d readoutDoc) health(t *testing.T, input string) healthDoc {
@@ -288,13 +289,30 @@ func TestReadHealth(t *testing.T) {
 	healthyItems := []any{item("ABC-1", time.Hour, nil)}
 	cases := []struct {
 		name      string
-		file      any // nil: no file at all; string: raw bytes; map: JSON document
+		file      any // nil: no file at all; directory: a directory in its place; string: raw bytes; map: JSON document
 		expect    bool
 		status    string
 		reasons   []string
 		missing   []string
 		violation bool
+		foreign   bool // the record must carry nothing read from the file
+		reason    string
 	}{
+		{name: "unreadable", file: directory{}, status: "error", reasons: []string{"unreadable"}},
+		// Both forms are valid RFC 3339, so the schema passes them, but Go's time
+		// parser rejects them; the input must degrade rather than fail the run.
+		{name: "lowercase time separator", file: suppliedDoc("tracker", healthyItems, map[string]any{
+			"fetched_at": "2030-06-15t11:00:00Z", "attempted_at": "2030-06-15t11:00:00Z",
+		}), status: "degraded", reasons: []string{"schema"}, violation: true, foreign: true},
+		{name: "leap second in an item", file: suppliedDoc("tracker", []any{
+			map[string]any{"id": "ABC-1", "last_touched": "2030-06-30T23:59:60Z", "state": "open", "links": []any{}, "attrs": map[string]any{}},
+		}, nil), status: "degraded", reasons: []string{"schema"}, violation: true, foreign: true},
+		{name: "written for another input that reports error", file: suppliedDoc("calendar", healthyItems, map[string]any{
+			"supplier_status": "error", "fetched_at": stamp(30 * time.Hour),
+		}), status: "degraded", reasons: []string{"input_mismatch"}, foreign: true},
+		{name: "supplier reason is carried", file: suppliedDoc("tracker", healthyItems, map[string]any{
+			"supplier_status": "degraded", "reason": "estimates hidden by the source",
+		}), status: "degraded", reasons: []string{"supplier_degraded"}, reason: "estimates hidden by the source"},
 		{name: "healthy", file: suppliedDoc("tracker", healthyItems, nil), status: "ok"},
 		{name: "expected but missing", file: nil, status: "error", reasons: []string{"missing"}},
 		{name: "older than max_age", file: suppliedDoc("tracker", healthyItems, map[string]any{
@@ -311,7 +329,7 @@ func TestReadHealth(t *testing.T) {
 			status: "degraded", reasons: []string{"input_mismatch"}},
 		{name: "supplier reports error", file: suppliedDoc("tracker", healthyItems, map[string]any{
 			"supplier_status": "error", "reason": "source refused the request",
-		}), status: "error", reasons: []string{"supplier_error"}},
+		}), status: "error", reasons: []string{"supplier_error"}, reason: "source refused the request"},
 		{name: "supplier error is never softened by freshness", file: suppliedDoc("tracker", healthyItems, map[string]any{
 			"supplier_status": "error", "fetched_at": stamp(30 * time.Hour), "attempted_at": stamp(time.Hour),
 		}), status: "error", reasons: []string{"supplier_error", "stale", "supplier_failed"}},
@@ -337,6 +355,10 @@ inputs:
 workstreams: []
 `)
 			switch v := tc.file.(type) {
+			case directory:
+				if err := os.Mkdir(filepath.Join(f.dir, "tracker.json"), 0o755); err != nil {
+					t.Fatal(err)
+				}
 			case string:
 				f.write("tracker.json", v)
 			case map[string]any:
@@ -361,9 +383,21 @@ workstreams: []
 			if tc.violation != (len(h.SchemaViolations) > 0) {
 				t.Errorf("schema_violations = %v, want present: %v", h.SchemaViolations, tc.violation)
 			}
+			if tc.foreign && (h.FetchedAt != nil || h.RecordCount != 0) {
+				t.Errorf("fetched_at = %v, record_count = %d, want nothing taken from a file lookout cannot trust", h.FetchedAt, h.RecordCount)
+			}
+			switch {
+			case tc.reason != "" && (h.SupplierReason == nil || *h.SupplierReason != tc.reason):
+				t.Errorf("supplier_reason = %v, want %q", h.SupplierReason, tc.reason)
+			case tc.reason == "" && h.SupplierReason != nil:
+				t.Errorf("supplier_reason = %q, want null", *h.SupplierReason)
+			}
 		})
 	}
 }
+
+// directory marks a TestReadHealth case whose supplied path is a directory.
+type directory struct{}
 
 // TestReadIgnoresInputsTheSettingDoesNotExpect pins the hidden state: a
 // supplied file the configuration does not name is never read or reported.
@@ -566,13 +600,15 @@ func TestReadSelectsOneSetting(t *testing.T) {
 
 func TestReadRefusesAnInvalidConfiguration(t *testing.T) {
 	cases := map[string]string{
-		"member names an unknown input": "inputs: []\nworkstreams:\n  - name: a\n    members: [\"tracker:ABC-1\"]\n",
-		"member has no input prefix":    "inputs:\n  - {name: tracker, supplied: t.json, max_age: 1h}\nworkstreams:\n  - name: a\n    members: [\"ABC-1\"]\n",
-		"duplicate input":               "inputs:\n  - {name: tracker, supplied: t.json, max_age: 1h}\n  - {name: tracker, supplied: u.json, max_age: 1h}\nworkstreams: []\n",
-		"duplicate workstream":          "inputs: []\nworkstreams:\n  - {name: a, members: []}\n  - {name: a, members: []}\n",
-		"input without max_age":         "inputs:\n  - {name: tracker, supplied: t.json}\nworkstreams: []\n",
-		"unknown key":                   "inputs: []\nworkstreams: []\nworkstream: []\n",
-		"input name with a colon":       "inputs:\n  - {name: \"a:b\", supplied: t.json, max_age: 1h}\nworkstreams: []\n",
+		"member names an unknown input":    "inputs: []\nworkstreams:\n  - name: a\n    members: [\"tracker:ABC-1\"]\n",
+		"member has no input prefix":       "inputs:\n  - {name: tracker, supplied: t.json, max_age: 1h}\nworkstreams:\n  - name: a\n    members: [\"ABC-1\"]\n",
+		"duplicate input":                  "inputs:\n  - {name: tracker, supplied: t.json, max_age: 1h}\n  - {name: tracker, supplied: u.json, max_age: 1h}\nworkstreams: []\n",
+		"duplicate workstream":             "inputs: []\nworkstreams:\n  - {name: a, members: []}\n  - {name: a, members: []}\n",
+		"input without max_age":            "inputs:\n  - {name: tracker, supplied: t.json}\nworkstreams: []\n",
+		"unknown key":                      "inputs: []\nworkstreams: []\nworkstream: []\n",
+		"input name with a colon":          "inputs:\n  - {name: \"a:b\", supplied: t.json, max_age: 1h}\nworkstreams: []\n",
+		"member listed twice":              "inputs:\n  - {name: tracker, supplied: t.json, max_age: 1h}\nworkstreams:\n  - name: a\n    members: [\"tracker:ABC-1\", \"tracker:ABC-1\"]\n",
+		"event window finer than a second": "event_window: 1500ms\ninputs: []\nworkstreams: []\n",
 	}
 	for name, config := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -589,6 +625,15 @@ func TestReadRefusesAnInvalidConfiguration(t *testing.T) {
 				t.Errorf("stderr = %q, want it to name the configuration file", stderr)
 			}
 		})
+	}
+}
+
+func TestReadRefusesAnEmptySetting(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", "inputs: []\nworkstreams: []\n")
+	code, stdout, stderr := f.run("read", "--json", "--setting=")
+	if code != exitUsage || stdout != "" || !strings.Contains(stderr, "--setting") {
+		t.Errorf("exit code = %d, stdout = %q, stderr = %q, want a usage error: an empty --setting selects nothing", code, stdout, stderr)
 	}
 }
 

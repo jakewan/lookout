@@ -10,7 +10,7 @@ It is the data layer only. It emits a readout for a renderer to consume and does
 
 ## Status and layout
 
-Early. `lookout read --json` reads supplied files only; the git, GitHub, and session adapters, and the commands that edit the configuration, are not built yet.
+Early. `lookout read --json` is the only command, and it reads supplied files only. The git, GitHub, and session adapters, the commands that edit the configuration or write state, and the baseline snapshot are not built yet.
 
 ```
 cmd/lookout/              # binary entry point and its behavior specs

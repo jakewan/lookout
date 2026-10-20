@@ -151,9 +151,17 @@ func load(path string) (*Config, error) {
 		if cfg.EventWindow, err = duration("event_window", shape.EventWindow); err != nil {
 			return nil, err
 		}
+		// The readout states the window in whole seconds, so a finer one would
+		// filter by a bound the readout cannot report.
+		if cfg.EventWindow%time.Second != 0 {
+			return nil, fmt.Errorf("event_window %q must be a whole number of seconds", shape.EventWindow)
+		}
 	}
 
-	base := filepath.Dir(path)
+	base, err := filepath.Abs(filepath.Dir(path))
+	if err != nil {
+		return nil, fmt.Errorf("resolving the configuration's directory: %w", err)
+	}
 	for _, in := range shape.Inputs {
 		if !namePattern.MatchString(in.Name) {
 			return nil, fmt.Errorf("input name %q is not valid: use lowercase letters, digits, - and _", in.Name)
@@ -194,7 +202,11 @@ func load(path string) (*Config, error) {
 			if !slices.ContainsFunc(cfg.Inputs, func(i Input) bool { return i.Name == input }) {
 				return nil, fmt.Errorf("workstream %q member %q names input %q, which the configuration does not list", ws.Name, m, input)
 			}
-			w.Members = append(w.Members, Member{Input: input, ID: id})
+			member := Member{Input: input, ID: id}
+			if slices.Contains(w.Members, member) {
+				return nil, fmt.Errorf("workstream %q lists member %q twice", ws.Name, m)
+			}
+			w.Members = append(w.Members, member)
 		}
 		cfg.Workstreams = append(cfg.Workstreams, w)
 	}

@@ -35,6 +35,7 @@ type Record struct {
 	RecordCount      int        `json:"record_count"`
 	MissingFields    []string   `json:"missing_fields"`
 	SchemaViolations []string   `json:"schema_violations"`
+	SupplierReason   *string    `json:"supplier_reason"`
 }
 
 // New returns an ok record for input with every list empty rather than nil,

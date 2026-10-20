@@ -5,7 +5,7 @@
   "description": "lookout's own judgment of one expected input. An input's report about itself can lower this status but never raise it.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["input", "status", "reasons", "fetched_at", "record_count", "missing_fields", "schema_violations"],
+  "required": ["input", "status", "reasons", "fetched_at", "record_count", "missing_fields", "schema_violations", "supplier_reason"],
   "properties": {
     "input": { "type": "string", "minLength": 1 },
     "status": {
@@ -42,9 +42,13 @@
       "items": { "type": "string" }
     },
     "schema_violations": {
-      "description": "One line per violation: where in the file, and what was wrong.",
+      "description": "One line per violation, saying what was wrong and, where the validator reports it, where in the file.",
       "type": "array",
       "items": { "type": "string" }
+    },
+    "supplier_reason": {
+      "description": "The supplier's own explanation, passed through for people; null when it gave none or the file could not be trusted.",
+      "type": ["string", "null"]
     }
   }
 }

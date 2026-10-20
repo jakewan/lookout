@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"time"
@@ -40,6 +39,7 @@ type document struct {
 	FetchedAt      time.Time         `json:"fetched_at"`
 	AttemptedAt    time.Time         `json:"attempted_at"`
 	SupplierStatus string            `json:"supplier_status"`
+	Reason         string            `json:"reason"`
 	MissingFields  []string          `json:"missing_fields"`
 	Items          []json.RawMessage `json:"items"`
 }
@@ -65,48 +65,67 @@ func NewReader() (*Reader, error) {
 	return &Reader{schema: sch}, nil
 }
 
-// Read judges the input in at now. It returns an error only when lookout itself
-// cannot work; every problem with the file is reported in the health record
-// instead.
-func (rd *Reader) Read(in config.Input, now time.Time) (Reading, error) {
+// Read judges the input in at now. Every problem with the file is reported in
+// the returned health record, so one bad file never stops a run.
+func (rd *Reader) Read(in config.Input, now time.Time) Reading {
 	r := Reading{Health: health.New(in.Name), Items: make([]Item, 0)}
 
 	data, err := os.ReadFile(in.Supplied)
 	if errors.Is(err, fs.ErrNotExist) {
 		r.Health.Lower(health.Error, health.Missing)
-		return r, nil
+		return r
 	}
 	if err != nil {
 		r.Health.Lower(health.Error, health.Unreadable)
-		return r, nil
+		return r
 	}
 
 	inst, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
 	if err != nil {
 		r.Health.Lower(health.Degraded, health.Schema)
 		r.Health.SchemaViolations = append(r.Health.SchemaViolations, "not JSON: "+err.Error())
-		return r, nil
+		return r
 	}
 	if validateErr := rd.schema.Validate(inst); validateErr != nil {
 		r.Health.Lower(health.Degraded, health.Schema)
 		r.Health.SchemaViolations = append(r.Health.SchemaViolations, violations(validateErr)...)
-		return r, nil
+		return r
 	}
 
+	// The schema accepts some RFC 3339 forms Go's time parser refuses, such as a
+	// lowercase "t" or a leap second, so a file can pass supplied.v1 and still
+	// fail to decode. That is a problem with the file, not with lookout, so it
+	// degrades the input rather than failing the run.
 	var doc document
-	if err := json.Unmarshal(data, &doc); err != nil {
-		return r, fmt.Errorf("decoding %s after it passed supplied.v1: %w", in.Supplied, err)
+	items := make([]Item, 0)
+	decodeErr := json.Unmarshal(data, &doc)
+	for i := 0; decodeErr == nil && i < len(doc.Items); i++ {
+		var f itemFields
+		if decodeErr = json.Unmarshal(doc.Items[i], &f); decodeErr == nil {
+			items = append(items, Item{ID: f.ID, Title: f.Title, LastTouched: f.LastTouched, StartedAt: f.StartedAt, Raw: doc.Items[i]})
+		}
+	}
+	if decodeErr != nil {
+		r.Health.Lower(health.Degraded, health.Schema)
+		r.Health.SchemaViolations = append(r.Health.SchemaViolations, "a value lookout cannot decode: "+decodeErr.Error())
+		return r
+	}
+
+	// A file written for another input says nothing about this one, so none of
+	// its own claims, its supplier status included, reach this record.
+	if doc.Input != in.Name {
+		r.Health.Lower(health.Degraded, health.InputMismatch)
+		return r
 	}
 	fetched := doc.FetchedAt.UTC()
 	r.Health.FetchedAt = &fetched
 	r.Health.RecordCount = len(doc.Items)
+	if doc.Reason != "" {
+		r.Health.SupplierReason = &doc.Reason
+	}
 
 	if doc.SupplierStatus == "error" {
 		r.Health.Lower(health.Error, health.SupplierError)
-	}
-	if doc.Input != in.Name {
-		r.Health.Lower(health.Degraded, health.InputMismatch)
-		return r, nil
 	}
 	if now.Sub(doc.FetchedAt) > in.MaxAge {
 		r.Health.Lower(health.Degraded, health.Stale)
@@ -125,14 +144,8 @@ func (rd *Reader) Read(in config.Input, now time.Time) (Reading, error) {
 		r.Health.Lower(health.Degraded, health.Empty)
 	}
 
-	for _, raw := range doc.Items {
-		var f itemFields
-		if err := json.Unmarshal(raw, &f); err != nil {
-			return r, fmt.Errorf("decoding an item of %s after it passed supplied.v1: %w", in.Supplied, err)
-		}
-		r.Items = append(r.Items, Item{ID: f.ID, Title: f.Title, LastTouched: f.LastTouched, StartedAt: f.StartedAt, Raw: raw})
-	}
-	return r, nil
+	r.Items = items
+	return r
 }
 
 // violations flattens a validation failure into one line per failed keyword,

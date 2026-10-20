@@ -59,7 +59,7 @@
           "minimum": 0
         },
         "events": {
-          "description": "Touches within the event window, newest first.",
+          "description": "Each member item's latest touch, where it falls within the event window, newest first.",
           "type": "array",
           "items": {
             "type": "object",
@@ -74,7 +74,7 @@
           }
         },
         "inputs_incomplete": {
-          "description": "Inputs this workstream draws on whose health is not ok, so its figures may understate.",
+          "description": "Inputs this workstream draws on whose health is error or degraded, so its figures may understate.",
           "type": "array",
           "items": { "type": "string" }
         }

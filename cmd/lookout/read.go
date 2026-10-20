@@ -26,6 +26,12 @@ func read(args []string, env environment, stdout io.Writer, diag *log.Logger) in
 		diag.Printf("lookout read: unexpected argument %q\n%s", fs.Arg(0), usage)
 		return exitUsage
 	}
+	settingGiven := false
+	fs.Visit(func(f *flag.Flag) { settingGiven = settingGiven || f.Name == "setting" })
+	if settingGiven && *setting == "" {
+		diag.Printf("lookout read: --setting needs a name\n%s", usage)
+		return exitUsage
+	}
 	if !*asJSON {
 		diag.Printf("lookout read: --json is required; JSON is the only output so far\n%s", usage)
 		return exitUsage
@@ -50,12 +56,7 @@ func read(args []string, env environment, stdout io.Writer, diag *log.Logger) in
 	now := env.now()
 	readings := make(map[string]supplied.Reading, len(cfg.Inputs))
 	for _, in := range cfg.Inputs {
-		r, readErr := reader.Read(in, now)
-		if readErr != nil {
-			diag.Printf("lookout read: %v", readErr)
-			return exitFailure
-		}
-		readings[in.Name] = r
+		readings[in.Name] = reader.Read(in, now)
 	}
 
 	enc := json.NewEncoder(stdout)

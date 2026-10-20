@@ -70,7 +70,8 @@ func Build(cfg *config.Config, readings map[string]supplied.Reading, now time.Ti
 		for _, m := range ws.Members {
 			claimed[key{m.Input, m.ID}] = true
 			reading := readings[m.Input]
-			if reading.Health.Status != health.OK && !slices.Contains(w.InputsIncomplete, m.Input) {
+			unhealthy := reading.Health.Status == health.Error || reading.Health.Status == health.Degraded
+			if unhealthy && !slices.Contains(w.InputsIncomplete, m.Input) {
 				w.InputsIncomplete = append(w.InputsIncomplete, m.Input)
 			}
 			i := slices.IndexFunc(reading.Items, func(it supplied.Item) bool { return it.ID == m.ID })
