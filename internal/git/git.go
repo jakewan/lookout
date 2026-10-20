@@ -38,6 +38,9 @@ type Scope struct {
 type Reader struct {
 	getenv func(string) string
 	git    string
+	// unsearched counts the PATH directories lookout could not look into
+	// while it found no git, so "not found" is not claimed of them.
+	unsearched int
 }
 
 // NewReader finds git on the invocation's PATH. exec.Command would search the
@@ -53,9 +56,13 @@ func NewReader(getenv func(string) string) *Reader {
 			continue
 		}
 		candidate := filepath.Join(dir, "git")
-		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
-			r.git = candidate
+		info, err := os.Stat(candidate)
+		if err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+			r.git, r.unsearched = candidate, 0
 			break
+		}
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			r.unsearched++
 		}
 	}
 	return r
@@ -103,7 +110,14 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc Scope, now time.T
 	out := readout.Reading{Health: health.New(in.Name), Items: make([]readout.Item, 0)}
 	if r.git == "" {
 		out.Health.Lower(health.Error, health.GitFailed)
-		out.Health.Details = append(out.Health.Details, "git: not found on PATH")
+		switch r.unsearched {
+		case 0:
+			out.Health.Details = append(out.Health.Details, "git: not found on PATH")
+		case 1:
+			out.Health.Details = append(out.Health.Details, "git: not found on PATH, and 1 directory on it could not be searched")
+		default:
+			out.Health.Details = append(out.Health.Details, fmt.Sprintf("git: not found on PATH, and %d directories on it could not be searched", r.unsearched))
+		}
 		return out
 	}
 	if problem := r.checkVersion(ctx); problem != "" {

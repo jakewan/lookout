@@ -731,6 +731,23 @@ func TestReadSearchesOnlyAbsolutePathDirectories(t *testing.T) {
 	}
 }
 
+// TestReadSaysWhenItCouldNotSearchThePath pins that a PATH directory lookout
+// cannot look into is not taken for one with no git in it.
+func TestReadSaysWhenItCouldNotSearchThePath(t *testing.T) {
+	f := newFixture(t).withGit()
+	f.write("personal.yml", fencedCode)
+	f.branch(f.repo("code/app", "git@github.com:alice/app.git"), "feat", time.Hour)
+	shut := t.TempDir()
+	f.locked(shut)
+	f.env["PATH"] = shut + ":" + t.TempDir()
+
+	h := f.read().health(t, "code")
+
+	if h.Status != "error" || !slices.Equal(h.Details, []string{"git: not found on PATH, and 1 directory on it could not be searched"}) {
+		t.Errorf("health = %+v, want git not found, saying a directory could not be searched", h)
+	}
+}
+
 // TestReadIgnoresTheCallersRepositoryVariables pins that git is never pointed
 // at another repository by variables a hook or wrapper exported, such as a
 // pre-push hook running these specs.
