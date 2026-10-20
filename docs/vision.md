@@ -46,6 +46,8 @@ A setting is selected explicitly, and two settings are never merged into one vie
 
 The configuration file owns the stated order; any planning page refers to it rather than holding a second copy. Discovery proposes changes to the file and never makes them: activity matching no workstream appears in its own group, with a one-step adopt-or-dismiss, so the configuration's own staleness is visible on the dashboard and its upkeep is a decision at the moment something new appears, not a separate chore. The configuration describes the user's own systems, so it lives on the user's machine, never in lookout's repository.
 
+**Every forge-backed input is fenced by configured owners.** A setting names the owners whose repositories, pull requests and sessions it admits, and nothing else enters its readout. One account's credentials often reach several contexts' work, and the fence keeps them from pulling one context's work into another's view.
+
 **Genericity by configuration.** lookout serves users whose repositories, trackers and ways of grouping work its authors never see. Whatever one user or one organization does differently — which owners count, which inputs a setting expects, what a tracker calls a sprint — is configuration, never code.
 
 **Data layer first; the renderer stays replaceable.** The part that has to be built whatever draws it is the configuration, one adapter per input, and a health record per input. A tool supplies reduced facts, and a surface renders them. The renderer is chosen later, informed by what the data layer turns out to need.
