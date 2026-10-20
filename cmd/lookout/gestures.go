@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/jakewan/lookout/internal/config"
@@ -28,7 +29,7 @@ func adopt(args []string, env environment, _ io.Writer, diag *log.Logger) int {
 	if !ok {
 		return exitUsage
 	}
-	g := state.Gesture{Gesture: "adopt", Item: pos[0], Workstream: pos[1], New: *create}
+	g := state.Gesture{Gesture: "adopt", Item: m.Input + ":" + m.ID, Workstream: pos[1], New: *create}
 	return record(env, diag, *setting, g, func(path string, g *state.Gesture) error {
 		return edit(path, func(d *config.Document) error {
 			from, err := d.Adopt(m, pos[1], *create)
@@ -89,7 +90,7 @@ func dismiss(args []string, env environment, _ io.Writer, diag *log.Logger) int 
 	if !ok {
 		return exitUsage
 	}
-	g := state.Gesture{Gesture: "dismiss", Item: pos[0]}
+	g := state.Gesture{Gesture: "dismiss", Item: m.Input + ":" + m.ID}
 	return record(env, diag, *setting, g, func(path string, _ *state.Gesture) error {
 		cfg, err := config.Load(path)
 		if err != nil {
@@ -102,14 +103,25 @@ func dismiss(args []string, env environment, _ io.Writer, diag *log.Logger) int 
 		// only a live workstream's claim rules a dismissal out.
 		for _, w := range cfg.Workstreams {
 			if w.Completed == "" && slices.Contains(w.Members, m) {
-				return config.Refuse("%s belongs to workstream %q, so it is never unplaced", pos[0], w.Name)
+				return config.Refuse("%s belongs to workstream %q, so it is never unplaced", g.Item, w.Name)
 			}
 		}
 		return nil
 	})
 }
 
+// memberArg reads an <input>:<id> argument. A token lookout unplaced printed
+// quoted, because its id holds a tab or line break, is decoded; an input name
+// never starts with a quote, so a quoted token cannot be read as another.
 func memberArg(cmd, arg string, diag *log.Logger) (config.Member, bool) {
+	if strings.HasPrefix(arg, `"`) {
+		decoded, err := strconv.Unquote(arg)
+		if err != nil {
+			diag.Printf("lookout %s: %s is quoted but not as lookout unplaced quotes it: %v\n%s", cmd, arg, err, usage)
+			return config.Member{}, false
+		}
+		arg = decoded
+	}
 	input, id, ok := strings.Cut(arg, ":")
 	if !ok || input == "" || id == "" {
 		diag.Printf("lookout %s: %q is not an item: write it as <input>:<id>, as lookout unplaced lists it\n%s", cmd, arg, usage)

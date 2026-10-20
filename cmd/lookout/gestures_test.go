@@ -825,3 +825,30 @@ func TestAValueSpanningLinesIsRefused(t *testing.T) {
 		})
 	}
 }
+
+func TestAQuotedTokenFromTheListingSelectsTheOriginalID(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.supplied("tracker.json", suppliedDoc("tracker", []any{item("two\tpart", time.Hour, nil)}, nil))
+
+	token, _, _ := strings.Cut(f.mustRun("unplaced"), "\t")
+	if token != `"tracker:two\tpart"` {
+		t.Fatalf("token = %q, want it quoted", token)
+	}
+	f.mustRun("dismiss", token)
+
+	if ids := unplacedIDs(f.read()); len(ids) != 0 {
+		t.Errorf("unplaced = %v, want the original id dismissed", ids)
+	}
+	if gs := f.gestures("personal"); len(gs) != 1 || gs[0].Item != "tracker:two\tpart" {
+		t.Errorf("gestures = %+v, want the decoded item recorded", gs)
+	}
+}
+
+func TestAMalformedQuotedTokenIsAUsageError(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	if code, _, stderr := f.run("dismiss", `"tracker:two\qpart"`); code != exitUsage || !strings.Contains(stderr, "quoted") {
+		t.Errorf("exit code = %d, stderr = %q, want a usage error about the quoting", code, stderr)
+	}
+}
