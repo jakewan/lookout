@@ -85,7 +85,7 @@ func Open(getenv func(string) string, setting, configPath string) (*Store, error
 	for n := 1; scanner.Scan(); n++ {
 		var g Gesture
 		if err := json.Unmarshal(scanner.Bytes(), &g); err != nil {
-			return nil, fmt.Errorf("%s line %d cannot be read (%v): lookout writes this file itself, so restore it from a backup or remove the line", filepath.Join(s.dir, logName), n, err)
+			return nil, fmt.Errorf("%s line %d cannot be read: lookout writes this file itself, so restore it from a backup or remove the line: %w", filepath.Join(s.dir, logName), n, err)
 		}
 		s.gestures = append(s.gestures, g)
 	}

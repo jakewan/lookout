@@ -275,22 +275,22 @@ func TestAdoptRefusals(t *testing.T) {
 
 func TestEditsRefuseFileShapesTheyCannotKeepIntact(t *testing.T) {
 	head := "inputs:\n  - name: tracker\n    supplied: tracker.json\n    max_age: 24h\n"
-	cases := map[string]string{
-		"alias":           head + "workstreams:\n  - name: billing\n    members: &m\n      - tracker:ABC-1\n  - name: other\n    members: *m\n",
-		"second document": head + "workstreams:\n  - name: billing\n    members:\n      - tracker:ABC-1\n---\nworkstreams: []\n",
-		"flow list":       head + "workstreams:\n  - name: billing\n    members: [\"tracker:ABC-1\"]\n",
-		"lone CR":         strings.ReplaceAll(head+"workstreams:\n  - name: billing\n    members:\n      - tracker:ABC-1\n", "\n", "\r"),
-		"tag":             head + "workstreams:\n  - name: !!str billing\n    members:\n      - tracker:ABC-1\n",
+	cases := map[string]struct{ config, mention string }{
+		"alias":           {head + "workstreams:\n  - name: billing\n    members: &m\n      - tracker:ABC-1\n  - name: other\n    members: *m\n", "anchor"},
+		"second document": {head + "workstreams:\n  - name: billing\n    members:\n      - tracker:ABC-1\n---\nworkstreams: []\n", "more than one YAML document"},
+		"flow list":       {head + "workstreams:\n  - name: billing\n    members: [\"tracker:ABC-1\"]\n", "flow list"},
+		"lone CR":         {strings.ReplaceAll(head+"workstreams:\n  - name: billing\n    members:\n      - tracker:ABC-1\n", "\n", "\r"), "carriage return"},
+		"tag":             {head + "workstreams:\n  - name: !!str billing\n    members:\n      - tracker:ABC-1\n", "tag"},
 	}
-	for name, config := range cases {
+	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
-			f.write("personal.yml", config)
+			f.write("personal.yml", c.config)
 			code, _, stderr := f.run("adopt", "tracker:ABC-3", "billing")
-			if code != exitFailure || stderr == "" {
-				t.Errorf("exit code = %d, stderr = %q, want a refusal saying what to change", code, stderr)
+			if code != exitFailure || !strings.Contains(stderr, c.mention) {
+				t.Errorf("exit code = %d, stderr = %q, want a refusal mentioning %q", code, stderr, c.mention)
 			}
-			if got := f.config("personal.yml"); got != config {
+			if got := f.config("personal.yml"); got != c.config {
 				t.Errorf("configuration changed:\n%q", got)
 			}
 		})
