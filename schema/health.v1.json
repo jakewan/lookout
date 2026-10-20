@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jakewan/lookout/schema/health.v1.json",
+  "title": "lookout input health, version 1",
+  "description": "lookout's own judgment of one expected input. An input's report about itself can lower this status but never raise it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["input", "status", "reasons", "fetched_at", "record_count", "missing_fields", "schema_violations"],
+  "properties": {
+    "input": { "type": "string", "minLength": 1 },
+    "status": {
+      "description": "error: the input cannot be read, or reports that it failed. degraded: it was read but cannot be trusted as complete. absent_by_design: the setting expects it to be absent.",
+      "enum": ["ok", "degraded", "error", "absent_by_design"]
+    },
+    "reasons": {
+      "description": "Every cause that lowered the status; empty when it is ok.",
+      "type": "array",
+      "items": {
+        "enum": [
+          "missing",
+          "unreadable",
+          "schema",
+          "input_mismatch",
+          "stale",
+          "supplier_failed",
+          "supplier_error",
+          "supplier_degraded",
+          "missing_fields",
+          "empty"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "fetched_at": {
+      "description": "When the source was last read successfully, where the input says.",
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "record_count": { "type": "integer", "minimum": 0 },
+    "missing_fields": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "schema_violations": {
+      "description": "One line per violation: where in the file, and what was wrong.",
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
