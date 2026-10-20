@@ -47,3 +47,61 @@ func TestTwoConfigurationsCannotShareOneLog(t *testing.T) {
 		t.Errorf("log = %s, want only the owner's gestures", data)
 	}
 }
+
+func newConfig(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "personal.yml")
+	if err := os.WriteFile(path, []byte("inputs: []\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestAReadDoesNotLoadAnotherConfigurationsLog covers a read that finds the
+// directory unowned, then loses a race to another configuration's first
+// gesture before it reads the log.
+func TestAReadDoesNotLoadAnotherConfigurationsLog(t *testing.T) {
+	home := t.TempDir()
+	getenv := func(k string) string { return map[string]string{"HOME": home}[k] }
+	a, b := newConfig(t), newConfig(t)
+	beforeLogRead = func() {
+		beforeLogRead = func() {}
+		s, err := Open(getenv, "personal", a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Append(Gesture{At: time.Now(), Gesture: "dismiss", Outcome: OK, Item: "a:1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { beforeLogRead = func() {} })
+
+	if _, err := Open(getenv, "personal", b); err == nil {
+		t.Errorf("Open succeeded on a directory another configuration claimed during it")
+	}
+}
+
+// TestAClaimInProgressIsNeverSeenHalfWritten covers a second invocation for
+// the same configuration looking while the first is publishing its claim.
+func TestAClaimInProgressIsNeverSeenHalfWritten(t *testing.T) {
+	home := t.TempDir()
+	getenv := func(k string) string { return map[string]string{"HOME": home}[k] }
+	cfg := newConfig(t)
+	first, err := Open(getenv, "personal", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var during error
+	beforeOwnerPublished = func() {
+		beforeOwnerPublished = func() {}
+		_, during = Open(getenv, "personal", cfg)
+	}
+	t.Cleanup(func() { beforeOwnerPublished = func() {} })
+
+	if err := first.Claim(); err != nil {
+		t.Fatal(err)
+	}
+	if during != nil {
+		t.Errorf("a look while the claim was being published failed: %v", during)
+	}
+}

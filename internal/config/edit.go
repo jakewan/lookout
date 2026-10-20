@@ -441,7 +441,7 @@ func (l *layout) item(n *yaml.Node) (wsItem, error) {
 		k, v := n.Content[i], n.Content[i+1]
 		switch k.Value {
 		case "name":
-			if v.Kind != yaml.ScalarNode || v.Line != k.Line || !l.onOneLine(v) {
+			if v.Kind != yaml.ScalarNode || v.Line != k.Line || !l.onOneLine(v, false) {
 				return wsItem{}, Refuse("the workstream name at line %d must be written on one line, on the same line as name:", k.Line)
 			}
 			it.nameValue = v
@@ -463,9 +463,11 @@ func (l *layout) item(n *yaml.Node) (wsItem, error) {
 // onOneLine reports whether the scalar n is written wholly on the line it
 // starts on. yaml.v3 gives only a scalar's start, and a quoted or plain scalar
 // can continue onto later lines, so the rest of its line is parsed alone and
-// must give the same value. The text before n is ASCII by the callers' checks,
-// so its character column is also its byte offset.
-func (l *layout) onOneLine(n *yaml.Node) bool {
+// must give the same value. It is parsed in the place it was written, as a
+// mapping value or a sequence item, since at the start of a document text
+// such as --- means something else. The text before n is ASCII by the
+// callers' checks, so its character column is also its byte offset.
+func (l *layout) onOneLine(n *yaml.Node, inSequence bool) bool {
 	if n.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
 		return false
 	}
@@ -473,11 +475,15 @@ func (l *layout) onOneLine(n *yaml.Node) bool {
 	if n.Column-1 > len(line) {
 		return false
 	}
-	var alone string
-	if err := yaml.Unmarshal([]byte(line[n.Column-1:]), &alone); err != nil {
-		return false
+	rest := []byte(line[n.Column-1:])
+	if inSequence {
+		var alone []string
+		err := yaml.Unmarshal(append([]byte("- "), rest...), &alone)
+		return err == nil && len(alone) == 1 && alone[0] == n.Value
 	}
-	return alone == n.Value
+	var alone map[string]string
+	err := yaml.Unmarshal(append([]byte("k: "), rest...), &alone)
+	return err == nil && len(alone) == 1 && alone["k"] == n.Value
 }
 
 func isComment(line string) bool { return strings.HasPrefix(strings.TrimSpace(line), "#") }
@@ -575,7 +581,7 @@ func (l *layout) addMember(idx int, scalar string) (string, error) {
 		last := it.members.Content[len(it.members.Content)-1]
 		at := last.Line - 1
 		prefix := l.lines[at][:min(last.Column-1, len(l.lines[at]))]
-		if !dashPrefix.MatchString(prefix) || last.Kind != yaml.ScalarNode || !l.onOneLine(last) {
+		if !dashPrefix.MatchString(prefix) || last.Kind != yaml.ScalarNode || !l.onOneLine(last, true) {
 			return "", Refuse("the last member at line %d is not written on one line as \"- <input>:<id>\"", last.Line)
 		}
 		return l.insert(at+1, prefix+scalar+l.eol), nil
@@ -600,7 +606,7 @@ func (l *layout) removeMember(idx int, token string) (string, error) {
 		}
 		at := m.Line - 1
 		prefix := l.lines[at][:min(m.Column-1, len(l.lines[at]))]
-		if !dashPrefix.MatchString(prefix) || !l.onOneLine(m) {
+		if !dashPrefix.MatchString(prefix) || !l.onOneLine(m, true) {
 			return "", Refuse("the member at line %d is not written on one line as \"- <input>:<id>\"", m.Line)
 		}
 		return l.join(l.lines[:at], l.lines[at+1:]), nil

@@ -48,6 +48,13 @@ const (
 	ownerName = "config"
 )
 
+// beforeLogRead and beforeOwnerPublished run at the two points another
+// invocation can interleave with this one; specs use them to do so.
+var (
+	beforeLogRead        = func() {}
+	beforeOwnerPublished = func() {}
+)
+
 // Store is one setting's state directory.
 type Store struct {
 	dir      string
@@ -74,16 +81,16 @@ func Open(getenv func(string) string, setting, configPath string) (*Store, error
 	}
 	s := &Store{dir: filepath.Join(base, setting), config: config}
 
+	// The owner is checked after the log is read: a log is written only once
+	// its owner is in place, so an owner absent after the read means the log
+	// read was empty, and one that appeared meanwhile is still caught.
+	beforeLogRead()
+	data, err := os.ReadFile(filepath.Join(s.dir, logName))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("reading the gesture log: %w", err)
+	}
 	if ownerErr := s.checkOwner(); ownerErr != nil && !errors.Is(ownerErr, fs.ErrNotExist) {
 		return nil, ownerErr
-	}
-
-	data, err := os.ReadFile(filepath.Join(s.dir, logName))
-	if errors.Is(err, fs.ErrNotExist) {
-		return s, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("reading the gesture log: %w", err)
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(nil, len(data)+1)
@@ -127,24 +134,38 @@ func (s *Store) checkOwner() error {
 }
 
 // Claim makes the state directory this configuration's, creating it on first
-// use, or reports that another configuration already owns it. The owner file is
-// created exclusively, so of two first gestures racing from different files
-// only one can win. The directory is private to its user because item ids name
-// the user's own work.
-func (s *Store) Claim() error {
-	if err := os.MkdirAll(s.dir, 0o700); err != nil {
-		return fmt.Errorf("creating the state directory: %w", err)
+// use, or reports that another configuration already owns it. The owner record
+// is written in full under a temporary name and then hard-linked into place,
+// which fails rather than replaces when an owner exists, so of two first
+// gestures racing from different files only one can win, and no one ever
+// reads a half-written owner. The directory is private to its user because
+// item ids name the user's own work.
+func (s *Store) Claim() (err error) {
+	if mkErr := os.MkdirAll(s.dir, 0o700); mkErr != nil {
+		return fmt.Errorf("creating the state directory: %w", mkErr)
 	}
-	f, err := os.OpenFile(filepath.Join(s.dir, ownerName), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, fs.ErrExist) {
-		return s.checkOwner()
+	if ownerErr := s.checkOwner(); !errors.Is(ownerErr, fs.ErrNotExist) {
+		return ownerErr
 	}
+	tmp, err := os.CreateTemp(s.dir, "."+ownerName+".tmp-*")
 	if err != nil {
 		return fmt.Errorf("writing state: %w", err)
 	}
-	_, writeErr := f.WriteString(s.config + "\n")
-	if err := errors.Join(writeErr, f.Sync(), f.Close()); err != nil {
-		return fmt.Errorf("writing state: %w", err)
+	defer func() {
+		if rmErr := os.Remove(tmp.Name()); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+			err = errors.Join(err, rmErr)
+		}
+	}()
+	_, writeErr := tmp.WriteString(s.config + "\n")
+	if syncErr := errors.Join(writeErr, tmp.Sync(), tmp.Close()); syncErr != nil {
+		return fmt.Errorf("writing state: %w", syncErr)
+	}
+	beforeOwnerPublished()
+	if linkErr := os.Link(tmp.Name(), filepath.Join(s.dir, ownerName)); linkErr != nil {
+		if errors.Is(linkErr, fs.ErrExist) {
+			return s.checkOwner()
+		}
+		return fmt.Errorf("writing state: %w", linkErr)
 	}
 	return nil
 }

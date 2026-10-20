@@ -852,3 +852,15 @@ func TestAMalformedQuotedTokenIsAUsageError(t *testing.T) {
 		t.Errorf("exit code = %d, stderr = %q, want a usage error about the quoting", code, stderr)
 	}
 }
+
+func TestAOneLineNameThatLooksLikeADocumentMarkerIsEditable(t *testing.T) {
+	head := "inputs:\n  - name: tracker\n    supplied: tracker.json\n    max_age: 24h\nworkstreams:\n"
+	for _, name := range []string{"---", "...", "--- parked"} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.write("personal.yml", head+"  - name: "+name+"\n    members:\n      - tracker:ABC-1\n")
+			// Such a name reads as a flag unless -- ends the flags.
+			f.mustRun("adopt", "--", "tracker:ABC-3", name)
+		})
+	}
+}
