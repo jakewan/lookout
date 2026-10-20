@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -14,7 +15,7 @@ import (
 )
 
 // adopt adds an item to a workstream in the configuration file.
-func adopt(args []string, env environment, _ io.Writer, diag *log.Logger) int {
+func adopt(_ context.Context, args []string, env environment, _ io.Writer, diag *log.Logger) int {
 	fs, setting := newFlags("adopt")
 	create := fs.Bool("new", false, "")
 	pos, ok := parseFlags(fs, setting, args, diag)
@@ -40,7 +41,7 @@ func adopt(args []string, env environment, _ io.Writer, diag *log.Logger) int {
 }
 
 // order moves workstreams to the front of the configuration's stated order.
-func order(args []string, env environment, _ io.Writer, diag *log.Logger) int {
+func order(_ context.Context, args []string, env environment, _ io.Writer, diag *log.Logger) int {
 	fs, setting := newFlags("order")
 	pos, ok := parseFlags(fs, setting, args, diag)
 	if !ok {
@@ -57,7 +58,7 @@ func order(args []string, env environment, _ io.Writer, diag *log.Logger) int {
 }
 
 // complete marks a workstream finished as of today.
-func complete(args []string, env environment, _ io.Writer, diag *log.Logger) int {
+func complete(_ context.Context, args []string, env environment, _ io.Writer, diag *log.Logger) int {
 	fs, setting := newFlags("complete")
 	pos, ok := parseFlags(fs, setting, args, diag)
 	if !ok {
@@ -76,7 +77,7 @@ func complete(args []string, env environment, _ io.Writer, diag *log.Logger) int
 
 // dismiss hides an unplaced item until it is touched again. It writes only to
 // state; the dismissal is the gesture itself.
-func dismiss(args []string, env environment, _ io.Writer, diag *log.Logger) int {
+func dismiss(_ context.Context, args []string, env environment, _ io.Writer, diag *log.Logger) int {
 	fs, setting := newFlags("dismiss")
 	pos, ok := parseFlags(fs, setting, args, diag)
 	if !ok {

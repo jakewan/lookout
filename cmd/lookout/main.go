@@ -3,9 +3,11 @@
 package main
 
 import (
+	"context"
 	"io"
 	"log"
 	"os"
+	"os/signal"
 	"time"
 )
 
@@ -35,18 +37,26 @@ type environment struct {
 }
 
 func main() {
-	os.Exit(run(os.Args[1:], environment{getenv: os.Getenv, now: time.Now}, os.Stdout, os.Stderr))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	// Restoring the default handling on the first interrupt lets a second one
+	// end the process even where lookout is waiting on something it cannot
+	// cancel, such as another invocation's hold on the state.
+	context.AfterFunc(ctx, stop)
+	code := run(ctx, os.Args[1:], environment{getenv: os.Getenv, now: time.Now}, os.Stdout, os.Stderr)
+	stop()
+	os.Exit(code)
 }
 
 // run dispatches one invocation. Diagnostics go to stderr so that stdout carries
-// only command output, which callers are expected to parse.
-func run(args []string, env environment, stdout, stderr io.Writer) int {
+// only command output, which callers are expected to parse. Cancelling ctx
+// stops the reading of inputs.
+func run(ctx context.Context, args []string, env environment, stdout, stderr io.Writer) int {
 	diag := log.New(stderr, "", 0)
 	if len(args) == 0 {
 		diag.Print(usage)
 		return exitUsage
 	}
-	commands := map[string]func([]string, environment, io.Writer, *log.Logger) int{
+	commands := map[string]func(context.Context, []string, environment, io.Writer, *log.Logger) int{
 		"read":     read,
 		"unplaced": unplaced,
 		"adopt":    adopt,
@@ -55,7 +65,7 @@ func run(args []string, env environment, stdout, stderr io.Writer) int {
 		"complete": complete,
 	}
 	if cmd, ok := commands[args[0]]; ok {
-		return cmd(args[1:], env, stdout, diag)
+		return cmd(ctx, args[1:], env, stdout, diag)
 	}
 	diag.Printf("lookout: unknown command %q\n%s", args[0], usage)
 	return exitUsage

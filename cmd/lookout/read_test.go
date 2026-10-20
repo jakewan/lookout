@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -62,12 +63,18 @@ func (f *fixture) supplied(name string, doc map[string]any) {
 
 func (f *fixture) run(args ...string) (int, string, string) {
 	f.t.Helper()
+	return f.runIn(f.t.Context(), args...)
+}
+
+// runIn runs one invocation under ctx, so a spec can cancel it.
+func (f *fixture) runIn(ctx context.Context, args ...string) (int, string, string) {
+	f.t.Helper()
 	var stdout, stderr bytes.Buffer
 	e := environment{
 		getenv: func(k string) string { return f.env[k] },
 		now:    func() time.Time { return f.clock },
 	}
-	code := run(args, e, &stdout, &stderr)
+	code := run(ctx, args, e, &stdout, &stderr)
 	return code, stdout.String(), stderr.String()
 }
 
@@ -768,5 +775,22 @@ func TestReadRequiresJSONOutput(t *testing.T) {
 	code, stdout, stderr := f.run("read")
 	if code != exitUsage || stdout != "" || !strings.Contains(stderr, "--json") {
 		t.Errorf("exit code = %d, stdout = %q, stderr = %q, want a usage error naming --json", code, stdout, stderr)
+	}
+}
+
+// TestReadWritesNothingWhenInterrupted pins that a run cancelled while it reads
+// its inputs fails rather than emitting a readout whose inputs only look
+// broken because they were cut short.
+func TestReadWritesNothingWhenInterrupted(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", oneInput)
+	f.supplied("tracker.json", suppliedDoc("tracker", []any{item("ABC-1", time.Hour, nil)}, nil))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	code, stdout, stderr := f.runIn(ctx, "read", "--json")
+
+	if code != exitFailure || stdout != "" || !strings.Contains(stderr, "interrupted") {
+		t.Errorf("exit code = %d, stdout = %q, stderr = %q, want a failure saying the read was interrupted", code, stdout, stderr)
 	}
 }

@@ -10,8 +10,25 @@ import (
 
 	"github.com/jakewan/lookout/internal/config"
 	"github.com/jakewan/lookout/internal/health"
-	"github.com/jakewan/lookout/internal/supplied"
 )
+
+// Item is one item an input reported. Raw is the item in supplied.v1's item
+// shape, exactly as its input reported it, passed through to the readout so no
+// source detail is lost.
+type Item struct {
+	ID          string
+	Title       string
+	LastTouched time.Time
+	StartedAt   *time.Time
+	Raw         json.RawMessage
+}
+
+// Reading is what one input contributed: its health, and the items a
+// workstream may use.
+type Reading struct {
+	Health health.Record
+	Items  []Item
+}
 
 // Readout is one setting's readout.
 type Readout struct {
@@ -56,7 +73,7 @@ type Placed struct {
 // Build assembles the readout for cfg from each expected input's reading,
 // keyed by input name, as of now. dismissed maps an item, as <input>:<id>, to
 // when the user last dismissed it.
-func Build(cfg *config.Config, readings map[string]supplied.Reading, dismissed map[string]time.Time, now time.Time) Readout {
+func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string]time.Time, now time.Time) Readout {
 	// A completed date is a day on the user's own clock, so it ends in now's zone.
 	loc := now.Location()
 	now = now.UTC()
@@ -99,7 +116,7 @@ func Build(cfg *config.Config, readings map[string]supplied.Reading, dismissed m
 			if unhealthy && !slices.Contains(w.InputsIncomplete, m.Input) {
 				w.InputsIncomplete = append(w.InputsIncomplete, m.Input)
 			}
-			i := slices.IndexFunc(reading.Items, func(it supplied.Item) bool { return it.ID == m.ID })
+			i := slices.IndexFunc(reading.Items, func(it Item) bool { return it.ID == m.ID })
 			if i < 0 {
 				w.MembersUnread = append(w.MembersUnread, m.Input+":"+m.ID)
 				continue
