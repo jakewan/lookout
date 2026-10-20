@@ -864,3 +864,53 @@ func TestAOneLineNameThatLooksLikeADocumentMarkerIsEditable(t *testing.T) {
 		})
 	}
 }
+
+// TestEditsAcceptAwkwardOneLineValues tests what the layout guard admits
+// rather than assuming it: each value is written on one line, so every edit
+// beside it must go through, and the edit's own check confirms the splice.
+func TestEditsAcceptAwkwardOneLineValues(t *testing.T) {
+	head := "inputs:\n  - name: tracker\n    supplied: tracker.json\n    max_age: 24h\nworkstreams:\n"
+	names := map[string]string{ // as written in YAML → the value it holds
+		`---`:          "---",
+		`...`:          "...",
+		`--- parked`:   "--- parked",
+		`'a: b'`:       "a: b",
+		`"x # y"`:      "x # y",
+		`billing # q3`: "billing",
+		`"&a"`:         "&a",
+		`'*b'`:         "*b",
+		`"[x]"`:        "[x]",
+		`a:b`:          "a:b",
+		`café`:         "café",
+		`'it''s'`:      "it's",
+		`"tab\there"`:  "tab\there",
+	}
+	for written, value := range names {
+		t.Run("name "+written, func(t *testing.T) {
+			f := newFixture(t)
+			f.write("personal.yml", head+"  - name: "+written+"\n    members:\n      - tracker:ABC-1\n")
+			f.mustRun("adopt", "--", "tracker:ABC-3", value)
+			f.mustRun("complete", "--", value)
+		})
+	}
+	members := map[string]string{
+		`'tracker:x: y'`: "tracker:x: y",
+		`"tracker:#1"`:   "tracker:#1",
+		`tracker:a#b`:    "tracker:a#b",
+		`tracker:a # c`:  "tracker:a",
+		`"tracker:---"`:  "tracker:---",
+		`tracker:é`:      "tracker:é",
+	}
+	for written, token := range members {
+		t.Run("after member "+written, func(t *testing.T) {
+			f := newFixture(t)
+			f.write("personal.yml", head+"  - name: billing\n    members:\n      - "+written+"\n")
+			f.mustRun("adopt", "tracker:ABC-3", "billing")
+		})
+		t.Run("moving member "+written, func(t *testing.T) {
+			f := newFixture(t)
+			f.write("personal.yml", head+"  - name: old\n    completed: 2030-06-01\n    members:\n      - "+written+"\n  - name: billing\n")
+			f.mustRun("adopt", token, "billing")
+		})
+	}
+}
