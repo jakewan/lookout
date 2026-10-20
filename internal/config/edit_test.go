@@ -58,6 +58,30 @@ func TestSaveRefusesWhenTheFileChangedUnderneath(t *testing.T) {
 	}
 }
 
+// TestSaveNamesItsTemporaryFileSoItIsNeverASetting pins the name a crash would
+// leave behind: one Locate's search for setting files skips.
+func TestSaveNamesItsTemporaryFileSoItIsNeverASetting(t *testing.T) {
+	doc, path := openEditable(t)
+	if err := doc.Adopt(Member{Input: "tracker", ID: "ABC-2"}, "billing", false); err != nil {
+		t.Fatal(err)
+	}
+	var during []string
+	beforeRename = func() {
+		var err error
+		if during, err = settingFiles(filepath.Dir(path)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { beforeRename = func() {} })
+
+	if err := doc.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if len(during) != 1 || during[0] != path {
+		t.Errorf("setting files while the temporary file exists = %v, want only %s", during, path)
+	}
+}
+
 func TestSaveKeepsTheFilesMode(t *testing.T) {
 	doc, path := openEditable(t)
 	if err := doc.Adopt(Member{Input: "tracker", ID: "ABC-2"}, "billing", false); err != nil {
