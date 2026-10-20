@@ -377,6 +377,12 @@ func TestReadHealth(t *testing.T) {
 		{name: "supplier error survives an undecodable value", file: suppliedDoc("tracker", healthyItems, map[string]any{
 			"supplier_status": "error", "fetched_at": "2030-06-15t11:00:00Z", "attempted_at": "2030-06-15t11:00:00Z",
 		}), status: "error", reasons: []string{"schema", "supplier_error"}, violation: true, foreign: true},
+		{name: "another input's file with a mistyped status", file: suppliedDoc("calendar", healthyItems, map[string]any{
+			"supplier_status": 123,
+		}), status: "error", reasons: []string{"input_mismatch"}, foreign: true},
+		// Go's decoder matches keys without regard to case; the contract does not.
+		{name: "supplier error is not overwritten by a key differing in case", file: `{"schema":"supplied.v1","input":"tracker","supplier":"s","fetched_at":"` + stamp(time.Hour) + `","attempted_at":"` + stamp(time.Hour) + `","supplier_status":"error","items":[],"SUPPLIER_STATUS":"ok"}`,
+			status: "error", reasons: []string{"schema", "supplier_error"}, violation: true, foreign: true},
 		{name: "another input's file failing its schema", file: suppliedDoc("calendar", []any{
 			map[string]any{"id": "ABC-1", "last_touched": stamp(time.Hour), "links": []any{}, "attrs": map[string]any{}},
 		}, nil), status: "error", reasons: []string{"input_mismatch"}, foreign: true},

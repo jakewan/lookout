@@ -92,7 +92,7 @@ func (rd *Reader) Read(in config.Input, now time.Time) Reading {
 		return r
 	}
 	if validateErr := rd.schema.Validate(inst); validateErr != nil {
-		return untrusted(r, in, data, violations(validateErr))
+		return untrusted(r, in, inst, violations(validateErr))
 	}
 
 	// The schema accepts some RFC 3339 forms Go's time parser refuses, such as a
@@ -115,7 +115,7 @@ func (rd *Reader) Read(in config.Input, now time.Time) Reading {
 		}
 	}
 	if decodeErr != nil {
-		return untrusted(r, in, data, []string{"a value lookout cannot decode: " + decodeErr.Error()})
+		return untrusted(r, in, inst, []string{"a value lookout cannot decode: " + decodeErr.Error()})
 	}
 
 	// A file written for another input says nothing about this one, so none of
@@ -180,18 +180,19 @@ func (rd *Reader) Read(in config.Input, now time.Time) Reading {
 // withheld, but where the envelope still says plainly which input it is for,
 // or that its supplier failed, that stronger evidence is kept rather than
 // softened into a schema problem.
-func untrusted(r Reading, in config.Input, data []byte, problems []string) Reading {
-	var env struct {
-		Input          string `json:"input"`
-		SupplierStatus string `json:"supplier_status"`
-	}
-	if json.Unmarshal(data, &env) == nil && env.Input != "" && env.Input != in.Name {
+func untrusted(r Reading, in config.Input, inst any, problems []string) Reading {
+	// Read each property by its exact name from the parsed document, so neither
+	// a mistyped neighbor nor a key differing only in case can erase it.
+	obj, _ := inst.(map[string]any)
+	input, _ := obj["input"].(string)
+	status, _ := obj["supplier_status"].(string)
+	if input != "" && input != in.Name {
 		r.Health.Lower(health.Error, health.InputMismatch)
 		return r
 	}
 	r.Health.Lower(health.Degraded, health.Schema)
 	r.Health.SchemaViolations = append(r.Health.SchemaViolations, problems...)
-	if env.SupplierStatus == "error" {
+	if status == "error" {
 		r.Health.Lower(health.Error, health.SupplierError)
 	}
 	return r
