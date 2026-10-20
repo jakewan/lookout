@@ -88,37 +88,10 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc Scope, now time.T
 		if ctx.Err() != nil {
 			return out
 		}
-		expanded := r.expand(entry)
-		var dirs []string
-		literal := !hasMeta(expanded)
-		if literal {
-			info, err := os.Stat(expanded)
-			switch {
-			case errors.Is(err, fs.ErrNotExist):
-				fail(health.Missing, entry+": no such directory")
-				continue
-			case err != nil || !info.IsDir() || !looksLikeRepository(expanded):
-				fail(health.NotARepository, entry+": not a git repository")
-				continue
-			}
-			dirs = []string{expanded}
-		} else {
-			// Config.Parse refused a malformed pattern, so this is only reached
-			// by an Input built some other way.
-			matches, err := filepath.Glob(expanded)
-			if err != nil {
-				fail(health.Missing, entry+": not a valid pattern")
-				continue
-			}
-			for _, m := range matches {
-				if info, err := os.Stat(m); err == nil && info.IsDir() && looksLikeRepository(m) {
-					dirs = append(dirs, m)
-				}
-			}
-			if len(dirs) == 0 {
-				fail(health.Missing, entry+": matches no repository")
-				continue
-			}
+		dirs, literal, reason, cause := r.resolve(entry)
+		if reason != "" {
+			fail(reason, entry+": "+cause)
+			continue
 		}
 
 		unreadable := 0
@@ -233,6 +206,38 @@ type attrs struct {
 	Repo      string   `json:"repo"`
 	Branch    string   `json:"branch"`
 	Worktrees []string `json:"worktrees"`
+}
+
+// resolve finds the repositories one repos entry names: a literal path must be
+// one, and a pattern keeps only the matches that are. Where it finds none, it
+// returns the health reason and the cause to report against the entry.
+func (r *Reader) resolve(entry string) (dirs []string, literal bool, reason, cause string) {
+	expanded := r.expand(entry)
+	if !hasMeta(expanded) {
+		info, err := os.Stat(expanded)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return nil, true, health.Missing, "no such directory"
+		case err != nil || !info.IsDir() || !looksLikeRepository(expanded):
+			return nil, true, health.NotARepository, "not a git repository"
+		}
+		return []string{expanded}, true, "", ""
+	}
+	// Config.Parse refused a malformed pattern, so this is only reached by an
+	// Input built some other way.
+	matches, err := filepath.Glob(expanded)
+	if err != nil {
+		return nil, false, health.Missing, "not a valid pattern"
+	}
+	for _, m := range matches {
+		if info, statErr := os.Stat(m); statErr == nil && info.IsDir() && looksLikeRepository(m) {
+			dirs = append(dirs, m)
+		}
+	}
+	if len(dirs) == 0 {
+		return nil, false, health.Missing, "matches no repository"
+	}
+	return dirs, false, "", ""
 }
 
 // expand resolves a leading ~ to the invocation's home directory.

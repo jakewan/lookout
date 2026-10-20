@@ -28,9 +28,7 @@ func (f *fixture) withGit() *fixture {
 // home is the fixture's home directory, where ~/ in a repos entry points.
 func (f *fixture) home(rel string) string { return filepath.Join(f.env["HOME"], rel) }
 
-// git runs git in dir for building fixtures. Its environment is set in full
-// rather than inherited, so a hook running these specs, which exports its own
-// repository's variables, cannot redirect it.
+// git runs git in dir for building fixtures.
 func (f *fixture) git(dir string, args ...string) string {
 	f.t.Helper()
 	return f.gitAt(dir, time.Hour, args...)
@@ -38,7 +36,21 @@ func (f *fixture) git(dir string, args ...string) string {
 
 func (f *fixture) gitAt(dir string, ago time.Duration, args ...string) string {
 	f.t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "commit.gpgsign=false"}, args...)...)
+	return f.gitWith(dir, ago, "", append([]string{"-c", "commit.gpgsign=false"}, args...)...)
+}
+
+// gitStdin is git with input on stdin, for fixtures plumbing builds.
+func (f *fixture) gitStdin(dir, input string, args ...string) string {
+	f.t.Helper()
+	return f.gitWith(dir, time.Hour, input, args...)
+}
+
+// gitWith runs git in dir with stdin, its commits dated ago. Its environment
+// is set in full rather than inherited, so a hook running these specs, which
+// exports its own repository's variables, cannot redirect it.
+func (f *fixture) gitWith(dir string, ago time.Duration, stdin string, args ...string) string {
+	f.t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	cmd.Env = []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + f.env["HOME"],
@@ -49,19 +61,7 @@ func (f *fixture) gitAt(dir string, ago time.Duration, args ...string) string {
 		"GIT_COMMITTER_NAME=Fixture", "GIT_COMMITTER_EMAIL=fixture@example.com",
 		"GIT_AUTHOR_DATE=" + stamp(ago), "GIT_COMMITTER_DATE=" + stamp(ago),
 	}
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		f.t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
-// gitStdin is git with input on stdin, for fixtures plumbing builds.
-func (f *fixture) gitStdin(dir, input string, args ...string) string {
-	f.t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + f.env["HOME"], "GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_CONFIG_NOSYSTEM=1", "LC_ALL=C"}
-	cmd.Stdin = strings.NewReader(input)
+	cmd.Stdin = strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		f.t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
