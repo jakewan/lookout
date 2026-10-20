@@ -10,7 +10,7 @@ lookout is the data layer of this dashboard: it gathers the activity, groups it 
 
 **The unit is the workstream, not the ticket.** A workstream spans whatever carries one line of work: agent sessions, branches, pull requests, tracker tickets, GitHub issues. Motion is recorded across all of them, and the links between them are often prose or absent, so a view built from any one source cannot tell an idle workstream from an active one.
 
-**Graphical is a requirement.** Juggling concurrent workstreams means seeing them side by side, and text — an agent's report, a generated planning page, a GitHub listing — shows them one after another. Text readings of the same need already exist; their output surface, not their analysis, is what fails.
+**Graphical is a requirement.** Juggling concurrent workstreams means seeing them side by side, and text — an agent's report, a generated planning page, a GitHub listing — shows them one after another. Where a text view of this need falls short, it is the sequential output that fails, not the analysis behind it.
 
 **Growth happens after admission.** Work commonly enters as a small exploratory item and grows into a project without a planning step between. The dashboard does not fix that; it makes the growth visible so the tradeoff is made with the facts in view.
 
@@ -24,7 +24,7 @@ lookout is the data layer of this dashboard: it gathers the activity, groups it 
    - stop-the-line signals in a critical area — not every one stops every line
 4. **A drill-down into each workstream**, including a map of how its tickets and issues relate.
 5. **A "where I left off" cue for each workstream**, recorded when it is paused and shown on return.
-6. **Adaptation to the inputs available.** A setting with a tracker and chat reads them; a setting with neither shows no gap where they would be.
+6. **Adaptation to the inputs available.** A setting whose inputs include a tracker and chat shows them; a setting with neither shows no gap where they would be.
 
 Three invariants carry over from the problem this answers:
 
@@ -34,7 +34,7 @@ Three invariants carry over from the problem this answers:
 
 ## Settled decisions
 
-**Ranking comes from both stated order and observed staleness.** The user sets the order; observed time-since-touched flags any workstream falling behind it. Either alone fails: observed-only promotes deliberately parked work, and stated-only never notices drift. This is declared intent set against revealed behavior, applied within a day's workstreams.
+**Ranking comes from both stated order and observed staleness.** The user sets the order; observed time-since-touched flags any workstream falling behind it. Either alone fails: observed-only promotes deliberately parked work, and stated-only never notices drift. This sets declared intent against revealed behavior within a day's workstreams.
 
 **A declarative configuration file per setting.** One file for each setting — work, personal, or any other — declares:
 
@@ -50,18 +50,19 @@ The configuration file owns the stated order; any planning page refers to it rat
 
 **Data layer first; the renderer stays replaceable.** The part that has to be built whatever draws it is the configuration, one adapter per input, and a health record per input. A tool supplies reduced facts, and a surface renders them. The renderer is chosen later, informed by what the data layer turns out to need.
 
-**Supplied files for sources lookout does not read itself.** Some sources — an issue tracker, a calendar of obligations — reach lookout as a file an outside supplier writes, already reduced, in a versioned contract. A supplier knows nothing about workstreams, and lookout knows nothing about how the supplier reached its source, so either side can change without the other. This settles the mechanism, not which sources use it.
+**Supplied files for sources lookout does not read itself.** lookout never talks to an issue tracker: a tracker's data reaches it as a file an outside supplier writes, already reduced, in a versioned contract. A supplier knows nothing about workstreams, and lookout knows nothing about how the supplier reached its source, so either side can change without the other. Which other sources arrive this way — dated obligations among them — is open.
 
-**A health record per input.** Each adapter reports a status — `ok`, `error`, `absent_by_design` or `degraded` — with when the input was fetched, how many records it held, and any schema violations. Health is computed by lookout, never taken from the input's word for it.
+**A health record per input.** Each adapter reports whether its input is healthy, in error, absent by design, or degraded, with when it was fetched and how many records it held. lookout computes health; an input's own report can lower it but never raise it.
 
-The surface shows four states: hidden (not expected in this setting), healthy, error, and degraded. Degraded is a reading that succeeded but cannot be trusted as complete:
+The surface shows each input in one of these states: hidden (not expected in this setting), healthy, error, and degraded. An expected input that is missing is an error, and so is a supplier that reports its own error. Degraded is a reading that succeeded but cannot be trusted as complete:
 
-- a call that came back empty, or missing fields it should carry
+- a call that came back empty where records are expected, or missing fields it should carry
+- a supplied file that fails its schema
 - a supplied file older than the age its setting allows
 - a supplier whose last attempt failed after its last success
 - a supplier that reports itself degraded, or names fields it could not fill
 
-A supplier's own status can make an input's health worse, never better. Degraded is never rendered as a quiet "no data". No off-the-shelf dashboard draws this line by itself; the pattern is Prometheus's `absent()` — check for missing data only where data is expected (<https://prometheus.io/docs/prometheus/latest/querying/functions/>) — and the configuration is what states the expectation.
+Degraded is never rendered as a quiet "no data". No off-the-shelf dashboard draws this line by itself; the pattern is Prometheus's `absent()` — check for missing data only where data is expected (<https://prometheus.io/docs/prometheus/latest/querying/functions/>) — and the configuration is what states the expectation.
 
 ## Design principles, with their sources
 
@@ -96,7 +97,7 @@ Not chosen. Each would read lookout's readout, never the sources behind it.
 
 - **Grafana OSS with the Infinity data source** (<https://grafana.com/docs/plugins/yesoreyeram-infinity-datasource/latest/>). The State timeline panel draws lanes, and dashboards and data sources are provisioned from files. A panel's "No data" stays quiet, so the health record would need generated alert rules or a health panel.
 - **Observable Framework.** Data loaders in any language, Plot or D3 charts, a static site. A cached loader result can be served stale without notice (<https://github.com/observablehq/framework/issues/1148>), so freshness is the data layer's to enforce.
-- **A claude.ai Artifact reading connectors, with a Claude Code mod as the cue.** The Artifact draws the graphical view from the viewer's claude.ai connectors; the mod puts critical items and stale lanes above the prompt, where attention already is. An Artifact reaches local MCP servers only when opened in the Claude desktop app, and reading work sources into a page hosted under one account raises the question of which accounts may hold that data.
+- **A claude.ai Artifact, with a Claude Code mod as the cue.** The Artifact draws the graphical view; the mod puts critical items and stale lanes above the prompt, where attention already is. An Artifact reaches local MCP servers, and so a readout served by one, only when opened in the Claude desktop app, and putting work data into a page hosted under one account raises the question of which accounts may hold that data.
 
 Backstage is too heavy for one person; Homepage, Glance and Dashy offer no general-purpose charting over custom data.
 
@@ -114,11 +115,11 @@ A configuration file that has to be edited by hand goes stale the way a hand-mai
 
 The candidates differ on lanes without chart code, on the absent-versus-degraded line, on footprint, and on whether the cue can sit inside Claude Code.
 
-**What would settle it:** the data layer's actual output shape, and which candidate renders the four health states without a second configuration system kept in sync by hand.
+**What would settle it:** the data layer's actual output shape, and which candidate renders the health states without a second configuration system kept in sync by hand.
 
 ### How are work sources read?
 
-A work setting may reach its tracker and chat only through an interactive AI session, where a connector holds the credentials, rather than through a token a standalone tool could hold. Supplied files accept either route: a supplier can run with its own credentials, or inside such a session. What stays open is where the credentials sit with respect to the account that owns the data, and which accounts the readout may then reach — a renderer hosted under a personal account, for one.
+A setting may let a standalone tool hold its own token for its tracker and chat, or allow access only through an interactive AI session whose connector holds the credentials. Supplied files accept either route: a supplier can run with its own credentials, or inside such a session. What stays open is where the credentials sit with respect to the account that owns the data, and which accounts the readout may then reach — a renderer hosted under a different account, for one.
 
 **What would settle it:** the setting's own rules on which accounts may hold its data, applied to this case deliberately, not inherited from whichever renderer is easiest.
 
@@ -134,7 +135,7 @@ Item 3 lists time-critical tasks "tracked or not", but every input a configurati
 
 Any answer keeps the coupling loose in both directions: the dashboard never reads a project's own record format, and a project never shapes its records around lookout. That is the data-layer decision applied across a repository boundary — the project supplies reduced facts (what falls due, when, and whether the reading succeeded) and the dashboard renders them. Two routes fit: a supplied file the project writes, which the configuration locates; or an input the dashboard already reads, such as an issue the project files when something falls due, which adds no input but couples to GitHub and inherits the filing cadence.
 
-**What would settle it:** wiring one project's dated obligations through a route, and checking whether a failed reading on the project's side reaches the dashboard as an error rather than as nothing due.
+**What would settle it:** wiring one project's dated obligations through a route, and checking whether a failed reading on the project's side reaches the dashboard as an error or degraded input rather than as nothing due.
 
 ### What throughput measure does a work-in-progress limit set against?
 
