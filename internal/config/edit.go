@@ -165,11 +165,7 @@ func (d *Document) Complete(workstream, date string) error {
 	}
 	want := d.cfg.clone()
 	want.Workstreams[idx].Completed = date
-	text, err := l.addKey(idx, "completed: "+date)
-	if err != nil {
-		return err
-	}
-	return d.apply([]byte(text), want)
+	return d.apply([]byte(l.addKey(idx, "completed: "+date)), want)
 }
 
 // apply accepts edited text only when it parses to exactly want, so a splice
@@ -491,12 +487,12 @@ func (l *layout) reorder(perm []int) string {
 	return l.join(l.lines[:start], moved, l.lines[trailer[0]:trailer[1]], l.lines[trailer[1]:])
 }
 
-// indentOf is the indentation of the keys inside a workstream item.
+// indent is the indentation of the keys inside a workstream item.
 func (it wsItem) indent() string { return strings.Repeat(" ", len(it.prefix)) }
 
-func (l *layout) addKey(idx int, key string) (string, error) {
+func (l *layout) addKey(idx int, key string) string {
 	it := l.items[idx]
-	return l.insert(it.nameValue.Line, it.indent()+key+l.eol), nil
+	return l.insert(it.nameValue.Line, it.indent()+key+l.eol)
 }
 
 func (l *layout) addMember(idx int, scalar string) (string, error) {
