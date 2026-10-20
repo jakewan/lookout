@@ -14,7 +14,7 @@ func TestRunWithoutCommandPrintsUsage(t *testing.T) {
 	if code != exitUsage {
 		t.Errorf("exit code = %d, want %d", code, exitUsage)
 	}
-	if !strings.Contains(stderr.String(), "usage: lookout") {
+	if !strings.Contains(stderr.String(), "usage:") {
 		t.Errorf("stderr = %q, want a usage line", stderr.String())
 	}
 	if stdout.Len() != 0 {

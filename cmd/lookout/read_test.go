@@ -24,6 +24,9 @@ type fixture struct {
 	t   *testing.T
 	dir string
 	env map[string]string
+	// clock is what the invocation reads as the current time; specs move it
+	// forward to see what a later run reports.
+	clock time.Time
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -33,7 +36,7 @@ func newFixture(t *testing.T) *fixture {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return &fixture{t: t, dir: dir, env: map[string]string{
+	return &fixture{t: t, dir: dir, clock: now, env: map[string]string{
 		"HOME":            home,
 		"XDG_CONFIG_HOME": filepath.Join(home, "config"),
 	}}
@@ -62,7 +65,7 @@ func (f *fixture) run(args ...string) (int, string, string) {
 	var stdout, stderr bytes.Buffer
 	e := environment{
 		getenv: func(k string) string { return f.env[k] },
-		now:    func() time.Time { return now },
+		now:    func() time.Time { return f.clock },
 	}
 	code := run(args, e, &stdout, &stderr)
 	return code, stdout.String(), stderr.String()
@@ -127,7 +130,9 @@ type readoutDoc struct {
 		Input string         `json:"input"`
 		Item  map[string]any `json:"item"`
 	} `json:"unplaced"`
-	Health []healthDoc `json:"health"`
+	Health         []healthDoc `json:"health"`
+	DismissedCount int         `json:"dismissed_count"`
+	CompletedCount int         `json:"completed_count"`
 }
 
 type healthDoc struct {
