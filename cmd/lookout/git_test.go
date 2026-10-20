@@ -589,6 +589,12 @@ func TestReadGitHealth(t *testing.T) {
 				f.t.Fatal(err)
 			}
 		}, status: "ok", items: 1, fetched: true},
+		{name: "a file where a pattern expects a directory to search is no match", repos: `["~/code/*/repos/*"]`, build: func(f *fixture) {
+			f.branch(f.repo("code/team/repos/app", "git@github.com:alice/app.git"), "feat", time.Hour)
+			if err := os.WriteFile(f.home("code/README"), []byte("notes\n"), 0o644); err != nil {
+				f.t.Fatal(err)
+			}
+		}, status: "ok", items: 1, fetched: true},
 		{name: "a directory a pattern cannot search is counted, not skipped", repos: `["~/code/*/*"]`, build: func(f *fixture) {
 			f.branch(f.repo("code/alice/app", "git@github.com:alice/app.git"), "feat", time.Hour)
 			f.branch(f.repo("code/mallory/tool", "git@github.com:mallory/tool.git"), "feat", time.Hour)

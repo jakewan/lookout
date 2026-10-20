@@ -344,7 +344,9 @@ func match(prefix, pattern string) (paths []string, unreadable int) {
 			}
 			info, err := os.Stat(dir)
 			switch {
-			case errors.Is(err, fs.ErrNotExist) || (err == nil && !info.IsDir()):
+			// A path through a file, which a literal element after a wildcard
+			// can produce, names nothing, as a missing one does.
+			case errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) || (err == nil && !info.IsDir()):
 				continue
 			case err != nil:
 				unreadable++
