@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"io"
 	"log"
@@ -17,7 +18,9 @@ type located struct {
 	store *state.Store
 }
 
-func locate(env environment, setting string) (*located, error) {
+// locate finds the setting and holds its state as mode says; the caller closes
+// the store.
+func locate(env environment, setting string, mode state.Mode) (*located, error) {
 	path, err := config.Locate(env.getenv, setting)
 	if err != nil {
 		return nil, err
@@ -26,18 +29,19 @@ func locate(env environment, setting string) (*located, error) {
 	if err != nil {
 		return nil, err
 	}
-	store, err := state.Open(env.getenv, name, path)
+	store, err := state.Open(env.getenv, name, path, mode)
 	if err != nil {
 		return nil, err
 	}
 	return &located{path: path, store: store}, nil
 }
 
-func currentReadout(env environment, setting string) (readout.Readout, error) {
-	loc, err := locate(env, setting)
+func currentReadout(env environment, setting string) (_ readout.Readout, err error) {
+	loc, err := locate(env, setting, state.Read)
 	if err != nil {
 		return readout.Readout{}, err
 	}
+	defer func() { err = errors.Join(err, loc.store.Close()) }()
 	cfg, err := config.Load(loc.path)
 	if err != nil {
 		return readout.Readout{}, err

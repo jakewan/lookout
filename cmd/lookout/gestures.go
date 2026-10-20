@@ -146,11 +146,18 @@ func edit(path string, change func(*config.Document) error) error {
 // failure to find the setting records nothing: there is no log to write to.
 func record(env environment, diag *log.Logger, setting string, g state.Gesture, act func(path string, g *state.Gesture) error) int {
 	cmd := g.Gesture
-	loc, err := locate(env, setting)
+	loc, err := locate(env, setting, state.Write)
 	if err != nil {
 		diag.Printf("lookout %s: %v", cmd, err)
 		return exitFailure
 	}
+	// The state stays held until the gesture is recorded, so another lookout
+	// invocation for this setting cannot edit or record in between.
+	defer func() {
+		if closeErr := loc.store.Close(); closeErr != nil {
+			diag.Printf("lookout %s: releasing the state: %v", cmd, closeErr)
+		}
+	}()
 	// Claiming the state before acting keeps a configuration that does not own
 	// it from editing first and then finding it has nowhere to record.
 	if claimErr := loc.store.Claim(); claimErr != nil {

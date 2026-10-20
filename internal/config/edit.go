@@ -220,8 +220,8 @@ var ErrNotDurable = errors.New("the configuration was replaced, but syncing its 
 
 // Save writes the edits atomically. It refuses when the file changed since
 // Open read it, so an editor's save made meanwhile is not overwritten. The
-// check and the rename are not one step, and nothing locks against a second
-// lookout invocation saving between them.
+// check and the rename are not one step; lookout's own invocations for a
+// setting are kept apart by the caller holding that setting's state.
 func (d *Document) Save() (err error) {
 	if bytes.Equal(d.data, d.orig) {
 		return nil

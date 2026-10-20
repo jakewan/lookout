@@ -55,17 +55,41 @@ var (
 	beforeOwnerPublished = func() {}
 )
 
-// Store is one setting's state directory.
+// Mode is how an invocation holds a setting's state.
+type Mode int
+
+const (
+	// Read holds the state shared with other reads, and takes nothing where no
+	// state exists yet, so a read never creates it.
+	Read Mode = iota
+	// Write holds the state alone, creating its directory, from reading it
+	// until the gesture is recorded, so one setting's gestures never interleave.
+	Write
+)
+
+// Store is one setting's state directory, held until Close.
 type Store struct {
 	dir      string
 	config   string
 	gestures []Gesture
+	lock     *os.File
 }
 
-// Open reads the state for the setting configured at configPath. A directory
-// that does not exist yet reads as empty. A log line that cannot be read fails
-// the open rather than being skipped, which would silently undo dismissals.
-func Open(getenv func(string) string, setting, configPath string) (*Store, error) {
+// Close releases the state.
+func (s *Store) Close() error {
+	if s.lock == nil {
+		return nil
+	}
+	err := s.lock.Close()
+	s.lock = nil
+	return err
+}
+
+// Open reads the state for the setting configured at configPath and holds it
+// as mode says until Close. A directory that does not exist yet reads as
+// empty. A log line that cannot be read fails the open rather than being
+// skipped, which would silently undo dismissals.
+func Open(getenv func(string) string, setting, configPath string, mode Mode) (_ *Store, err error) {
 	base, err := root(getenv)
 	if err != nil {
 		return nil, err
@@ -80,6 +104,19 @@ func Open(getenv func(string) string, setting, configPath string) (*Store, error
 		return nil, fmt.Errorf("resolving %s: %w", configPath, err)
 	}
 	s := &Store{dir: filepath.Join(base, setting), config: config}
+	if mode == Write {
+		if mkErr := os.MkdirAll(s.dir, 0o700); mkErr != nil {
+			return nil, fmt.Errorf("creating the state directory: %w", mkErr)
+		}
+	}
+	if s.lock, err = lockDir(s.dir, mode == Write); err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, s.Close())
+		}
+	}()
 
 	// The owner is checked after the log is read: a log is written only once
 	// its owner is in place, so an owner absent after the read means the log
@@ -96,13 +133,13 @@ func Open(getenv func(string) string, setting, configPath string) (*Store, error
 	scanner.Buffer(nil, len(data)+1)
 	for n := 1; scanner.Scan(); n++ {
 		var g Gesture
-		if err := json.Unmarshal(scanner.Bytes(), &g); err != nil {
-			return nil, fmt.Errorf("%s line %d cannot be read: lookout writes this file itself, so restore it from a backup or remove the line: %w", filepath.Join(s.dir, logName), n, err)
+		if jsonErr := json.Unmarshal(scanner.Bytes(), &g); jsonErr != nil {
+			return nil, fmt.Errorf("%s line %d cannot be read: lookout writes this file itself, so restore it from a backup or remove the line: %w", filepath.Join(s.dir, logName), n, jsonErr)
 		}
 		s.gestures = append(s.gestures, g)
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("reading the gesture log: %w", err)
+	if scanErr := scanner.Err(); scanErr != nil {
+		return nil, fmt.Errorf("reading the gesture log: %w", scanErr)
 	}
 	return s, nil
 }
