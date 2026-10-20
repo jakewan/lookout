@@ -70,10 +70,35 @@ type branch struct {
 	worktrees []string
 }
 
-// Read reports in's branches. Each problem lowers the health record rather
-// than failing the run, and a source is named only as the configuration names
-// it or once the owner fence admits it, so a repository the fence keeps out
-// never reaches the readout by its path.
+// outcome is what reading one repository came to. Every source ends in exactly
+// one, so a source lookout could not look at is never counted as one it looked
+// at and found nothing in.
+type outcome int
+
+const (
+	// admitted: the owner fence let it in and its branches were read.
+	admitted outcome = iota
+	// excluded: it was read far enough for the fence to keep it out.
+	excluded
+	// failed: lookout could not read it far enough to say.
+	failed
+)
+
+// source is one repository's outcome, keyed by its common directory once that
+// is known, so a repository reached through several worktrees or entries is
+// one source.
+type source struct {
+	outcome  outcome
+	cause    string // why the fence kept it out, for an excluded source
+	branches []branch
+	problems []string
+}
+
+// Read reports in's branches. Each repos entry resolves to sources, each source
+// to one outcome, and the health record is drawn from those outcomes in one
+// place below. A source is named only as the configuration names it or once
+// the owner fence admits it, so a repository the fence keeps out never
+// reaches the readout by its path.
 func (r *Reader) Read(ctx context.Context, in config.Input, sc Scope, now time.Time) readout.Reading {
 	out := readout.Reading{Health: health.New(in.Name), Items: make([]readout.Item, 0)}
 	if r.git == "" {
@@ -81,94 +106,76 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc Scope, now time.T
 		out.Health.Details = append(out.Health.Details, "git: not found on PATH")
 		return out
 	}
-
 	if problem := r.checkVersion(ctx); problem != "" {
 		out.Health.Lower(health.Error, health.GitFailed)
 		out.Health.Details = append(out.Health.Details, problem)
 		return out
 	}
 
-	var failures []string
-	readAny := false
-	// seen maps each repository reached, by its common directory, to why the
-	// owner fence kept it out, or to "" where it was admitted, so a literal
-	// entry reaching it again can still say why.
-	seen := map[string]string{}
-	found := map[string]branch{}
-	fail := func(reason, detail string) {
-		failures = append(failures, reason)
-		out.Health.Details = append(out.Health.Details, detail)
-	}
-
+	// entryFailures are the reasons configured entries could not be read in
+	// full; whether they make the input degraded or in error depends on
+	// whether any source was read at all, which is known only at the end.
+	var entryFailures []string
+	sources := map[string]*source{}
 	for _, entry := range in.Repos {
 		if ctx.Err() != nil {
 			return out
 		}
 		dirs, unreadable, literal, reason, cause := r.resolve(entry, in.Dir)
 		if reason != "" {
-			fail(reason, entry+": "+cause)
+			entryFailures = append(entryFailures, reason)
+			out.Health.Details = append(out.Health.Details, entry+": "+cause)
 			continue
 		}
-
 		for _, dir := range dirs {
-			repo, err := r.open(ctx, dir)
-			if err != nil {
+			src, first := r.classify(ctx, dir, sc, in.IgnoreBranches, sources)
+			switch {
+			case src.outcome == failed && (first || literal):
 				unreadable++
-				continue
+			case src.outcome == excluded && literal:
+				out.Health.Details = append(out.Health.Details, entry+": "+src.cause)
 			}
-			if cause, ok := seen[repo.common]; ok {
-				if literal && cause != "" {
-					out.Health.Details = append(out.Health.Details, entry+": "+cause)
-				}
-				continue
+		}
+		if unreadable > 0 {
+			entryFailures = append(entryFailures, health.GitFailed)
+			switch {
+			case literal:
+				out.Health.Details = append(out.Health.Details, entry+": git could not read it")
+			case unreadable == 1:
+				out.Health.Details = append(out.Health.Details, entry+": 1 match could not be read")
+			default:
+				out.Health.Details = append(out.Health.Details, fmt.Sprintf("%s: %d matches could not be read", entry, unreadable))
 			}
-			if cause := fenceCause(repo, sc.Owners); cause != "" {
-				readAny = true
-				seen[repo.common] = cause
-				out.Health.ExcludedCount++
-				if literal {
-					out.Health.Details = append(out.Health.Details, entry+": "+cause)
-				}
-				continue
-			}
-			// Marked before its branches are read, so a repository that fails is
-			// counted once however many of its worktrees a pattern reaches.
-			seen[repo.common] = ""
-			branches, problems, err := r.branches(ctx, dir, repo, in.IgnoreBranches)
-			if err != nil {
-				unreadable++
-				continue
-			}
+		}
+	}
+
+	readAny := false
+	found := map[string]branch{}
+	for _, src := range sources {
+		switch src.outcome {
+		case excluded:
 			readAny = true
-			for _, p := range problems {
+			out.Health.ExcludedCount++
+		case admitted:
+			readAny = true
+			for _, p := range src.problems {
 				out.Health.Lower(health.Degraded, health.GitFailed)
 				out.Health.Details = append(out.Health.Details, p)
 			}
-			for _, b := range branches {
+			for _, b := range src.branches {
 				if prev, ok := found[b.id]; !ok || b.touched.After(prev.touched) {
 					found[b.id] = b
 				}
 			}
 		}
-		if unreadable > 0 {
-			switch {
-			case literal:
-				fail(health.GitFailed, entry+": git could not read it")
-			case unreadable == 1:
-				fail(health.GitFailed, entry+": 1 repository could not be read")
-			default:
-				fail(health.GitFailed, fmt.Sprintf("%s: %d repositories could not be read", entry, unreadable))
-			}
-		}
 	}
-
 	// A configured source that failed makes what was read incomplete; when
 	// nothing could be read, the input as a whole cannot be.
 	status := health.Degraded
 	if !readAny {
 		status = health.Error
 	}
-	for _, reason := range failures {
+	for _, reason := range entryFailures {
 		out.Health.Lower(status, reason)
 	}
 	if readAny {
@@ -217,6 +224,32 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc Scope, now time.T
 	return out
 }
 
+// classify reads the repository at dir to its outcome. A repository already
+// classified through another of its directories is returned as it was, with
+// first false, so it is counted once; a directory git could not even open
+// has no common directory to recognize it by, and stands alone.
+func (r *Reader) classify(ctx context.Context, dir string, sc Scope, ignore []string, sources map[string]*source) (*source, bool) {
+	repo, err := r.open(ctx, dir)
+	if err != nil {
+		return &source{outcome: failed}, true
+	}
+	if src, ok := sources[repo.common]; ok {
+		return src, false
+	}
+	src := &source{}
+	sources[repo.common] = src
+	if src.cause = fenceCause(repo, sc.Owners); src.cause != "" {
+		src.outcome = excluded
+		return src, true
+	}
+	if src.branches, src.problems, err = r.branches(ctx, dir, repo, ignore); err != nil {
+		src.outcome, src.branches, src.problems = failed, nil, nil
+		return src, true
+	}
+	src.outcome = admitted
+	return src, true
+}
+
 type itemShape struct {
 	ID          string    `json:"id"`
 	Title       string    `json:"title"`
@@ -235,9 +268,8 @@ type attrs struct {
 // resolve finds the repositories one repos entry names: a literal path must be
 // one, and a pattern keeps only the matches that are. Where it finds none, it
 // returns the health reason and the cause to report against the entry.
-// unreadable counts the matches whose contents lookout could not inspect, so
-// they are reported rather than taken for directories that are not
-// repositories.
+// unreadable counts the places a pattern could not look into, so they are
+// reported rather than taken for places with nothing in them.
 func (r *Reader) resolve(entry, base string) (dirs []string, unreadable int, literal bool, reason, cause string) {
 	prefix, rest := r.split(entry, base)
 	if !hasMeta(rest) {
@@ -252,26 +284,67 @@ func (r *Reader) resolve(entry, base string) (dirs []string, unreadable int, lit
 		}
 		return []string{path}, 0, true, "", ""
 	}
-	// Only the entry is a pattern; the directory it is read from is taken as
-	// it stands, whatever characters its name holds. Config.Parse refused a
-	// malformed pattern, so the error is only reached by an Input built some
-	// other way.
-	matches, err := filepath.Glob(filepath.Join(escapeMeta(prefix), rest))
-	if err != nil {
-		return nil, 0, false, health.Missing, "not a valid pattern"
-	}
-	for _, m := range matches {
-		switch kind, probeErr := probe(m); {
-		case probeErr != nil && !errors.Is(probeErr, fs.ErrNotExist):
+	candidates, unreadable := match(prefix, rest)
+	for _, c := range candidates {
+		switch kind, err := probe(c); {
+		case err != nil && !errors.Is(err, fs.ErrNotExist):
 			unreadable++
 		case kind == repositoryDir:
-			dirs = append(dirs, m)
+			dirs = append(dirs, c)
 		}
 	}
 	if len(dirs) == 0 && unreadable == 0 {
 		return nil, 0, false, health.Missing, "matches no repository"
 	}
 	return dirs, unreadable, false, "", ""
+}
+
+// match expands pattern, read from the directory prefix, one path element at a
+// time. filepath.Glob is not used because it skips a directory it cannot
+// read without saying so, and every repository beneath one would vanish
+// unreported; match counts each such directory in unreadable instead. Only
+// pattern is read as syntax, so prefix matches itself whatever its name
+// holds.
+func match(prefix, pattern string) (paths []string, unreadable int) {
+	if prefix == "" {
+		prefix = string(filepath.Separator)
+	}
+	paths = []string{prefix}
+	for elem := range strings.SplitSeq(strings.Trim(pattern, string(filepath.Separator)), string(filepath.Separator)) {
+		if elem == "" {
+			continue
+		}
+		var next []string
+		for _, dir := range paths {
+			if !hasMeta(elem) {
+				next = append(next, filepath.Join(dir, elem))
+				continue
+			}
+			info, err := os.Stat(dir)
+			switch {
+			case errors.Is(err, fs.ErrNotExist) || (err == nil && !info.IsDir()):
+				continue
+			case err != nil:
+				unreadable++
+				continue
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				unreadable++
+				continue
+			}
+			for _, e := range entries {
+				// Config.Parse refused a malformed pattern, so a Match error is
+				// only reached by an Input built some other way, and matches
+				// nothing.
+				if ok, matchErr := filepath.Match(elem, e.Name()); matchErr == nil && ok {
+					next = append(next, filepath.Join(dir, e.Name()))
+				}
+			}
+		}
+		paths = next
+	}
+	return paths, unreadable
 }
 
 // split separates the directory an entry is read from, its home directory for
@@ -290,19 +363,6 @@ func (r *Reader) split(entry, base string) (prefix, rest string) {
 }
 
 func hasMeta(p string) bool { return strings.ContainsAny(p, `*?[\`) }
-
-// escapeMeta quotes the characters filepath.Match reads as syntax, so a
-// directory's name matches only itself.
-func escapeMeta(p string) string {
-	var b strings.Builder
-	for _, c := range p {
-		if strings.ContainsRune(`*?[\`, c) {
-			b.WriteByte('\\')
-		}
-		b.WriteRune(c)
-	}
-	return b.String()
-}
 
 // dirKind is what probe finds at a path.
 type dirKind int

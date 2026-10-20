@@ -502,14 +502,14 @@ func TestReadGitHealth(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(broken, ".git", "config"), []byte("[[[\n"), 0o644); err != nil {
 				f.t.Fatal(err)
 			}
-		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"~/code/*: 1 repository could not be read"}, items: 1, fetched: true},
+		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"~/code/*: 1 match could not be read"}, items: 1, fetched: true},
 		{name: "a broken repository inside another is never read as the outer one", repos: `["~/code/*"]`, build: func(f *fixture) {
 			f.branch(f.repo("code/app", "git@github.com:alice/app.git"), "feat", time.Hour)
 			f.branch(f.repo("", "git@github.com:alice/home.git"), "outer", time.Hour)
 			if err := os.MkdirAll(f.home("code/broken/.git"), 0o755); err != nil {
 				f.t.Fatal(err)
 			}
-		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"~/code/*: 1 repository could not be read"}, items: 1, fetched: true},
+		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"~/code/*: 1 match could not be read"}, items: 1, fetched: true},
 		{name: "a repository whose branches git cannot read is not read", repos: `["~/code/app"]`, build: func(f *fixture) {
 			// With HEAD on a branch that exists, git can open the repository and
 			// name its origin, and fails only once it lists the branches.
@@ -529,7 +529,7 @@ func TestReadGitHealth(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, ".git", "packed-refs"), []byte("garbage\n"), 0o644); err != nil {
 				f.t.Fatal(err)
 			}
-		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"~/code/*: 1 repository could not be read"}, items: 1, fetched: true},
+		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"~/code/*: 1 match could not be read"}, items: 1, fetched: true},
 		{name: "a branch whose date git prints past any time is left out alone", repos: `["~/code/app"]`, build: func(f *fixture) {
 			dir := f.repo("code/app", "git@github.com:alice/app.git")
 			f.branch(dir, "feat", time.Hour)
@@ -556,7 +556,12 @@ func TestReadGitHealth(t *testing.T) {
 		{name: "a directory lookout cannot look inside is counted, not skipped", repos: `["~/code/*"]`, build: func(f *fixture) {
 			f.branch(f.repo("code/app", "git@github.com:alice/app.git"), "feat", time.Hour)
 			f.locked(f.repo("code/mallory-locked", "git@github.com:mallory/x.git"))
-		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"~/code/*: 1 repository could not be read"}, items: 1, fetched: true},
+		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"~/code/*: 1 match could not be read"}, items: 1, fetched: true},
+		{name: "a directory a pattern cannot search is counted, not skipped", repos: `["~/code/*/*"]`, build: func(f *fixture) {
+			f.branch(f.repo("code/alice/app", "git@github.com:alice/app.git"), "feat", time.Hour)
+			f.branch(f.repo("code/mallory/tool", "git@github.com:mallory/tool.git"), "feat", time.Hour)
+			f.locked(f.home("code/mallory"))
+		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"~/code/*/*: 1 match could not be read"}, items: 1, fetched: true},
 		{name: "a literal directory lookout cannot look inside is not called a non-repository", repos: `["~/code/app", "~/code/locked"]`, build: func(f *fixture) {
 			f.branch(f.repo("code/app", "git@github.com:alice/app.git"), "feat", time.Hour)
 			f.locked(f.repo("code/locked", "git@github.com:alice/locked.git"))
