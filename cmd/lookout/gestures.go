@@ -92,21 +92,16 @@ func dismiss(args []string, env environment, _ io.Writer, diag *log.Logger) int 
 			return err
 		}
 		if !slices.ContainsFunc(cfg.Inputs, func(i config.Input) bool { return i.Name == m.Input }) {
-			return refusal{fmt.Sprintf("input %q is not in this configuration", m.Input)}
+			return config.Refuse("input %q is not in this configuration", m.Input)
 		}
 		for _, w := range cfg.Workstreams {
 			if slices.Contains(w.Members, m) {
-				return refusal{fmt.Sprintf("%s belongs to workstream %q, so it is never unplaced", pos[0], w.Name)}
+				return config.Refuse("%s belongs to workstream %q, so it is never unplaced", pos[0], w.Name)
 			}
 		}
 		return nil
 	})
 }
-
-// refusal is a gesture lookout declines for a reason the user can act on.
-type refusal struct{ msg string }
-
-func (r refusal) Error() string { return r.msg }
 
 func memberArg(cmd, arg string, diag *log.Logger) (config.Member, bool) {
 	input, id, ok := strings.Cut(arg, ":")
@@ -160,9 +155,6 @@ func record(env environment, diag *log.Logger, setting string, g state.Gesture, 
 
 func outcome(err error) string {
 	if _, ok := errors.AsType[*config.Refusal](err); ok {
-		return state.Refused
-	}
-	if _, ok := errors.AsType[refusal](err); ok {
 		return state.Refused
 	}
 	return state.Failed

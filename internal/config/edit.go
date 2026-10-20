@@ -22,7 +22,8 @@ type Refusal struct{ msg string }
 
 func (r *Refusal) Error() string { return r.msg }
 
-func refuse(format string, a ...any) error { return &Refusal{msg: fmt.Sprintf(format, a...)} }
+// Refuse builds a Refusal from a message that says what to change.
+func Refuse(format string, a ...any) error { return &Refusal{msg: fmt.Sprintf(format, a...)} }
 
 // Document is a configuration file opened for edits that leave every line they
 // do not change exactly as the user wrote it. yaml.v3 cannot re-encode a file
@@ -70,22 +71,22 @@ func (d *Document) Config() *Config { return d.cfg }
 func (d *Document) Adopt(member Member, workstream string, create bool) error {
 	token := member.Input + ":" + member.ID
 	if !slices.ContainsFunc(d.cfg.Inputs, func(i Input) bool { return i.Name == member.Input }) {
-		return refuse("input %q is not in this configuration: add it under inputs first", member.Input)
+		return Refuse("input %q is not in this configuration: add it under inputs first", member.Input)
 	}
 	for _, w := range d.cfg.Workstreams {
 		if slices.Contains(w.Members, member) {
 			if w.Name == workstream {
-				return refuse("%s is already a member of workstream %q", token, w.Name)
+				return Refuse("%s is already a member of workstream %q", token, w.Name)
 			}
-			return refuse("%s already belongs to workstream %q: remove it there first", token, w.Name)
+			return Refuse("%s already belongs to workstream %q: remove it there first", token, w.Name)
 		}
 	}
 	idx := slices.IndexFunc(d.cfg.Workstreams, func(w Workstream) bool { return w.Name == workstream })
 	switch {
 	case idx < 0 && !create:
-		return refuse("no workstream %q: pass --new to add it at the end of the order", workstream)
+		return Refuse("no workstream %q: pass --new to add it at the end of the order", workstream)
 	case idx >= 0 && create:
-		return refuse("workstream %q already exists: drop --new to add to it", workstream)
+		return Refuse("workstream %q already exists: drop --new to add to it", workstream)
 	}
 	scalar, err := scalarText(token)
 	if err != nil {
@@ -122,10 +123,10 @@ func (d *Document) Adopt(member Member, workstream string, create bool) error {
 func (d *Document) Order(names []string) error {
 	for i, n := range names {
 		if slices.Contains(names[:i], n) {
-			return refuse("workstream %q is named twice", n)
+			return Refuse("workstream %q is named twice", n)
 		}
 		if !slices.ContainsFunc(d.cfg.Workstreams, func(w Workstream) bool { return w.Name == n }) {
-			return refuse("no workstream %q", n)
+			return Refuse("no workstream %q", n)
 		}
 	}
 	perm := make([]int, 0, len(d.cfg.Workstreams))
@@ -154,10 +155,10 @@ func (d *Document) Order(names []string) error {
 func (d *Document) Complete(workstream, date string) error {
 	idx := slices.IndexFunc(d.cfg.Workstreams, func(w Workstream) bool { return w.Name == workstream })
 	if idx < 0 {
-		return refuse("no workstream %q", workstream)
+		return Refuse("no workstream %q", workstream)
 	}
 	if done := d.cfg.Workstreams[idx].Completed; done != "" {
-		return refuse("workstream %q is already complete, since %s: delete its completed line to reopen it", workstream, done)
+		return Refuse("workstream %q is already complete, since %s: delete its completed line to reopen it", workstream, done)
 	}
 	l, err := parseLayout(d.data)
 	if err != nil {
@@ -223,7 +224,7 @@ func (d *Document) Save() (err error) {
 		return fmt.Errorf("%s: re-reading configuration: %w", d.located, err)
 	}
 	if !bytes.Equal(current, d.orig) {
-		return refuse("%s changed while lookout was editing it, so nothing was written: run the command again", d.located)
+		return Refuse("%s changed while lookout was editing it, so nothing was written: run the command again", d.located)
 	}
 	if err = os.Rename(tmp.Name(), d.target); err != nil {
 		return fmt.Errorf("%s: replacing configuration: %w", d.located, err)
@@ -264,7 +265,7 @@ func (c *Config) clone() *Config {
 // scalarText is s as one line of YAML, quoted only when it needs to be.
 func scalarText(s string) (string, error) {
 	if strings.ContainsAny(s, "\r\n") {
-		return "", refuse("%q contains a line break, which a configuration value cannot hold on one line", s)
+		return "", Refuse("%q contains a line break, which a configuration value cannot hold on one line", s)
 	}
 	out, err := yaml.Marshal(s)
 	if err != nil {
@@ -301,16 +302,16 @@ var dashPrefix = regexp.MustCompile(`^ *- +$`)
 // against prefixes this check has confirmed are ASCII spaces and dashes.
 func parseLayout(data []byte) (*layout, error) {
 	if bytes.HasPrefix(data, []byte("\xef\xbb\xbf")) {
-		return nil, refuse("the file starts with a byte-order mark: save it as UTF-8 without one")
+		return nil, Refuse("the file starts with a byte-order mark: save it as UTF-8 without one")
 	}
 	for i, b := range data {
 		if b == '\r' && (i+1 == len(data) || data[i+1] != '\n') {
-			return nil, refuse("the file breaks lines with a bare carriage return: save it with \\n or \\r\\n line endings")
+			return nil, Refuse("the file breaks lines with a bare carriage return: save it with \\n or \\r\\n line endings")
 		}
 	}
 	for _, r := range []rune{'\u0085', ' ', ' '} {
 		if bytes.ContainsRune(data, r) {
-			return nil, refuse("the file contains a Unicode line or paragraph separator (U+%04X): replace it with an ordinary line break", r)
+			return nil, Refuse("the file contains a Unicode line or paragraph separator (U+%04X): replace it with an ordinary line break", r)
 		}
 	}
 
@@ -321,7 +322,7 @@ func parseLayout(data []byte) (*layout, error) {
 	}
 	var extra yaml.Node
 	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
-		return nil, refuse("the file holds more than one YAML document: lookout reads only the first, so remove the rest")
+		return nil, Refuse("the file holds more than one YAML document: lookout reads only the first, so remove the rest")
 	}
 	if err := plain(&doc); err != nil {
 		return nil, err
@@ -336,11 +337,11 @@ func parseLayout(data []byte) (*layout, error) {
 	}
 	l.regionEnd = len(l.lines)
 	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
-		return nil, refuse("the file is not a mapping of keys such as inputs and workstreams")
+		return nil, Refuse("the file is not a mapping of keys such as inputs and workstreams")
 	}
 	l.root = doc.Content[0]
 	if l.root.Style&yaml.FlowStyle != 0 {
-		return nil, refuse("the file is written as one flow mapping: write each key on its own line")
+		return nil, Refuse("the file is written as one flow mapping: write each key on its own line")
 	}
 	for i := 0; i+1 < len(l.root.Content); i += 2 {
 		if l.root.Content[i].Value != "workstreams" {
@@ -356,7 +357,7 @@ func parseLayout(data []byte) (*layout, error) {
 	}
 	if l.wsValue.Style&yaml.FlowStyle != 0 {
 		if len(l.wsValue.Content) > 0 {
-			return nil, refuse("workstreams is written as a flow list ([...]): write one workstream per line")
+			return nil, Refuse("workstreams is written as a flow list ([...]): write one workstream per line")
 		}
 		return l, nil
 	}
@@ -375,11 +376,11 @@ func parseLayout(data []byte) (*layout, error) {
 func plain(n *yaml.Node) error {
 	switch {
 	case n.Kind == yaml.AliasNode || n.Anchor != "":
-		return refuse("line %d uses a YAML anchor or alias: write the value out in full", n.Line)
+		return Refuse("line %d uses a YAML anchor or alias: write the value out in full", n.Line)
 	case n.Style&yaml.TaggedStyle != 0:
-		return refuse("line %d uses a YAML tag (%s): remove it", n.Line, n.Tag)
+		return Refuse("line %d uses a YAML tag (%s): remove it", n.Line, n.Tag)
 	case n.Kind == yaml.ScalarNode && n.Tag == "!!merge":
-		return refuse("line %d uses a YAML merge key: write the keys out in full", n.Line)
+		return Refuse("line %d uses a YAML merge key: write the keys out in full", n.Line)
 	}
 	for _, c := range n.Content {
 		if err := plain(c); err != nil {
@@ -391,12 +392,12 @@ func plain(n *yaml.Node) error {
 
 func (l *layout) item(n *yaml.Node) (wsItem, error) {
 	if n.Kind != yaml.MappingNode || n.Style&yaml.FlowStyle != 0 || len(n.Content) == 0 {
-		return wsItem{}, refuse("the workstream at line %d is not written as a block mapping: start it with \"- name:\" and put each key on its own line", n.Line)
+		return wsItem{}, Refuse("the workstream at line %d is not written as a block mapping: start it with \"- name:\" and put each key on its own line", n.Line)
 	}
 	dash := n.Line - 1
 	prefix := l.lines[dash][:min(n.Column-1, len(l.lines[dash]))]
 	if !dashPrefix.MatchString(prefix) {
-		return wsItem{}, refuse("the workstream at line %d does not start with \"- \" on the same line as its first key", n.Line)
+		return wsItem{}, Refuse("the workstream at line %d does not start with \"- \" on the same line as its first key", n.Line)
 	}
 	it := wsItem{node: n, dash: dash, prefix: prefix}
 	for i := 0; i+1 < len(n.Content); i += 2 {
@@ -404,18 +405,18 @@ func (l *layout) item(n *yaml.Node) (wsItem, error) {
 		switch k.Value {
 		case "name":
 			if v.Kind != yaml.ScalarNode || v.Line != k.Line || v.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
-				return wsItem{}, refuse("the workstream name at line %d must sit on the same line as name:", k.Line)
+				return wsItem{}, Refuse("the workstream name at line %d must sit on the same line as name:", k.Line)
 			}
 			it.nameValue = v
 		case "members":
 			it.membersK, it.members = k, v
 			if v.Kind == yaml.SequenceNode && v.Style&yaml.FlowStyle != 0 && len(v.Content) > 0 {
-				return wsItem{}, refuse("members at line %d is written as a flow list ([...]): write one member per line, each starting with \"- \"", k.Line)
+				return wsItem{}, Refuse("members at line %d is written as a flow list ([...]): write one member per line, each starting with \"- \"", k.Line)
 			}
 		}
 	}
 	if it.nameValue == nil {
-		return wsItem{}, refuse("the workstream at line %d has no name", n.Line)
+		return wsItem{}, Refuse("the workstream at line %d has no name", n.Line)
 	}
 	return it, nil
 }
@@ -506,7 +507,7 @@ func (l *layout) addMember(idx int, scalar string) (string, error) {
 		at := last.Line - 1
 		prefix := l.lines[at][:min(last.Column-1, len(l.lines[at]))]
 		if !dashPrefix.MatchString(prefix) || last.Kind != yaml.ScalarNode || last.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
-			return "", refuse("the last member at line %d is not one \"- <input>:<id>\" line", last.Line)
+			return "", Refuse("the last member at line %d is not one \"- <input>:<id>\" line", last.Line)
 		}
 		return l.insert(at+1, prefix+scalar+l.eol), nil
 	}
@@ -547,7 +548,7 @@ func (l *layout) emptyValueHead(key, value *yaml.Node) (string, error) {
 	empty := value.Kind == yaml.ScalarNode && value.Tag == "!!null" ||
 		value.Kind == yaml.SequenceNode && len(value.Content) == 0
 	if colon < 0 || !empty || value.Line != key.Line && value.Value != "" {
-		return "", refuse("%s at line %d must be empty ([] or nothing) on its own line", key.Value, key.Line)
+		return "", Refuse("%s at line %d must be empty ([] or nothing) on its own line", key.Value, key.Line)
 	}
 	head := line[:colon+len(key.Value)+1]
 	rest := strings.TrimLeft(line[len(head):], " \t")
@@ -558,7 +559,7 @@ func (l *layout) emptyValueHead(key, value *yaml.Node) (string, error) {
 		}
 	}
 	if t := strings.TrimSpace(rest); t != "" && !strings.HasPrefix(t, "#") {
-		return "", refuse("%s at line %d must be empty ([] or nothing) on its own line", key.Value, key.Line)
+		return "", Refuse("%s at line %d must be empty ([] or nothing) on its own line", key.Value, key.Line)
 	}
 	if strings.TrimSpace(rest) == "" {
 		rest = ""
