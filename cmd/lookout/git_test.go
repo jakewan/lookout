@@ -69,6 +69,16 @@ func (f *fixture) gitWith(dir string, ago time.Duration, stdin string, args ...s
 	return strings.TrimSpace(string(out))
 }
 
+// rawCommitBranch points refs/heads/name at a commit whose committer
+// timestamp is written as given, which git stores without checking.
+func (f *fixture) rawCommitBranch(dir, name, timestamp string) {
+	f.t.Helper()
+	tree := f.git(dir, "mktree")
+	body := "tree " + tree + "\nauthor A <a@example.com> 0 +0000\ncommitter A <a@example.com> " + timestamp + " +0000\n\n" + name + "\n"
+	commit := f.gitStdin(dir, body, "hash-object", "-t", "commit", "-w", "--literally", "--stdin")
+	f.git(dir, "update-ref", "refs/heads/"+name, commit)
+}
+
 // repo creates a repository at ~/rel whose origin is origin, or which has no
 // remote when origin is empty.
 func (f *fixture) repo(rel, origin string) string {
@@ -89,7 +99,7 @@ func (f *fixture) repo(rel, origin string) string {
 func (f *fixture) branch(dir, name string, ago time.Duration) {
 	f.t.Helper()
 	tree := f.git(dir, "mktree")
-	commit := f.gitAt(dir, ago, "commit-tree", tree, "-m", name)
+	commit := f.gitAt(dir, ago, "commit-tree", tree, "-m", "fixture")
 	f.git(dir, "update-ref", "refs/heads/"+name, commit)
 }
 
@@ -241,6 +251,30 @@ workstreams: []
 	}
 }
 
+// TestReadKnowsABareRepositoryThroughItsWorktree pins that bareness belongs to
+// the repository, not to whichever of its directories a pattern reaches
+// first: git reports a linked worktree of a bare repository as not bare.
+func TestReadKnowsABareRepositoryThroughItsWorktree(t *testing.T) {
+	f := newFixture(t).withGit()
+	f.write("personal.yml", fencedCode)
+	dir := f.home("code/app.git")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f.git(dir, "init", "--quiet", "--bare", "--initial-branch=develop")
+	f.git(dir, "remote", "add", "origin", "git@github.com:alice/app.git")
+	for _, b := range []string{"develop", "main", "colleague-work", "feat"} {
+		f.branch(dir, b, time.Hour)
+	}
+	// app-feature sorts before app.git, so the pattern reaches the worktree first.
+	f.git(dir, "worktree", "add", "--quiet", f.home("code/app-feature"), "feat")
+	f.git(dir, "worktree", "add", "--quiet", f.home("wt/main"), "main")
+
+	if ids := unplacedIDs(f.read()); !slices.Equal(ids, []string{"code:alice/app:feat", "code:alice/app:main"}) {
+		t.Errorf("unplaced = %v, want only the checked-out branches other than the bare repository's HEAD", ids)
+	}
+}
+
 func TestReadRecordsWhereEachBranchIsCheckedOut(t *testing.T) {
 	f := newFixture(t).withGit()
 	f.write("personal.yml", fencedCode)
@@ -369,6 +403,26 @@ workstreams:
 			t.Errorf("old-work items = %+v, want the member read whatever its age", items)
 		}
 	})
+	t.Run("a completed workstream's member moving again", func(t *testing.T) {
+		f := newFixture(t).withGit()
+		f.write("personal.yml", `
+discovery_window: 72h
+forge_owners: [alice]
+inputs:
+  - name: code
+    kind: git
+    repos: ["~/code/*"]
+workstreams:
+  - name: done
+    members: ["code:alice/app:shipped"]
+    completed: 2030-06-01
+`)
+		f.branch(f.repo("code/app", "git@github.com:alice/app.git"), "shipped", 120*time.Hour)
+
+		if ids := unplacedIDs(f.read()); len(ids) != 0 {
+			t.Errorf("unplaced = %v, want nothing: it moved after its workstream was completed, but not within the window", ids)
+		}
+	})
 	t.Run("defaults to event_window", func(t *testing.T) {
 		f := newFixture(t).withGit()
 		f.write("personal.yml", "event_window: 48h\n"+fencedCode)
@@ -433,6 +487,49 @@ func TestReadGitHealth(t *testing.T) {
 				f.t.Fatal(err)
 			}
 		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"~/code/*: 1 repository could not be read"}, items: 1, fetched: true},
+		{name: "a repository whose branches git cannot read is not read", repos: `["~/code/app"]`, build: func(f *fixture) {
+			// With HEAD on a branch that exists, git can open the repository and
+			// name its origin, and fails only once it lists the branches.
+			dir := f.repo("code/app", "git@github.com:alice/app.git")
+			f.branch(dir, "main", time.Hour)
+			f.branch(dir, "feat", time.Hour)
+			if err := os.WriteFile(filepath.Join(dir, ".git", "packed-refs"), []byte("garbage\n"), 0o644); err != nil {
+				f.t.Fatal(err)
+			}
+		}, status: "error", reasons: []string{"git_failed"}, details: []string{"~/code/app: git could not read it"}},
+		{name: "a repository that fails is counted once across its worktrees", repos: `["~/code/*"]`, build: func(f *fixture) {
+			f.branch(f.repo("code/app", "git@github.com:alice/app.git"), "feat", time.Hour)
+			dir := f.repo("code/broken", "git@github.com:alice/broken.git")
+			f.branch(dir, "main", time.Hour)
+			f.branch(dir, "side", time.Hour)
+			f.git(dir, "worktree", "add", "--quiet", f.home("code/broken-wt"), "side")
+			if err := os.WriteFile(filepath.Join(dir, ".git", "packed-refs"), []byte("garbage\n"), 0o644); err != nil {
+				f.t.Fatal(err)
+			}
+		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"~/code/*: 1 repository could not be read"}, items: 1, fetched: true},
+		{name: "a branch whose date git prints past any time is left out alone", repos: `["~/code/app"]`, build: func(f *fixture) {
+			dir := f.repo("code/app", "git@github.com:alice/app.git")
+			f.branch(dir, "feat", time.Hour)
+			f.rawCommitBranch(dir, "huge", "9300000000000000000")
+		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"alice/app:huge: git printed a commit date lookout cannot read"}, items: 1, fetched: true},
+		{name: "a branch name that is not UTF-8 is left out", repos: `["~/code/app"]`, build: func(f *fixture) {
+			dir := f.repo("code/app", "git@github.com:alice/app.git")
+			f.branch(dir, "feat", time.Hour)
+			f.branch(dir, "caf\xe9", time.Hour)
+		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"alice/app: a branch whose name is not UTF-8 was left out"}, items: 1, fetched: true},
+		{name: "no recent branches is not empty", repos: `["~/code/app"]`, build: func(f *fixture) {
+			f.branch(f.repo("code/app", "git@github.com:alice/app.git"), "old", 1000*time.Hour)
+		}, expect: true, status: "ok", fetched: true},
+		{name: "a literal entry a pattern reached first still says why", repos: `["~/code/*", "~/code/solo"]`, build: func(f *fixture) {
+			f.branch(f.repo("code/app", "git@github.com:alice/app.git"), "feat", time.Hour)
+			f.branch(f.repo("code/solo", ""), "feat", time.Hour)
+		}, status: "ok", details: []string{"~/code/solo: no origin remote, so the owner fence keeps it out"}, items: 1, fetched: true},
+		{name: "a relative entry is named as written", repos: `["../../code/solo"]`, build: func(f *fixture) {
+			f.branch(f.repo("code/solo", ""), "feat", time.Hour)
+		}, status: "ok", details: []string{"../../code/solo: no origin remote, so the owner fence keeps it out"}, fetched: true},
+		{name: "a literal entry whose origin is no forge says so", repos: `["~/code/mirror"]`, build: func(f *fixture) {
+			f.branch(f.repo("code/mirror", "/srv/mirrors/alice/app.git"), "feat", time.Hour)
+		}, status: "ok", details: []string{"~/code/mirror: its origin is not a forge address, so the owner fence keeps it out"}, fetched: true},
 		{name: "a literal entry with no origin says so", repos: `["~/code/solo"]`, build: func(f *fixture) {
 			f.branch(f.repo("code/solo", ""), "feat", time.Hour)
 		}, status: "ok", details: []string{"~/code/solo: no origin remote, so the owner fence keeps it out"}, fetched: true},
@@ -538,6 +635,26 @@ func TestReadReportsGitMissingFromPath(t *testing.T) {
 
 	if h.Status != "error" || !slices.Equal(h.Reasons, []string{"git_failed"}) || !slices.Equal(h.Details, []string{"git: not found on PATH"}) {
 		t.Errorf("health = %+v, want an error saying git was not found", h)
+	}
+}
+
+// TestReadSearchesOnlyAbsolutePathDirectories pins that a relative or empty
+// PATH element never finds a git in whatever directory lookout runs from.
+func TestReadSearchesOnlyAbsolutePathDirectories(t *testing.T) {
+	f := newFixture(t).withGit()
+	f.write("personal.yml", fencedCode)
+	f.branch(f.repo("code/app", "git@github.com:alice/app.git"), "feat", time.Hour)
+	here := t.TempDir()
+	if err := os.WriteFile(filepath.Join(here, "git"), []byte("#!/bin/sh\nexit 3\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(here)
+	f.env["PATH"] = ".::" + t.TempDir()
+
+	h := f.read().health(t, "code")
+
+	if !slices.Equal(h.Details, []string{"git: not found on PATH"}) {
+		t.Errorf("details = %q, want git not found: the only git is in the working directory", h.Details)
 	}
 }
 

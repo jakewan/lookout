@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jakewan/lookout/internal/config"
 	"github.com/jakewan/lookout/internal/health"
@@ -45,6 +46,12 @@ type Reader struct {
 func NewReader(getenv func(string) string) *Reader {
 	r := &Reader{getenv: getenv}
 	for _, dir := range filepath.SplitList(getenv("PATH")) {
+		// A relative or empty element names the working directory, where a
+		// git nobody installed may sit; os/exec refuses those for the same
+		// reason.
+		if !filepath.IsAbs(dir) {
+			continue
+		}
 		candidate := filepath.Join(dir, "git")
 		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
 			r.git = candidate
@@ -75,9 +82,18 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc Scope, now time.T
 		return out
 	}
 
+	if problem := r.checkVersion(ctx); problem != "" {
+		out.Health.Lower(health.Error, health.GitFailed)
+		out.Health.Details = append(out.Health.Details, problem)
+		return out
+	}
+
 	var failures []string
 	readAny := false
-	seen := map[string]bool{}
+	// seen maps each repository reached, by its common directory, to why the
+	// owner fence kept it out, or to "" where it was admitted, so a literal
+	// entry reaching it again can still say why.
+	seen := map[string]string{}
 	found := map[string]branch{}
 	fail := func(reason, detail string) {
 		failures = append(failures, reason)
@@ -88,7 +104,7 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc Scope, now time.T
 		if ctx.Err() != nil {
 			return out
 		}
-		dirs, literal, reason, cause := r.resolve(entry)
+		dirs, literal, reason, cause := r.resolve(entry, in.Dir)
 		if reason != "" {
 			fail(reason, entry+": "+cause)
 			continue
@@ -101,26 +117,33 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc Scope, now time.T
 				unreadable++
 				continue
 			}
-			readAny = true
-			if seen[repo.common] {
-				continue
-			}
-			seen[repo.common] = true
-			if repo.noOrigin || !admitted(repo.origin, sc.Owners) {
-				out.Health.ExcludedCount++
-				if literal {
-					cause := "its origin's owner is not in forge_owners"
-					if repo.noOrigin {
-						cause = "no origin remote, so the owner fence keeps it out"
-					}
+			if cause, ok := seen[repo.common]; ok {
+				if literal && cause != "" {
 					out.Health.Details = append(out.Health.Details, entry+": "+cause)
 				}
 				continue
 			}
-			branches, err := r.branches(ctx, dir, repo, in.IgnoreBranches)
+			if cause := fenceCause(repo, sc.Owners); cause != "" {
+				readAny = true
+				seen[repo.common] = cause
+				out.Health.ExcludedCount++
+				if literal {
+					out.Health.Details = append(out.Health.Details, entry+": "+cause)
+				}
+				continue
+			}
+			// Marked before its branches are read, so a repository that fails is
+			// counted once however many of its worktrees a pattern reaches.
+			seen[repo.common] = ""
+			branches, problems, err := r.branches(ctx, dir, repo, in.IgnoreBranches)
 			if err != nil {
 				unreadable++
 				continue
+			}
+			readAny = true
+			for _, p := range problems {
+				out.Health.Lower(health.Degraded, health.GitFailed)
+				out.Health.Details = append(out.Health.Details, p)
 			}
 			for _, b := range branches {
 				if prev, ok := found[b.id]; !ok || b.touched.After(prev.touched) {
@@ -187,7 +210,9 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc Scope, now time.T
 		out.Items = append(out.Items, readout.Item{ID: id, Title: b.name, LastTouched: b.touched, Raw: raw})
 	}
 	out.Health.RecordCount = len(out.Items)
-	if in.ExpectRecords && readAny && len(out.Items) == 0 {
+	// Branches older than the discovery window are still branches, so a quiet
+	// stretch is not an empty input.
+	if in.ExpectRecords && readAny && len(found) == 0 {
 		out.Health.Lower(health.Degraded, health.Empty)
 	}
 	return out
@@ -211,8 +236,8 @@ type attrs struct {
 // resolve finds the repositories one repos entry names: a literal path must be
 // one, and a pattern keeps only the matches that are. Where it finds none, it
 // returns the health reason and the cause to report against the entry.
-func (r *Reader) resolve(entry string) (dirs []string, literal bool, reason, cause string) {
-	expanded := r.expand(entry)
+func (r *Reader) resolve(entry, base string) (dirs []string, literal bool, reason, cause string) {
+	expanded := r.expand(entry, base)
 	if !hasMeta(expanded) {
 		info, err := os.Stat(expanded)
 		switch {
@@ -240,14 +265,17 @@ func (r *Reader) resolve(entry string) (dirs []string, literal bool, reason, cau
 	return dirs, false, "", ""
 }
 
-// expand resolves a leading ~ to the invocation's home directory.
-func (r *Reader) expand(entry string) string {
+// expand resolves a leading ~ to the invocation's home directory, and a
+// relative entry against base, the configuration's directory.
+func (r *Reader) expand(entry, base string) string {
 	home := r.getenv("HOME")
 	switch {
 	case entry == "~":
 		return home
 	case strings.HasPrefix(entry, "~/"):
 		return filepath.Join(home, entry[2:])
+	case !filepath.IsAbs(entry):
+		return filepath.Join(base, entry)
 	}
 	return entry
 }
@@ -268,8 +296,19 @@ func looksLikeRepository(dir string) bool {
 	return headErr == nil && objErr == nil && head.Mode().IsRegular() && objects.IsDir()
 }
 
-func admitted(o remote, owners []config.Owner) bool {
-	return slices.Contains(owners, config.Owner{Host: o.host, Name: o.owner()})
+// fenceCause says why the owner fence keeps repo out, or is "" where it admits
+// it. The cause names no owner or host, since it may be about another
+// context's repository.
+func fenceCause(repo repository, owners []config.Owner) string {
+	switch {
+	case repo.noOrigin:
+		return "no origin remote, so the owner fence keeps it out"
+	case repo.origin == (remote{}):
+		return "its origin is not a forge address, so the owner fence keeps it out"
+	case !slices.Contains(owners, config.Owner{Host: repo.origin.host, Name: repo.origin.owner()}):
+		return "its origin's owner is not in forge_owners"
+	}
+	return ""
 }
 
 // repository is what open learns about one repository before the owner fence
@@ -283,18 +322,20 @@ type repository struct {
 
 func (r *Reader) open(ctx context.Context, dir string) (repository, error) {
 	var repo repository
-	out, err := r.run(ctx, dir, "rev-parse", "--path-format=absolute", "--git-common-dir", "--is-bare-repository")
+	out, err := r.run(ctx, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
 		return repo, err
 	}
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) != 2 {
-		return repo, fmt.Errorf("rev-parse printed %d lines", len(lines))
-	}
-	if repo.common, err = filepath.EvalSymlinks(lines[0]); err != nil {
+	if repo.common, err = filepath.EvalSymlinks(strings.TrimSuffix(out, "\n")); err != nil {
 		return repo, err
 	}
-	repo.bare = lines[1] == "true"
+	// Run in a linked worktree, --is-bare-repository describes the worktree,
+	// which is never bare, so ask the repository itself.
+	bare, err := r.run(ctx, dir, "--git-dir="+repo.common, "rev-parse", "--is-bare-repository")
+	if err != nil {
+		return repo, err
+	}
+	repo.bare = strings.TrimSpace(bare) == "true"
 
 	names, err := r.run(ctx, dir, "remote")
 	if err != nil {
@@ -319,18 +360,20 @@ func (r *Reader) open(ctx context.Context, dir string) (repository, error) {
 	return repo, nil
 }
 
-func (r *Reader) branches(ctx context.Context, dir string, repo repository, ignore []string) ([]branch, error) {
-	def, err := r.defaultBranch(ctx, dir, repo.bare)
+// branches lists repo's branches. A branch it cannot represent is left out and
+// described in problems, so one odd branch does not hide the rest.
+func (r *Reader) branches(ctx context.Context, dir string, repo repository, ignore []string) (_ []branch, problems []string, _ error) {
+	def, err := r.defaultBranch(ctx, dir, repo.common, repo.bare)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	refs, err := r.run(ctx, dir, "for-each-ref", "--format=%(refname)%00%(committerdate:unix)%00%(objecttype)", "refs/heads/")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	worktrees, err := r.worktrees(ctx, dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	prefix := repo.origin.path
 	if repo.origin.host != "github.com" {
@@ -338,6 +381,7 @@ func (r *Reader) branches(ctx context.Context, dir string, repo repository, igno
 	}
 
 	var out []branch
+	nonUTF8 := false
 	// Refnames cannot hold a newline or NUL (git-check-ref-format(1)), so the
 	// record and field separators cannot occur inside one.
 	for line := range strings.SplitSeq(strings.TrimSpace(refs), "\n") {
@@ -346,7 +390,7 @@ func (r *Reader) branches(ctx context.Context, dir string, repo repository, igno
 		}
 		fields := strings.Split(line, "\x00")
 		if len(fields) != 3 || !strings.HasPrefix(fields[0], "refs/heads/") {
-			return nil, fmt.Errorf("for-each-ref printed %q", line)
+			return nil, nil, fmt.Errorf("for-each-ref printed %q", line)
 		}
 		if fields[2] != "commit" {
 			continue
@@ -355,9 +399,21 @@ func (r *Reader) branches(ctx context.Context, dir string, repo repository, igno
 		if name == def || ignored(name, ignore) {
 			continue
 		}
+		// A refname may hold any bytes, but a readout is JSON, which would
+		// rewrite invalid ones, leaving an id no command could name.
+		if !utf8.ValidString(name) {
+			if !nonUTF8 {
+				problems = append(problems, prefix+": a branch whose name is not UTF-8 was left out")
+				nonUTF8 = true
+			}
+			continue
+		}
+		// git prints a stored timestamp unsigned, so one past what int64 holds
+		// is possible.
 		secs, convErr := strconv.ParseInt(fields[1], 10, 64)
 		if convErr != nil {
-			return nil, fmt.Errorf("for-each-ref printed date %q", fields[1])
+			problems = append(problems, prefix+":"+name+": git printed a commit date lookout cannot read")
+			continue
 		}
 		where := worktrees[name]
 		// A bare clone copies every branch of its remote into its own, so only
@@ -370,19 +426,20 @@ func (r *Reader) branches(ctx context.Context, dir string, repo repository, igno
 		}
 		out = append(out, branch{id: prefix + ":" + name, name: name, touched: time.Unix(secs, 0), repo: dir, worktrees: where})
 	}
-	return out, nil
+	return out, problems, nil
 }
 
 // defaultBranch is the branch a repository's other work merges into, which is
 // never itself a workstream's item: origin/HEAD where a fetch or clone set it,
 // a bare repository's own HEAD, or else main or master. A repository with
 // none of these hides no branch.
-func (r *Reader) defaultBranch(ctx context.Context, dir string, bare bool) (string, error) {
-	if out, ok, err := r.symbolicRef(ctx, dir, "refs/remotes/origin/HEAD"); err != nil || ok {
+func (r *Reader) defaultBranch(ctx context.Context, dir, common string, bare bool) (string, error) {
+	if out, ok, err := r.symbolicRef(ctx, dir, "", "refs/remotes/origin/HEAD"); err != nil || ok {
 		return strings.TrimPrefix(out, "refs/remotes/origin/"), err
 	}
 	if bare {
-		if out, ok, err := r.symbolicRef(ctx, dir, "HEAD"); err != nil || ok {
+		// The repository's own HEAD, not that of the worktree dir may be.
+		if out, ok, err := r.symbolicRef(ctx, dir, "--git-dir="+common, "HEAD"); err != nil || ok {
 			return strings.TrimPrefix(out, "refs/heads/"), err
 		}
 	}
@@ -398,8 +455,12 @@ func (r *Reader) defaultBranch(ctx context.Context, dir string, bare bool) (stri
 
 // symbolicRef reads a symbolic ref; with --quiet, git-symbolic-ref(1) exits 1,
 // and prints nothing, when the ref is not symbolic or does not exist.
-func (r *Reader) symbolicRef(ctx context.Context, dir, ref string) (string, bool, error) {
-	out, err := r.run(ctx, dir, "symbolic-ref", "--quiet", ref)
+func (r *Reader) symbolicRef(ctx context.Context, dir, gitDir, ref string) (string, bool, error) {
+	args := []string{"symbolic-ref", "--quiet", ref}
+	if gitDir != "" {
+		args = append([]string{gitDir}, args...)
+	}
+	out, err := r.run(ctx, dir, args...)
 	if exit, ok := errors.AsType[*exec.ExitError](err); ok && exit.ExitCode() == 1 {
 		return "", false, nil
 	}
@@ -472,4 +533,49 @@ func (r *Reader) run(ctx context.Context, dir string, args ...string) (string, e
 		return "", fmt.Errorf("git %s: %w", args[0], err)
 	}
 	return stdout.String(), nil
+}
+
+// minimumVersion is the oldest git that has worktree list -z, which branches
+// relies on (git 2.36 release notes).
+var minimumVersion = [2]int{2, 36}
+
+// checkVersion reports a git too old for the commands lookout runs, so its
+// failures are named for what they are; it says nothing where the version
+// cannot be read, leaving those commands to fail on their own.
+func (r *Reader) checkVersion(ctx context.Context) string {
+	out, err := r.run(ctx, os.TempDir(), "version")
+	if err != nil {
+		return ""
+	}
+	v, ok := parseVersion(out)
+	if !ok || v[0] > minimumVersion[0] || (v[0] == minimumVersion[0] && v[1] >= minimumVersion[1]) {
+		return ""
+	}
+	return fmt.Sprintf("git: version %d.%d is older than the %d.%d lookout needs", v[0], v[1], minimumVersion[0], minimumVersion[1])
+}
+
+// parseVersion reads git version's "git version 2.53.0" line, ignoring any
+// suffix a packager adds.
+func parseVersion(out string) ([2]int, bool) {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(out), "git version ")
+	if !ok {
+		return [2]int{}, false
+	}
+	parts := strings.SplitN(rest, ".", 3)
+	if len(parts) < 2 {
+		return [2]int{}, false
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return [2]int{}, false
+	}
+	digits := parts[1]
+	if i := strings.IndexFunc(digits, func(r rune) bool { return r < '0' || r > '9' }); i >= 0 {
+		digits = digits[:i]
+	}
+	minor, err := strconv.Atoi(digits)
+	if err != nil {
+		return [2]int{}, false
+	}
+	return [2]int{major, minor}, true
 }

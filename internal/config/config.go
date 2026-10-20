@@ -60,9 +60,9 @@ const (
 )
 
 // Input is one expected input. Supplied is an absolute path. Repos are paths or
-// glob patterns, absolute or starting with ~/, kept otherwise as the
-// configuration writes them so that health can name an entry the way the user
-// wrote it; a git reader expands them.
+// glob patterns exactly as the configuration writes them, so that health can
+// name an entry the way the user wrote it; a git reader expands a leading ~/
+// and reads a relative entry from Dir, the configuration's directory.
 type Input struct {
 	Name           string
 	Kind           string
@@ -71,6 +71,7 @@ type Input struct {
 	ExpectRecords  bool
 	Repos          []string
 	IgnoreBranches []string
+	Dir            string
 }
 
 // Workstream is one user-defined line of work and the items that belong to it.
@@ -98,11 +99,15 @@ func (w Workstream) CompletedThrough(loc *time.Location) time.Time {
 	return day.AddDate(0, 0, 1)
 }
 
-// MemberIDs is the ids of input's items that any workstream names, completed
-// ones included, since a completed workstream's item can still move again.
+// MemberIDs is the ids of input's items that a live workstream names. A
+// completed workstream's item is offered again only as discovery would offer
+// any other, so it is left out.
 func (c *Config) MemberIDs(input string) map[string]bool {
 	ids := map[string]bool{}
 	for _, w := range c.Workstreams {
+		if w.Completed != "" {
+			continue
+		}
 		for _, m := range w.Members {
 			if m.Input == input {
 				ids[m.ID] = true
@@ -401,9 +406,8 @@ func parse(data []byte, path string) (*Config, error) {
 	return cfg, nil
 }
 
-// gitInput checks a git input's keys. A relative repos entry is anchored at the
-// configuration's directory, as a supplied path is, and the rest are kept as
-// written.
+// gitInput checks a git input's keys. A relative repos entry is read from the
+// configuration's directory, as a supplied path is.
 func gitInput(in inputFile, base string) (Input, error) {
 	if in.Supplied != "" {
 		return Input{}, fmt.Errorf("input %q is kind git, which lookout reads live rather than from a file: remove supplied", in.Name)
@@ -426,9 +430,6 @@ func gitInput(in inputFile, base string) (Input, error) {
 		if r == "" {
 			return Input{}, fmt.Errorf("input %q has an empty repos entry", in.Name)
 		}
-		if r != "~" && !strings.HasPrefix(r, "~/") && !filepath.IsAbs(r) {
-			r = filepath.Join(base, r)
-		}
 		repos = append(repos, r)
 	}
 	for _, p := range in.IgnoreBranches {
@@ -436,7 +437,7 @@ func gitInput(in inputFile, base string) (Input, error) {
 			return Input{}, fmt.Errorf("input %q ignore_branches entry %q is not a valid pattern: %w", in.Name, p, err)
 		}
 	}
-	return Input{Name: in.Name, Kind: KindGit, ExpectRecords: in.ExpectRecords, Repos: repos, IgnoreBranches: in.IgnoreBranches}, nil
+	return Input{Name: in.Name, Kind: KindGit, ExpectRecords: in.ExpectRecords, Repos: repos, IgnoreBranches: in.IgnoreBranches, Dir: base}, nil
 }
 
 // owners reads forge_owners. An entry is an owner on github.com, or

@@ -35,3 +35,25 @@ func TestParseRemote(t *testing.T) {
 		}
 	}
 }
+
+func TestParseVersion(t *testing.T) {
+	cases := []struct {
+		out  string
+		want [2]int
+		ok   bool
+	}{
+		{out: "git version 2.53.0\n", want: [2]int{2, 53}, ok: true},
+		{out: "git version 2.36.6 (Apple Git-146)", want: [2]int{2, 36}, ok: true},
+		{out: "git version 2.35.1.windows.2", want: [2]int{2, 35}, ok: true},
+		{out: "git version 3.0", want: [2]int{3, 0}, ok: true},
+		{out: "git version 2.40rc1", want: [2]int{2, 40}, ok: true},
+		{out: "something else"},
+		{out: "git version two.x"},
+	}
+	for _, tc := range cases {
+		got, ok := parseVersion(tc.out)
+		if ok != tc.ok || got != tc.want {
+			t.Errorf("parseVersion(%q) = %v, %v; want %v, %v", tc.out, got, ok, tc.want, tc.ok)
+		}
+	}
+}

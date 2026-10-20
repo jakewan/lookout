@@ -31,7 +31,7 @@
       ]
     },
     "reasons": {
-      "description": "Every cause that lowered the status, each once; empty when it is ok. Version 1 can gain reasons, so a consumer should show one it does not know rather than reject it. Known reasons: missing, unreadable, schema, input_mismatch, stale, supplier_failed, supplier_error, supplier_degraded, missing_fields, empty, clock_skew, duplicate_id.",
+      "description": "Every cause that lowered the status, each once; empty when it is ok. Version 1 can gain reasons, so a consumer should show one it does not know rather than reject it. Known reasons: missing, unreadable, schema, input_mismatch, stale, supplier_failed, supplier_error, supplier_degraded, missing_fields, empty, clock_skew, duplicate_id, not_a_repository, git_failed.",
       "type": "array",
       "items": {
         "type": "string",
@@ -72,7 +72,7 @@
       ]
     },
     "details": {
-      "description": "One line per finding, for people, saying what lowered the status and where, such as which configured path is missing. It names a source the owner fence kept out only as the configuration itself names it.",
+      "description": "Lines for people saying where findings arose, such as which configured path is missing; a finding with nothing more to say than its reason has none. It names a source the owner fence kept out only as the configuration itself names it.",
       "type": "array",
       "items": {
         "type": "string"
