@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jakewan/lookout/main/schema/supplied.v1.json",
+  "title": "lookout supplied file, version 1",
+  "description": "What an outside supplier writes for lookout to read: one input's items, already reduced, with the supplier's own account of how the fetch went. A supplier knows nothing about workstreams. lookout asserts every format keyword, which JSON Schema 2020-12 validators skip by default, so enable format validation when checking against this file. The contract is closed: a field it does not list is a violation, and a later version changes its name.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "input",
+    "supplier",
+    "fetched_at",
+    "attempted_at",
+    "supplier_status",
+    "items"
+  ],
+  "properties": {
+    "schema": {
+      "const": "supplied.v1"
+    },
+    "input": {
+      "description": "The input name the setting's configuration gives this file.",
+      "$ref": "#/$defs/name"
+    },
+    "supplier": {
+      "description": "What wrote the file, for a reader tracing a bad reading back to its source.",
+      "type": "string",
+      "minLength": 1
+    },
+    "fetched_at": {
+      "description": "When the supplier last read its source successfully. lookout measures staleness from this.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "attempted_at": {
+      "description": "When the supplier last tried. Later than fetched_at means the latest attempt failed.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "supplier_status": {
+      "enum": [
+        "ok",
+        "degraded",
+        "error"
+      ]
+    },
+    "reason": {
+      "description": "The supplier's explanation of a degraded or error status, for people.",
+      "type": "string"
+    },
+    "missing_fields": {
+      "description": "Fields the supplier could not fill for any item.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/item"
+      }
+    }
+  },
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "last_touched",
+        "state",
+        "links",
+        "attrs"
+      ],
+      "properties": {
+        "id": {
+          "description": "Unique within the input, and stable across fetches, so a workstream can name it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string"
+        },
+        "last_touched": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "due": {
+          "description": "When the item falls due: a calendar date, or an exact time.",
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "string",
+              "format": "date-time"
+            }
+          ]
+        },
+        "state": {
+          "description": "The source's own state name, free-form, since trackers name their states differently.",
+          "type": "string",
+          "minLength": 1
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "rel",
+              "href"
+            ],
+            "properties": {
+              "rel": {
+                "type": "string",
+                "minLength": 1
+              },
+              "href": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        },
+        "attrs": {
+          "description": "Source-specific detail, such as a sprint or an estimate, that has no field of its own.",
+          "type": "object"
+        }
+      }
+    }
+  }
+}

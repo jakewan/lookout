@@ -9,7 +9,7 @@ import (
 func TestRunWithoutCommandPrintsUsage(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 
-	code := run(nil, &stdout, &stderr)
+	code := run(nil, environment{}, &stdout, &stderr)
 
 	if code != exitUsage {
 		t.Errorf("exit code = %d, want %d", code, exitUsage)
@@ -28,7 +28,7 @@ func TestRunWithoutCommandPrintsUsage(t *testing.T) {
 func TestRunRejectsUnknownCommand(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"raed"}, &stdout, &stderr)
+	code := run([]string{"raed"}, environment{}, &stdout, &stderr)
 
 	if code != exitUsage {
 		t.Errorf("exit code = %d, want %d", code, exitUsage)
