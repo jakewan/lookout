@@ -94,8 +94,10 @@ func dismiss(args []string, env environment, _ io.Writer, diag *log.Logger) int 
 		if !slices.ContainsFunc(cfg.Inputs, func(i config.Input) bool { return i.Name == m.Input }) {
 			return config.Refuse("input %q is not in this configuration", m.Input)
 		}
+		// A completed workstream's member returns to unplaced once it moves, so
+		// only a live workstream's claim rules a dismissal out.
 		for _, w := range cfg.Workstreams {
-			if slices.Contains(w.Members, m) {
+			if w.Completed == "" && slices.Contains(w.Members, m) {
 				return config.Refuse("%s belongs to workstream %q, so it is never unplaced", pos[0], w.Name)
 			}
 		}
@@ -140,8 +142,13 @@ func record(env environment, diag *log.Logger, setting string, g state.Gesture, 
 		g.Outcome, g.Reason = outcome(err), err.Error()
 	}
 	if appendErr := loc.store.Append(g); appendErr != nil {
-		if err == nil {
-			diag.Printf("lookout %s: the change was made but not recorded in the gesture log: %v", cmd, appendErr)
+		if g.Outcome == state.OK {
+			// A dismissal is its gesture, so an unrecorded one never happened.
+			if cmd == "dismiss" {
+				diag.Printf("lookout dismiss: nothing was dismissed: %v", appendErr)
+			} else {
+				diag.Printf("lookout %s: the configuration was changed but the change was not recorded in the gesture log: %v", cmd, appendErr)
+			}
 			return exitFailure
 		}
 		err = errors.Join(err, fmt.Errorf("recording it in the gesture log: %w", appendErr))
@@ -156,6 +163,9 @@ func record(env environment, diag *log.Logger, setting string, g state.Gesture, 
 func outcome(err error) string {
 	if _, ok := errors.AsType[*config.Refusal](err); ok {
 		return state.Refused
+	}
+	if errors.Is(err, config.ErrNotDurable) {
+		return state.OK
 	}
 	return state.Failed
 }

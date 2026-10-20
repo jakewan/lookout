@@ -87,6 +87,8 @@ func (d *Document) Adopt(member Member, workstream string, create bool) error {
 		return Refuse("no workstream %q: pass --new to add it at the end of the order", workstream)
 	case idx >= 0 && create:
 		return Refuse("workstream %q already exists: drop --new to add to it", workstream)
+	case idx >= 0 && d.cfg.Workstreams[idx].Completed != "":
+		return Refuse("workstream %q is complete, since %s: delete its completed line to reopen it first", workstream, d.cfg.Workstreams[idx].Completed)
 	}
 	scalar, err := scalarText(token)
 	if err != nil {
@@ -164,6 +166,9 @@ func (d *Document) Complete(workstream, date string) error {
 	if err != nil {
 		return err
 	}
+	if l.items[idx].completed {
+		return Refuse("workstream %q has an empty completed key: delete it, or give it a date such as %s", workstream, date)
+	}
 	want := d.cfg.clone()
 	want.Workstreams[idx].Completed = date
 	return d.apply([]byte(l.addKey(idx, "completed: "+date)), want)
@@ -187,8 +192,14 @@ func (d *Document) apply(text []byte, want *Config) error {
 // change the file underneath an edit.
 var beforeRename = func() {}
 
+// ErrNotDurable reports a save that replaced the file but could not confirm
+// the replacement reached the disk.
+var ErrNotDurable = errors.New("the configuration was replaced, but syncing its directory failed")
+
 // Save writes the edits atomically. It refuses when the file changed since
-// Open read it, so an editor's save or a second invocation is never lost.
+// Open read it, so an editor's save made meanwhile is not overwritten. The
+// check and the rename are not one step, and nothing locks against a second
+// lookout invocation saving between them.
 func (d *Document) Save() (err error) {
 	if bytes.Equal(d.data, d.orig) {
 		return nil
@@ -230,7 +241,10 @@ func (d *Document) Save() (err error) {
 		return fmt.Errorf("%s: replacing configuration: %w", d.located, err)
 	}
 	// The rename is durable only once the directory entry is.
-	return syncDir(dir)
+	if syncErr := syncDir(dir); syncErr != nil {
+		return fmt.Errorf("%s: %w: %w", d.located, ErrNotDurable, syncErr)
+	}
+	return nil
 }
 
 func removeIfPresent(path string) error {
@@ -293,6 +307,7 @@ type wsItem struct {
 	nameValue *yaml.Node
 	members   *yaml.Node // nil when it has no members key
 	membersK  *yaml.Node
+	completed bool // it has a completed key, even an empty one
 }
 
 var dashPrefix = regexp.MustCompile(`^ *- +$`)
@@ -408,6 +423,8 @@ func (l *layout) item(n *yaml.Node) (wsItem, error) {
 				return wsItem{}, Refuse("the workstream name at line %d must sit on the same line as name:", k.Line)
 			}
 			it.nameValue = v
+		case "completed":
+			it.completed = true
 		case "members":
 			it.membersK, it.members = k, v
 			if v.Kind == yaml.SequenceNode && v.Style&yaml.FlowStyle != 0 && len(v.Content) > 0 {
@@ -421,15 +438,21 @@ func (l *layout) item(n *yaml.Node) (wsItem, error) {
 	return it, nil
 }
 
+func isComment(line string) bool { return strings.HasPrefix(strings.TrimSpace(line), "#") }
+
+func indentOf(line string) int { return len(line) - len(strings.TrimLeft(line, " ")) }
+
 func isFiller(line string) bool {
 	t := strings.TrimSpace(line)
 	return t == "" || strings.HasPrefix(t, "#")
 }
 
 // blocks splits the workstreams entry into one text block per workstream and
-// a trailer. A block runs from the line after the previous block's last line
-// of content, so the comments and blank lines above a workstream travel with
-// it, to its own last line of content. What follows the last block stays put.
+// a trailer. A block runs from the line after the previous block's last line,
+// so the comments and blank lines above a workstream travel with it, to its
+// own last line of content plus any comment lines directly after it indented
+// deeper than its dash, such as a commented-out member. What follows the last
+// block stays put.
 func (l *layout) blocks() (start int, spans [][2]int, trailer [2]int) {
 	start = l.wsKey.Line // the line after the workstreams key
 	from := start
@@ -443,6 +466,10 @@ func (l *layout) blocks() (start int, spans [][2]int, trailer [2]int) {
 			if !isFiller(l.lines[j]) {
 				end = j
 			}
+		}
+		dashIndent := len(it.prefix) - len(strings.TrimLeft(it.prefix, " "))
+		for end+1 < next && isComment(l.lines[end+1]) && indentOf(l.lines[end+1]) > dashIndent {
+			end++
 		}
 		spans = append(spans, [2]int{from, end + 1})
 		from = end + 1

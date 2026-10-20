@@ -93,6 +93,9 @@ func Locate(getenv func(string) string, setting string) (string, error) {
 		return path, nil
 	}
 	if path := getenv("LOOKOUT_CONFIG"); path != "" {
+		if _, statErr := os.Stat(path); statErr != nil {
+			return "", fmt.Errorf("LOOKOUT_CONFIG names %s: %w", path, statErr)
+		}
 		return path, nil
 	}
 	if err != nil {

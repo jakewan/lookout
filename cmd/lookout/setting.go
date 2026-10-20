@@ -70,11 +70,15 @@ func parseFlags(fs *flag.FlagSet, setting *string, args []string, diag *log.Logg
 			diag.Printf("lookout %s: %v\n%s", fs.Name(), err, usage)
 			return nil, false
 		}
-		args = fs.Args()
-		if len(args) == 0 {
+		rest := fs.Args()
+		if n := len(args) - len(rest); n > 0 && args[n-1] == "--" {
+			pos = append(pos, rest...)
 			break
 		}
-		pos, args = append(pos, args[0]), args[1:]
+		if len(rest) == 0 {
+			break
+		}
+		pos, args = append(pos, rest[0]), rest[1:]
 	}
 	settingGiven := false
 	fs.Visit(func(f *flag.Flag) { settingGiven = settingGiven || f.Name == "setting" })

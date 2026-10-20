@@ -577,3 +577,136 @@ func TestACorruptGestureLogFailsLoudly(t *testing.T) {
 		t.Errorf("exit code = %d, stdout = %q, stderr = %q, want a failure naming the bad line", code, stdout, stderr)
 	}
 }
+
+func TestAResurfacedItemCanBeDismissed(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", strings.Replace(handWritten, "  - name: billing\n", "  - name: billing\n    completed: 2030-06-10\n", 1))
+	f.supplied("tracker.json", suppliedDoc("tracker", []any{item("ABC-1", time.Hour, nil)}, nil))
+
+	f.mustRun("dismiss", "tracker:ABC-1")
+
+	if ids := unplacedIDs(f.read()); len(ids) != 0 {
+		t.Errorf("unplaced = %v, want the resurfaced item dismissed", ids)
+	}
+}
+
+func TestAdoptRefusesACompletedWorkstream(t *testing.T) {
+	f := newFixture(t)
+	completed := strings.Replace(handWritten, "  - name: billing\n", "  - name: billing\n    completed: 2030-06-10\n", 1)
+	f.write("personal.yml", completed)
+	code, _, stderr := f.run("adopt", "tracker:ABC-3", "billing")
+	if code != exitFailure || !strings.Contains(stderr, "complete") {
+		t.Errorf("exit code = %d, stderr = %q, want a refusal saying the workstream is complete", code, stderr)
+	}
+	if got := f.config("personal.yml"); got != completed {
+		t.Errorf("configuration changed:\n%s", got)
+	}
+}
+
+func TestCompleteRefusesAnEmptyCompletedKey(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", strings.Replace(handWritten, "  - name: billing\n", "  - name: billing\n    completed:\n", 1))
+	code, _, _ := f.run("complete", "billing")
+	if gs := f.gestures("personal"); code != exitFailure || len(gs) != 1 || gs[0].Outcome != "refused" {
+		t.Errorf("exit code = %d, gestures = %+v, want one refused complete", code, gs)
+	}
+}
+
+func TestAGestureAgainstAMissingConfigurationRecordsNothing(t *testing.T) {
+	f := newFixture(t)
+	f.env["LOOKOUT_CONFIG"] = filepath.Join(f.dir, "personal.yaml")
+	if code, _, _ := f.run("adopt", "tracker:ABC-3", "billing"); code != exitFailure {
+		t.Errorf("exit code = %d, want a failure", code)
+	}
+	if _, err := os.Stat(f.stateDir("personal")); !os.IsNotExist(err) {
+		t.Errorf("state directory exists, claimed by a file that does not: %v", err)
+	}
+}
+
+func TestAnInvalidConfigurationIsAFailedGesture(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten+"surprise: true\n")
+	if code, _, _ := f.run("adopt", "tracker:ABC-3", "billing"); code != exitFailure {
+		t.Errorf("exit code = %d", code)
+	}
+	if gs := f.gestures("personal"); len(gs) != 1 || gs[0].Outcome != "failed" || gs[0].Reason == "" {
+		t.Errorf("gestures = %+v, want one failed gesture with its reason", gs)
+	}
+}
+
+// unwritableLog leaves a readable gesture log that refuses appends, so a
+// gesture can run but not be recorded.
+func (f *fixture) unwritableLog() {
+	f.t.Helper()
+	f.mustRun("dismiss", "tracker:ABC-7")
+	if err := os.Chmod(filepath.Join(f.stateDir("personal"), "gestures.jsonl"), 0o400); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+func TestADismissThatCannotBeRecordedSaysNothingWasDismissed(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.unwritableLog()
+	code, _, stderr := f.run("dismiss", "tracker:ABC-3")
+	if code != exitFailure || !strings.Contains(stderr, "nothing was dismissed") {
+		t.Errorf("exit code = %d, stderr = %q, want it to say nothing was dismissed", code, stderr)
+	}
+}
+
+func TestAnEditThatCannotBeRecordedSaysItLanded(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.unwritableLog()
+	code, _, stderr := f.run("adopt", "tracker:ABC-3", "billing")
+	if code != exitFailure || !strings.Contains(stderr, "not recorded") {
+		t.Errorf("exit code = %d, stderr = %q, want it to say the edit landed unrecorded", code, stderr)
+	}
+	if !strings.Contains(f.config("personal.yml"), "tracker:ABC-3") {
+		t.Errorf("the edit did not land")
+	}
+}
+
+func TestOrderLeavesATrailingCommentWithItsWorkstream(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", "inputs: []\nworkstreams:\n  - name: a\n    members: []\n    # - tracker:OLD-7\n  - name: b\n")
+	f.mustRun("order", "b")
+	want := "inputs: []\nworkstreams:\n  - name: b\n  - name: a\n    members: []\n    # - tracker:OLD-7\n"
+	if got := f.config("personal.yml"); got != want {
+		t.Errorf("configuration:\n%q\nwant the commented-out member kept under a:\n%q", got, want)
+	}
+}
+
+func TestStateFollowsTheFileThroughASymlinkedDirectory(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.mustRun("dismiss", "tracker:ABC-3")
+
+	link := filepath.Join(t.TempDir(), "cfg")
+	if err := os.Symlink(f.dir, link); err != nil {
+		t.Fatal(err)
+	}
+	f.env["LOOKOUT_CONFIG"] = filepath.Join(link, "personal.yml")
+	if code, _, stderr := f.run("read", "--json"); code != 0 {
+		t.Errorf("exit code = %d, stderr = %q, want the same file recognized", code, stderr)
+	}
+}
+
+func TestUnplacedKeepsAnAwkwardIDOnOneLine(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.supplied("tracker.json", suppliedDoc("tracker", []any{item("two\tpart", time.Hour, nil)}, nil))
+	out := f.mustRun("unplaced")
+	if strings.Count(out, "\n") != 1 || strings.Count(out, "\t") != 2 {
+		t.Errorf("unplaced output = %q, want one line of three fields", out)
+	}
+}
+
+func TestADoubleDashEndsTheFlags(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", "inputs: []\nworkstreams:\n  - name: a\n  - name: -b\n  - name: -c\n")
+	f.mustRun("order", "--", "-c", "-b")
+	if doc := f.read(); !slices.Equal(workstreamNames(doc), []string{"-c", "-b", "a"}) {
+		t.Errorf("workstreams = %v", workstreamNames(doc))
+	}
+}

@@ -17,7 +17,10 @@ import (
 )
 
 // Outcomes a gesture can have. A refused gesture still cost the user a
-// command, so it is recorded beside the ones that succeeded.
+// command, so it is recorded beside the ones that succeeded. Refused means
+// lookout declined what was asked or how the file is written; failed is any
+// other error, such as a configuration that does not parse or a file that
+// cannot be written.
 const (
 	OK      = "ok"
 	Refused = "refused"
@@ -58,7 +61,12 @@ func Open(getenv func(string) string, setting, configPath string) (*Store, error
 	if err != nil {
 		return nil, err
 	}
-	config, err := filepath.Abs(configPath)
+	// The resolved path names the file itself, so a relative path or a symlinked
+	// directory reaching the same file finds the same owner.
+	config, err := filepath.EvalSymlinks(configPath)
+	if err == nil {
+		config, err = filepath.Abs(config)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("resolving %s: %w", configPath, err)
 	}
@@ -70,7 +78,7 @@ func Open(getenv func(string) string, setting, configPath string) (*Store, error
 	case err != nil:
 		return nil, fmt.Errorf("reading state: %w", err)
 	case strings.TrimSpace(string(owner)) != config:
-		return nil, fmt.Errorf("state directory %s belongs to configuration %s, not %s: give one of the two files a different name", s.dir, strings.TrimSpace(string(owner)), config)
+		return nil, fmt.Errorf("state directory %s belongs to configuration %s, not %s: if these are two settings, give one file a different name; if the file moved, delete %s so the state follows it", s.dir, strings.TrimSpace(string(owner)), config, filepath.Join(s.dir, ownerName))
 	}
 
 	data, err := os.ReadFile(filepath.Join(s.dir, logName))

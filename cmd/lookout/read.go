@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strconv"
 	"strings"
 )
 
@@ -70,7 +71,11 @@ func unplaced(args []string, env environment, stdout io.Writer, diag *log.Logger
 			diag.Printf("lookout unplaced: reading an item of %s: %v", p.Input, err)
 			return exitFailure
 		}
-		if _, err := fmt.Fprintf(stdout, "%s:%s\t%s\t%s\n", p.Input, it.ID, flat.Replace(it.Title), it.LastTouched); err != nil {
+		token := p.Input + ":" + it.ID
+		if strings.ContainsAny(token, "\t\r\n") {
+			token = strconv.Quote(token)
+		}
+		if _, err := fmt.Fprintf(stdout, "%s\t%s\t%s\n", token, flat.Replace(it.Title), it.LastTouched); err != nil {
 			diag.Printf("lookout unplaced: %v", err)
 			return exitFailure
 		}
