@@ -40,7 +40,7 @@
       "uniqueItems": true
     },
     "fetched_at": {
-      "description": "When the source was last read successfully, where the input says.",
+      "description": "When the source was last read successfully: for a supplied file, when its supplier says; for an input lookout reads itself, such as git, the time of this read, set when at least one of its sources was read.",
       "type": [
         "string",
         "null"
