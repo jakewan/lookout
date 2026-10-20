@@ -87,8 +87,12 @@ func Locate(getenv func(string) string, setting string) (string, error) {
 			return "", fmt.Errorf("setting %q is not a valid name: use lowercase letters, digits, - and _", setting)
 		}
 		path := filepath.Join(dir, setting+".yml")
-		if _, statErr := os.Stat(path); statErr != nil {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
 			return "", fmt.Errorf("no configuration for setting %q: %w", setting, statErr)
+		}
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("the configuration for setting %q, %s, is not a file", setting, path)
 		}
 		return path, nil
 	}

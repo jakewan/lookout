@@ -74,13 +74,8 @@ func Open(getenv func(string) string, setting, configPath string) (*Store, error
 	}
 	s := &Store{dir: filepath.Join(base, setting), config: config}
 
-	owner, err := os.ReadFile(filepath.Join(s.dir, ownerName))
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-	case err != nil:
-		return nil, fmt.Errorf("reading state: %w", err)
-	case strings.TrimSpace(string(owner)) != config:
-		return nil, fmt.Errorf("state directory %s belongs to configuration %s, not %s: if these are two settings, give one file a different name; if the file moved, delete %s so the state follows it", s.dir, strings.TrimSpace(string(owner)), config, filepath.Join(s.dir, ownerName))
+	if ownerErr := s.checkOwner(); ownerErr != nil && !errors.Is(ownerErr, fs.ErrNotExist) {
+		return nil, ownerErr
 	}
 
 	data, err := os.ReadFile(filepath.Join(s.dir, logName))
@@ -115,17 +110,50 @@ func root(getenv func(string) string) (string, error) {
 	return "", errors.New("cannot find the state directory: neither XDG_STATE_HOME nor HOME is set")
 }
 
-// Append records g, creating the state directory on first use. The directory
-// is private to its user because item ids name the user's own work.
-func (s *Store) Append(g Gesture) error {
+// checkOwner reports whether the directory belongs to this store's
+// configuration, wrapping fs.ErrNotExist when no configuration owns it yet.
+func (s *Store) checkOwner() error {
+	path := filepath.Join(s.dir, ownerName)
+	owner, err := os.ReadFile(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return fmt.Errorf("state directory %s has no owner yet: %w", s.dir, err)
+	case err != nil:
+		return fmt.Errorf("reading state: %w", err)
+	case strings.TrimSpace(string(owner)) != s.config:
+		return fmt.Errorf("state directory %s belongs to configuration %s, not %s: if these are two settings, give one file a different name; if the file moved, delete %s so the state follows it", s.dir, strings.TrimSpace(string(owner)), s.config, path)
+	}
+	return nil
+}
+
+// Claim makes the state directory this configuration's, creating it on first
+// use, or reports that another configuration already owns it. The owner file is
+// created exclusively, so of two first gestures racing from different files
+// only one can win. The directory is private to its user because item ids name
+// the user's own work.
+func (s *Store) Claim() error {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return fmt.Errorf("creating the state directory: %w", err)
 	}
-	owner := filepath.Join(s.dir, ownerName)
-	if _, err := os.Stat(owner); errors.Is(err, fs.ErrNotExist) {
-		if err := os.WriteFile(owner, []byte(s.config+"\n"), 0o600); err != nil {
-			return fmt.Errorf("writing state: %w", err)
-		}
+	f, err := os.OpenFile(filepath.Join(s.dir, ownerName), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		return s.checkOwner()
+	}
+	if err != nil {
+		return fmt.Errorf("writing state: %w", err)
+	}
+	_, writeErr := f.WriteString(s.config + "\n")
+	if err := errors.Join(writeErr, f.Sync(), f.Close()); err != nil {
+		return fmt.Errorf("writing state: %w", err)
+	}
+	return nil
+}
+
+// Append records g in a directory this configuration owns, claiming it first
+// if no configuration does yet.
+func (s *Store) Append(g Gesture) error {
+	if err := s.Claim(); err != nil {
+		return err
 	}
 	g.At = g.At.UTC()
 	line, err := json.Marshal(g)

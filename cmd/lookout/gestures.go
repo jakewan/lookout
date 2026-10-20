@@ -139,6 +139,12 @@ func record(env environment, diag *log.Logger, setting string, g state.Gesture, 
 		diag.Printf("lookout %s: %v", cmd, err)
 		return exitFailure
 	}
+	// Claiming the state before acting keeps a configuration that does not own
+	// it from editing first and then finding it has nowhere to record.
+	if claimErr := loc.store.Claim(); claimErr != nil {
+		diag.Printf("lookout %s: %v", cmd, claimErr)
+		return exitFailure
+	}
 	g.At = env.now()
 	err = act(loc.path, &g)
 	g.Outcome = state.OK

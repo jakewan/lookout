@@ -135,7 +135,7 @@ func Build(cfg *config.Config, readings map[string]supplied.Reading, dismissed m
 		reading := readings[in.Name]
 		out.Health = append(out.Health, reading.Health)
 		for _, it := range reading.Items {
-			if until, ok := claimed[key{in.Name, it.ID}]; ok && (until.IsZero() || !it.LastTouched.After(until)) {
+			if until, ok := claimed[key{in.Name, it.ID}]; ok && (until.IsZero() || it.LastTouched.Before(until)) {
 				continue
 			}
 			if at, ok := dismissed[in.Name+":"+it.ID]; ok && !it.LastTouched.After(at) {

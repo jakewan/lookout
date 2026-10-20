@@ -774,3 +774,54 @@ func TestAdoptStillRefusesAnItemALiveWorkstreamHolds(t *testing.T) {
 		t.Errorf("exit code = %d, stderr = %q, want a refusal naming billing", code, stderr)
 	}
 }
+
+func TestASettingThatIsADirectoryRecordsNothing(t *testing.T) {
+	f := newFixture(t)
+	if err := os.Mkdir(filepath.Join(f.dir, "personal.yml"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, _ := f.run("adopt", "--setting", "personal", "tracker:ABC-3", "billing"); code != exitFailure {
+		t.Errorf("exit code = %d, want a failure", code)
+	}
+	if _, err := os.Stat(f.stateDir("personal")); !os.IsNotExist(err) {
+		t.Errorf("state directory exists, claimed by a directory: %v", err)
+	}
+}
+
+func TestATouchAtTheStartOfTheNextDayResurfaces(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", strings.Replace(handWritten, "  - name: billing\n", "  - name: billing\n    completed: 2030-06-10\n", 1))
+	touched := item("ABC-1", 0, nil)
+	touched["last_touched"] = "2030-06-11T00:00:00Z"
+	f.supplied("tracker.json", suppliedDoc("tracker", []any{touched}, nil))
+	if ids := unplacedIDs(f.read()); !slices.Equal(ids, []string{"tracker:ABC-1"}) {
+		t.Errorf("unplaced = %v, want a touch at the next day's start counted as after the completed date", ids)
+	}
+}
+
+func TestAValueSpanningLinesIsRefused(t *testing.T) {
+	head := "inputs:\n  - name: tracker\n    supplied: tracker.json\n    max_age: 24h\nworkstreams:\n"
+	for name, c := range map[string]struct {
+		config string
+		args   []string
+	}{
+		"quoted name":        {head + "  - name: \"bill\\\n      ing\"\n    members:\n      - tracker:ABC-1\n", []string{"complete", "billing"}},
+		"plain name":         {head + "  - name: bill\n      ing\n    members:\n      - tracker:ABC-1\n", []string{"complete", "bill ing"}},
+		"quoted last member": {head + "  - name: billing\n    members:\n      - \"tracker:ABC\\\n        -1\"\n", []string{"adopt", "tracker:ABC-3", "billing"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.write("personal.yml", c.config)
+			code, _, stderr := f.run(c.args...)
+			if code != exitFailure || !strings.Contains(stderr, "one line") {
+				t.Errorf("exit code = %d, stderr = %q, want a refusal asking for one line", code, stderr)
+			}
+			if gs := f.gestures("personal"); len(gs) != 1 || gs[0].Outcome != "refused" {
+				t.Errorf("gestures = %+v, want one refused gesture", gs)
+			}
+			if got := f.config("personal.yml"); got != c.config {
+				t.Errorf("configuration changed:\n%q", got)
+			}
+		})
+	}
+}

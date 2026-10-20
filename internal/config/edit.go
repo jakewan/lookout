@@ -441,8 +441,8 @@ func (l *layout) item(n *yaml.Node) (wsItem, error) {
 		k, v := n.Content[i], n.Content[i+1]
 		switch k.Value {
 		case "name":
-			if v.Kind != yaml.ScalarNode || v.Line != k.Line || v.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
-				return wsItem{}, Refuse("the workstream name at line %d must sit on the same line as name:", k.Line)
+			if v.Kind != yaml.ScalarNode || v.Line != k.Line || !l.onOneLine(v) {
+				return wsItem{}, Refuse("the workstream name at line %d must be written on one line, on the same line as name:", k.Line)
 			}
 			it.nameValue = v
 		case "completed":
@@ -458,6 +458,26 @@ func (l *layout) item(n *yaml.Node) (wsItem, error) {
 		return wsItem{}, Refuse("the workstream at line %d has no name", n.Line)
 	}
 	return it, nil
+}
+
+// onOneLine reports whether the scalar n is written wholly on the line it
+// starts on. yaml.v3 gives only a scalar's start, and a quoted or plain scalar
+// can continue onto later lines, so the rest of its line is parsed alone and
+// must give the same value. The text before n is ASCII by the callers' checks,
+// so its character column is also its byte offset.
+func (l *layout) onOneLine(n *yaml.Node) bool {
+	if n.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
+		return false
+	}
+	line := strings.TrimRight(l.lines[n.Line-1], "\r\n")
+	if n.Column-1 > len(line) {
+		return false
+	}
+	var alone string
+	if err := yaml.Unmarshal([]byte(line[n.Column-1:]), &alone); err != nil {
+		return false
+	}
+	return alone == n.Value
 }
 
 func isComment(line string) bool { return strings.HasPrefix(strings.TrimSpace(line), "#") }
@@ -555,8 +575,8 @@ func (l *layout) addMember(idx int, scalar string) (string, error) {
 		last := it.members.Content[len(it.members.Content)-1]
 		at := last.Line - 1
 		prefix := l.lines[at][:min(last.Column-1, len(l.lines[at]))]
-		if !dashPrefix.MatchString(prefix) || last.Kind != yaml.ScalarNode || last.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
-			return "", Refuse("the last member at line %d is not one \"- <input>:<id>\" line", last.Line)
+		if !dashPrefix.MatchString(prefix) || last.Kind != yaml.ScalarNode || !l.onOneLine(last) {
+			return "", Refuse("the last member at line %d is not written on one line as \"- <input>:<id>\"", last.Line)
 		}
 		return l.insert(at+1, prefix+scalar+l.eol), nil
 	}
@@ -580,8 +600,8 @@ func (l *layout) removeMember(idx int, token string) (string, error) {
 		}
 		at := m.Line - 1
 		prefix := l.lines[at][:min(m.Column-1, len(l.lines[at]))]
-		if !dashPrefix.MatchString(prefix) || m.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
-			return "", Refuse("the member at line %d is not one \"- <input>:<id>\" line", m.Line)
+		if !dashPrefix.MatchString(prefix) || !l.onOneLine(m) {
+			return "", Refuse("the member at line %d is not written on one line as \"- <input>:<id>\"", m.Line)
 		}
 		return l.join(l.lines[:at], l.lines[at+1:]), nil
 	}
