@@ -45,6 +45,7 @@ type gestureDoc struct {
 	Workstream  string   `json:"workstream"`
 	Workstreams []string `json:"workstreams"`
 	New         bool     `json:"new"`
+	From        []string `json:"from"`
 }
 
 func (f *fixture) stateDir(setting string) string {
@@ -727,5 +728,49 @@ func TestADoubleDashEndsTheFlags(t *testing.T) {
 	f.mustRun("order", "--", "-c", "-b")
 	if doc := f.read(); !slices.Equal(workstreamNames(doc), []string{"-c", "-b", "a"}) {
 		t.Errorf("workstreams = %v", workstreamNames(doc))
+	}
+}
+
+func TestAdoptMovesAResurfacedItemOutOfItsCompletedWorkstream(t *testing.T) {
+	completed := strings.Replace(handWritten, "  - name: billing\n", "  - name: billing\n    completed: 2030-06-10\n", 1)
+	f := newFixture(t)
+	f.write("personal.yml", completed)
+	f.supplied("tracker.json", suppliedDoc("tracker", []any{item("ABC-1", time.Hour, nil)}, nil))
+
+	f.mustRun("adopt", "tracker:ABC-1", "onboarding")
+
+	want := strings.Replace(completed, "      - tracker:ABC-1   # the export\n", "", 1)
+	want = strings.Replace(want, "      - tracker:ABC-9\n", "      - tracker:ABC-9\n      - tracker:ABC-1\n", 1)
+	if got := f.config("personal.yml"); got != want {
+		t.Errorf("configuration:\n%s\nwant the member moved:\n%s", got, want)
+	}
+	doc := f.read()
+	if ids := unplacedIDs(doc); len(ids) != 0 {
+		t.Errorf("unplaced = %v, want the moved item placed", ids)
+	}
+	gs := f.gestures("personal")
+	if len(gs) != 1 || gs[0].Outcome != "ok" || !slices.Equal(gs[0].From, []string{"billing"}) {
+		t.Errorf("gestures = %+v, want one adopt recording where the item came from", gs)
+	}
+}
+
+func TestAdoptMovesACompletedWorkstreamsOnlyMember(t *testing.T) {
+	head := "inputs:\n  - name: tracker\n    supplied: tracker.json\n    max_age: 24h\nworkstreams:\n"
+	f := newFixture(t)
+	f.write("personal.yml", head+"  - name: old\n    completed: 2030-06-10\n    members:\n      - tracker:ABC-1\n  - name: new\n")
+
+	f.mustRun("adopt", "tracker:ABC-1", "new")
+
+	want := head + "  - name: old\n    completed: 2030-06-10\n    members:\n  - name: new\n    members:\n      - tracker:ABC-1\n"
+	if got := f.config("personal.yml"); got != want {
+		t.Errorf("configuration:\n%q\nwant:\n%q", got, want)
+	}
+}
+
+func TestAdoptStillRefusesAnItemALiveWorkstreamHolds(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	if code, _, stderr := f.run("adopt", "tracker:ABC-1", "onboarding"); code != exitFailure || !strings.Contains(stderr, "billing") {
+		t.Errorf("exit code = %d, stderr = %q, want a refusal naming billing", code, stderr)
 	}
 }

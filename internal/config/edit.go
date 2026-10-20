@@ -67,57 +67,79 @@ func Open(path string) (*Document, error) {
 func (d *Document) Config() *Config { return d.cfg }
 
 // Adopt adds member to the named workstream. With create, the workstream must
-// not exist yet and is added at the end of the order.
-func (d *Document) Adopt(member Member, workstream string, create bool) error {
+// not exist yet and is added at the end of the order. An item a completed
+// workstream holds is moved out of it, since an item has one current home;
+// Adopt returns the workstreams it was moved from.
+func (d *Document) Adopt(member Member, workstream string, create bool) ([]string, error) {
 	token := member.Input + ":" + member.ID
 	if !slices.ContainsFunc(d.cfg.Inputs, func(i Input) bool { return i.Name == member.Input }) {
-		return Refuse("input %q is not in this configuration: add it under inputs first", member.Input)
+		return nil, Refuse("input %q is not in this configuration: add it under inputs first", member.Input)
 	}
-	for _, w := range d.cfg.Workstreams {
-		if slices.Contains(w.Members, member) {
-			if w.Name == workstream {
-				return Refuse("%s is already a member of workstream %q", token, w.Name)
-			}
-			return Refuse("%s already belongs to workstream %q: remove it there first", token, w.Name)
+	var from []int
+	for i, w := range d.cfg.Workstreams {
+		if !slices.Contains(w.Members, member) {
+			continue
 		}
+		switch {
+		case w.Name == workstream:
+			return nil, Refuse("%s is already a member of workstream %q", token, w.Name)
+		case w.Completed == "":
+			return nil, Refuse("%s already belongs to workstream %q: remove it there first", token, w.Name)
+		}
+		from = append(from, i)
 	}
 	idx := slices.IndexFunc(d.cfg.Workstreams, func(w Workstream) bool { return w.Name == workstream })
 	switch {
 	case idx < 0 && !create:
-		return Refuse("no workstream %q: pass --new to add it at the end of the order", workstream)
+		return nil, Refuse("no workstream %q: pass --new to add it at the end of the order", workstream)
 	case idx >= 0 && create:
-		return Refuse("workstream %q already exists: drop --new to add to it", workstream)
+		return nil, Refuse("workstream %q already exists: drop --new to add to it", workstream)
 	case idx >= 0 && d.cfg.Workstreams[idx].Completed != "":
-		return Refuse("workstream %q is complete, since %s: delete its completed line to reopen it first", workstream, d.cfg.Workstreams[idx].Completed)
+		return nil, Refuse("workstream %q is complete, since %s: delete its completed line to reopen it first", workstream, d.cfg.Workstreams[idx].Completed)
 	}
 	scalar, err := scalarText(token)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	l, err := parseLayout(d.data)
-	if err != nil {
-		return err
-	}
+	text := string(d.data)
 	want := d.cfg.clone()
+	var names []string
+	for _, i := range from {
+		l, layoutErr := parseLayout([]byte(text))
+		if layoutErr != nil {
+			return nil, layoutErr
+		}
+		if text, err = l.removeMember(i, member.Input+":"+member.ID); err != nil {
+			return nil, err
+		}
+		want.Workstreams[i].Members = slices.DeleteFunc(want.Workstreams[i].Members, func(m Member) bool { return m == member })
+		if len(want.Workstreams[i].Members) == 0 {
+			want.Workstreams[i].Members = nil
+		}
+		names = append(names, want.Workstreams[i].Name)
+	}
+	l, err := parseLayout([]byte(text))
+	if err != nil {
+		return nil, err
+	}
 	// Naming an item of an input states that the input should have records.
 	want.Inputs[slices.IndexFunc(want.Inputs, func(i Input) bool { return i.Name == member.Input })].ExpectRecords = true
-	var text string
 	if idx >= 0 {
 		want.Workstreams[idx].Members = append(want.Workstreams[idx].Members, member)
 		text, err = l.addMember(idx, scalar)
 	} else {
 		name, nameErr := scalarText(workstream)
 		if nameErr != nil {
-			return nameErr
+			return nil, nameErr
 		}
 		want.Workstreams = append(want.Workstreams, Workstream{Name: workstream, Members: []Member{member}})
 		text, err = l.addWorkstream(name, scalar)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return d.apply([]byte(text), want)
+	return names, d.apply([]byte(text), want)
 }
 
 // Order moves the named workstreams to the front, in the order given; the rest
@@ -544,6 +566,26 @@ func (l *layout) addMember(idx int, scalar string) (string, error) {
 	}
 	at := it.membersK.Line - 1
 	return l.join(l.lines[:at], []string{head, ind + "  - " + scalar + l.eol}, l.lines[at+1:]), nil
+}
+
+// removeMember deletes the line holding the workstream's member token.
+func (l *layout) removeMember(idx int, token string) (string, error) {
+	it := l.items[idx]
+	if it.members == nil || it.members.Kind != yaml.SequenceNode {
+		return "", fmt.Errorf("workstream %q has no member list", it.nameValue.Value)
+	}
+	for _, m := range it.members.Content {
+		if m.Kind != yaml.ScalarNode || m.Value != token {
+			continue
+		}
+		at := m.Line - 1
+		prefix := l.lines[at][:min(m.Column-1, len(l.lines[at]))]
+		if !dashPrefix.MatchString(prefix) || m.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
+			return "", Refuse("the member at line %d is not one \"- <input>:<id>\" line", m.Line)
+		}
+		return l.join(l.lines[:at], l.lines[at+1:]), nil
+	}
+	return "", fmt.Errorf("workstream %q does not list %s", it.nameValue.Value, token)
 }
 
 func (l *layout) addWorkstream(name, scalar string) (string, error) {

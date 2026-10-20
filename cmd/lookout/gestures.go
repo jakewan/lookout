@@ -29,8 +29,12 @@ func adopt(args []string, env environment, _ io.Writer, diag *log.Logger) int {
 		return exitUsage
 	}
 	g := state.Gesture{Gesture: "adopt", Item: pos[0], Workstream: pos[1], New: *create}
-	return record(env, diag, *setting, g, func(path string) error {
-		return edit(path, func(d *config.Document) error { return d.Adopt(m, pos[1], *create) })
+	return record(env, diag, *setting, g, func(path string, g *state.Gesture) error {
+		return edit(path, func(d *config.Document) error {
+			from, err := d.Adopt(m, pos[1], *create)
+			g.From = from
+			return err
+		})
 	})
 }
 
@@ -46,7 +50,7 @@ func order(args []string, env environment, _ io.Writer, diag *log.Logger) int {
 		return exitUsage
 	}
 	g := state.Gesture{Gesture: "order", Workstreams: pos}
-	return record(env, diag, *setting, g, func(path string) error {
+	return record(env, diag, *setting, g, func(path string, _ *state.Gesture) error {
 		return edit(path, func(d *config.Document) error { return d.Order(pos) })
 	})
 }
@@ -64,7 +68,7 @@ func complete(args []string, env environment, _ io.Writer, diag *log.Logger) int
 	}
 	date := env.now().Format("2006-01-02")
 	g := state.Gesture{Gesture: "complete", Workstream: pos[0]}
-	return record(env, diag, *setting, g, func(path string) error {
+	return record(env, diag, *setting, g, func(path string, _ *state.Gesture) error {
 		return edit(path, func(d *config.Document) error { return d.Complete(pos[0], date) })
 	})
 }
@@ -86,7 +90,7 @@ func dismiss(args []string, env environment, _ io.Writer, diag *log.Logger) int 
 		return exitUsage
 	}
 	g := state.Gesture{Gesture: "dismiss", Item: pos[0]}
-	return record(env, diag, *setting, g, func(path string) error {
+	return record(env, diag, *setting, g, func(path string, _ *state.Gesture) error {
 		cfg, err := config.Load(path)
 		if err != nil {
 			return err
@@ -128,7 +132,7 @@ func edit(path string, change func(*config.Document) error) error {
 // record runs one gesture against the located setting and appends it to the
 // gesture log whatever its outcome, since a refused attempt is upkeep too. A
 // failure to find the setting records nothing: there is no log to write to.
-func record(env environment, diag *log.Logger, setting string, g state.Gesture, act func(path string) error) int {
+func record(env environment, diag *log.Logger, setting string, g state.Gesture, act func(path string, g *state.Gesture) error) int {
 	cmd := g.Gesture
 	loc, err := locate(env, setting)
 	if err != nil {
@@ -136,7 +140,7 @@ func record(env environment, diag *log.Logger, setting string, g state.Gesture, 
 		return exitFailure
 	}
 	g.At = env.now()
-	err = act(loc.path)
+	err = act(loc.path, &g)
 	g.Outcome = state.OK
 	if err != nil {
 		g.Outcome, g.Reason = outcome(err), err.Error()

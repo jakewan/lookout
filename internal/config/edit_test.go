@@ -33,7 +33,7 @@ func contents(t *testing.T, path string) string {
 
 func TestSaveRefusesWhenTheFileChangedUnderneath(t *testing.T) {
 	doc, path := openEditable(t)
-	if err := doc.Adopt(Member{Input: "tracker", ID: "ABC-2"}, "billing", false); err != nil {
+	if _, err := doc.Adopt(Member{Input: "tracker", ID: "ABC-2"}, "billing", false); err != nil {
 		t.Fatal(err)
 	}
 	edited := editable + "# saved from an editor meanwhile\n"
@@ -62,7 +62,7 @@ func TestSaveRefusesWhenTheFileChangedUnderneath(t *testing.T) {
 // leave behind: one Locate's search for setting files skips.
 func TestSaveNamesItsTemporaryFileSoItIsNeverASetting(t *testing.T) {
 	doc, path := openEditable(t)
-	if err := doc.Adopt(Member{Input: "tracker", ID: "ABC-2"}, "billing", false); err != nil {
+	if _, err := doc.Adopt(Member{Input: "tracker", ID: "ABC-2"}, "billing", false); err != nil {
 		t.Fatal(err)
 	}
 	var during []string
@@ -84,7 +84,7 @@ func TestSaveNamesItsTemporaryFileSoItIsNeverASetting(t *testing.T) {
 
 func TestSaveKeepsTheFilesMode(t *testing.T) {
 	doc, path := openEditable(t)
-	if err := doc.Adopt(Member{Input: "tracker", ID: "ABC-2"}, "billing", false); err != nil {
+	if _, err := doc.Adopt(Member{Input: "tracker", ID: "ABC-2"}, "billing", false); err != nil {
 		t.Fatal(err)
 	}
 	if err := doc.Save(); err != nil {
@@ -109,7 +109,7 @@ func TestSaveReplacesASymlinksTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := viaLink.Adopt(Member{Input: "tracker", ID: "ABC-2"}, "billing", false); err != nil {
+	if _, err := viaLink.Adopt(Member{Input: "tracker", ID: "ABC-2"}, "billing", false); err != nil {
 		t.Fatal(err)
 	}
 	if err := viaLink.Save(); err != nil {

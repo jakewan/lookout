@@ -37,6 +37,8 @@ type Gesture struct {
 	Workstream  string    `json:"workstream,omitempty"`
 	Workstreams []string  `json:"workstreams,omitempty"`
 	New         bool      `json:"new,omitempty"`
+	// From names the completed workstreams an adopted item was moved out of.
+	From []string `json:"from,omitempty"`
 }
 
 const (
