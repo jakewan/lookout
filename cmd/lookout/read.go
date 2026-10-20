@@ -42,10 +42,15 @@ func read(args []string, env environment, stdout io.Writer, diag *log.Logger) in
 		return exitFailure
 	}
 
+	reader, err := supplied.NewReader()
+	if err != nil {
+		diag.Printf("lookout read: %v", err)
+		return exitFailure
+	}
 	now := env.now()
 	readings := make(map[string]supplied.Reading, len(cfg.Inputs))
 	for _, in := range cfg.Inputs {
-		r, readErr := supplied.Read(in, now)
+		r, readErr := reader.Read(in, now)
 		if readErr != nil {
 			diag.Printf("lookout read: %v", readErr)
 			return exitFailure

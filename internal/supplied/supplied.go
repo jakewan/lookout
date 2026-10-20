@@ -51,10 +51,24 @@ type itemFields struct {
 	StartedAt   *time.Time `json:"started_at"`
 }
 
+// Reader reads supplied files against the compiled supplied.v1 contract.
+type Reader struct {
+	schema *jsonschema.Schema
+}
+
+// NewReader compiles the embedded contract once, for every file a run reads.
+func NewReader() (*Reader, error) {
+	sch, err := schema.Compile("supplied.v1")
+	if err != nil {
+		return nil, err
+	}
+	return &Reader{schema: sch}, nil
+}
+
 // Read judges the input in at now. It returns an error only when lookout itself
-// cannot work, such as a broken embedded schema; every problem with the file
-// is reported in the health record instead.
-func Read(in config.Input, now time.Time) (Reading, error) {
+// cannot work; every problem with the file is reported in the health record
+// instead.
+func (rd *Reader) Read(in config.Input, now time.Time) (Reading, error) {
 	r := Reading{Health: health.New(in.Name), Items: make([]Item, 0)}
 
 	data, err := os.ReadFile(in.Supplied)
@@ -67,17 +81,13 @@ func Read(in config.Input, now time.Time) (Reading, error) {
 		return r, nil
 	}
 
-	sch, err := schema.Compile("supplied.v1")
-	if err != nil {
-		return r, err
-	}
 	inst, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
 	if err != nil {
 		r.Health.Lower(health.Degraded, health.Schema)
 		r.Health.SchemaViolations = append(r.Health.SchemaViolations, "not JSON: "+err.Error())
 		return r, nil
 	}
-	if validateErr := sch.Validate(inst); validateErr != nil {
+	if validateErr := rd.schema.Validate(inst); validateErr != nil {
 		r.Health.Lower(health.Degraded, health.Schema)
 		r.Health.SchemaViolations = append(r.Health.SchemaViolations, violations(validateErr)...)
 		return r, nil
