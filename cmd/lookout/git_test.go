@@ -398,6 +398,32 @@ func TestReadGivesOneItemPerRemoteBranch(t *testing.T) {
 	}
 }
 
+// TestReadBreaksTiesBetweenClonesInConfiguredOrder pins that two clones
+// holding a branch at the same moment always report the same one: the first
+// the configuration reaches.
+func TestReadBreaksTiesBetweenClonesInConfiguredOrder(t *testing.T) {
+	f := newFixture(t).withGit()
+	f.write("personal.yml", `
+forge_owners: [alice]
+inputs:
+  - name: code
+    kind: git
+    repos: ["~/code/b", "~/code/a", "~/code/c"]
+workstreams: []
+`)
+	for _, rel := range []string{"code/a", "code/b", "code/c"} {
+		f.branch(f.repo(rel, "git@github.com:alice/app.git"), "feat", time.Hour)
+	}
+	// Each read walks its sources afresh, so an order that varied between
+	// runs would show within a few.
+	for range 20 {
+		doc := f.read()
+		if attrs, _ := doc.Unplaced[0].Item["attrs"].(map[string]any); attrs["repo"] != f.home("code/b") {
+			t.Fatalf("repo = %v, want the clone listed first", attrs["repo"])
+		}
+	}
+}
+
 func TestReadDiscoversOnlyRecentBranchesButReadsMembersAtAnyAge(t *testing.T) {
 	t.Run("discovery_window", func(t *testing.T) {
 		f := newFixture(t).withGit()
@@ -557,6 +583,12 @@ func TestReadGitHealth(t *testing.T) {
 			f.branch(f.repo("code/app", "git@github.com:alice/app.git"), "feat", time.Hour)
 			f.locked(f.repo("code/mallory-locked", "git@github.com:mallory/x.git"))
 		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"~/code/*: 1 match could not be read"}, items: 1, fetched: true},
+		{name: "a file where a pattern expects a directory is no match", repos: `["~/code/*/app"]`, build: func(f *fixture) {
+			f.branch(f.repo("code/team/app", "git@github.com:alice/app.git"), "feat", time.Hour)
+			if err := os.WriteFile(f.home("code/README"), []byte("notes\n"), 0o644); err != nil {
+				f.t.Fatal(err)
+			}
+		}, status: "ok", items: 1, fetched: true},
 		{name: "a directory a pattern cannot search is counted, not skipped", repos: `["~/code/*/*"]`, build: func(f *fixture) {
 			f.branch(f.repo("code/alice/app", "git@github.com:alice/app.git"), "feat", time.Hour)
 			f.branch(f.repo("code/mallory/tool", "git@github.com:mallory/tool.git"), "feat", time.Hour)

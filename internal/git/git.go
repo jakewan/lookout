@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -130,7 +131,11 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc Scope, now time.T
 	// full; whether they make the input degraded or in error depends on
 	// whether any source was read at all, which is known only at the end.
 	var entryFailures []string
+	// sources finds a repository by its common directory; order keeps them as
+	// the configuration reached them, so a tie between clones goes the same
+	// way every run.
 	sources := map[string]*source{}
+	var order []*source
 	for _, entry := range in.Repos {
 		if ctx.Err() != nil {
 			return out
@@ -143,6 +148,9 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc Scope, now time.T
 		}
 		for _, dir := range dirs {
 			src, first := r.classify(ctx, dir, sc, in.IgnoreBranches, sources)
+			if first {
+				order = append(order, src)
+			}
 			switch {
 			case src.outcome == failed && (first || literal):
 				unreadable++
@@ -165,7 +173,7 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc Scope, now time.T
 
 	readAny := false
 	found := map[string]branch{}
-	for _, src := range sources {
+	for _, src := range order {
 		switch src.outcome {
 		case excluded:
 			readAny = true
@@ -394,6 +402,11 @@ const (
 // lookout could not look, which is not the same as finding nothing.
 func probe(dir string) (dirKind, error) {
 	info, err := os.Stat(dir)
+	// A path through a file, which a pattern's literal element can produce
+	// after a wildcard matched a file, names nothing, as a missing one does.
+	if errors.Is(err, syscall.ENOTDIR) {
+		return otherDir, fs.ErrNotExist
+	}
 	if err != nil {
 		return otherDir, err
 	}
