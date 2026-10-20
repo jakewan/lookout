@@ -71,6 +71,7 @@ Go authoring conventions are in `.claude/rules/go-practices.md` (loaded when Cla
 - `.claude/rules/toolchain-ci-parity.md` — keeping the pinned local toolchain and CI in lockstep (loaded when Claude reads a pinned-toolchain file).
 - `.claude/rules/design-fork-adjudication.md` — how value-laden design forks are weighed here.
 - `README.md` — what the tool is.
+- `docs/vision.md` — the dashboard lookout is the data layer for: what it shows, the settled decisions, and the strategic questions still open.
 - `SECURITY.md` — reporting channel, plus the supply-chain claims. It asserts what CI scans, pins, and verifies, so a change to the workflows, `mise.lock`, or the Dependabot config should be checked against it.
 
 [bdd]: https://en.wikipedia.org/wiki/Behavior-driven_development
