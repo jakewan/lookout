@@ -191,6 +191,7 @@ const oneInput = `
 event_window: 336h
 inputs:
   - name: tracker
+    kind: supplied
     supplied: tracker.json
     max_age: 24h
     expect_records: true
@@ -276,6 +277,7 @@ func TestReadEventsStopAtTheWindow(t *testing.T) {
 event_window: 48h
 inputs:
   - name: tracker
+    kind: supplied
     supplied: tracker.json
     max_age: 24h
 workstreams:
@@ -409,6 +411,7 @@ func TestReadHealth(t *testing.T) {
 			f.write("personal.yml", `
 inputs:
   - name: tracker
+    kind: supplied
     supplied: tracker.json
     max_age: 24h
     expect_records: `+map[bool]string{true: "true", false: "false"}[tc.expect]+`
@@ -467,6 +470,7 @@ func TestReadTreatsAWorkstreamMemberAsAnExpectation(t *testing.T) {
 	f.write("personal.yml", `
 inputs:
   - name: tracker
+    kind: supplied
     supplied: tracker.json
     max_age: 24h
 workstreams:
@@ -510,9 +514,11 @@ func TestReadMarksWorkstreamsFedByAnUnhealthyInput(t *testing.T) {
 	f.write("personal.yml", `
 inputs:
   - name: tracker
+    kind: supplied
     supplied: tracker.json
     max_age: 24h
   - name: calendar
+    kind: supplied
     supplied: calendar.json
     max_age: 24h
 workstreams:
@@ -549,6 +555,7 @@ func TestReadCarriesATrackerSuppliersDetail(t *testing.T) {
 	f.write("work.yml", `
 inputs:
   - name: tickets
+    kind: supplied
     supplied: tickets.json
     max_age: 12h
     expect_records: true
@@ -594,6 +601,7 @@ func TestReadCarriesDatedObligations(t *testing.T) {
 	f.write("personal.yml", `
 inputs:
   - name: obligations
+    kind: supplied
     supplied: obligations.json
     max_age: 168h
 workstreams:
@@ -702,14 +710,22 @@ func TestReadSelectsOneSetting(t *testing.T) {
 func TestReadRefusesAnInvalidConfiguration(t *testing.T) {
 	cases := map[string]string{
 		"member names an unknown input":    "inputs: []\nworkstreams:\n  - name: a\n    members: [\"tracker:ABC-1\"]\n",
-		"member has no input prefix":       "inputs:\n  - {name: tracker, supplied: t.json, max_age: 1h}\nworkstreams:\n  - name: a\n    members: [\"ABC-1\"]\n",
-		"duplicate input":                  "inputs:\n  - {name: tracker, supplied: t.json, max_age: 1h}\n  - {name: tracker, supplied: u.json, max_age: 1h}\nworkstreams: []\n",
+		"member has no input prefix":       "inputs:\n  - {name: tracker, kind: supplied, supplied: t.json, max_age: 1h}\nworkstreams:\n  - name: a\n    members: [\"ABC-1\"]\n",
+		"duplicate input":                  "inputs:\n  - {name: tracker, kind: supplied, supplied: t.json, max_age: 1h}\n  - {name: tracker, kind: supplied, supplied: u.json, max_age: 1h}\nworkstreams: []\n",
 		"duplicate workstream":             "inputs: []\nworkstreams:\n  - {name: a, members: []}\n  - {name: a, members: []}\n",
-		"input without max_age":            "inputs:\n  - {name: tracker, supplied: t.json}\nworkstreams: []\n",
+		"input without max_age":            "inputs:\n  - {name: tracker, kind: supplied, supplied: t.json}\nworkstreams: []\n",
 		"unknown key":                      "inputs: []\nworkstreams: []\nworkstream: []\n",
-		"input name with a colon":          "inputs:\n  - {name: \"a:b\", supplied: t.json, max_age: 1h}\nworkstreams: []\n",
-		"member listed twice":              "inputs:\n  - {name: tracker, supplied: t.json, max_age: 1h}\nworkstreams:\n  - name: a\n    members: [\"tracker:ABC-1\", \"tracker:ABC-1\"]\n",
+		"input name with a colon":          "inputs:\n  - {name: \"a:b\", kind: supplied, supplied: t.json, max_age: 1h}\nworkstreams: []\n",
+		"member listed twice":              "inputs:\n  - {name: tracker, kind: supplied, supplied: t.json, max_age: 1h}\nworkstreams:\n  - name: a\n    members: [\"tracker:ABC-1\", \"tracker:ABC-1\"]\n",
 		"event window finer than a second": "event_window: 1500ms\ninputs: []\nworkstreams: []\n",
+		"input without kind":               "inputs:\n  - {name: tracker, supplied: t.json, max_age: 1h}\nworkstreams: []\n",
+		"input of an unknown kind":         "inputs:\n  - {name: tracker, kind: jira, supplied: t.json, max_age: 1h}\nworkstreams: []\n",
+	}
+	// mentions is what a refusal must say beyond the file's path, where another
+	// refusal of the same file could otherwise pass for it.
+	mentions := map[string]string{
+		"input without kind":       "needs kind",
+		"input of an unknown kind": `kind "jira"`,
 	}
 	for name, config := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -724,6 +740,9 @@ func TestReadRefusesAnInvalidConfiguration(t *testing.T) {
 			}
 			if !strings.Contains(stderr, path) {
 				t.Errorf("stderr = %q, want it to name the configuration file", stderr)
+			}
+			if want := mentions[name]; !strings.Contains(stderr, want) {
+				t.Errorf("stderr = %q, want it to say %q", stderr, want)
 			}
 		})
 	}

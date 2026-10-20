@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const editable = "inputs:\n  - name: tracker\n    supplied: tracker.json\n    max_age: 24h\nworkstreams:\n  - name: billing\n    members:\n      - tracker:ABC-1\n"
+const editable = "inputs:\n  - name: tracker\n    kind: supplied\n    supplied: tracker.json\n    max_age: 24h\nworkstreams:\n  - name: billing\n    members:\n      - tracker:ABC-1\n"
 
 func openEditable(t *testing.T) (*Document, string) {
 	t.Helper()

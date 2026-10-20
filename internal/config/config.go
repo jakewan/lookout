@@ -34,9 +34,17 @@ type Config struct {
 	Workstreams []Workstream
 }
 
+// Input kinds, as a configuration's kind key names them.
+const (
+	// KindSupplied is a file an outside supplier writes in the supplied.v1
+	// contract.
+	KindSupplied = "supplied"
+)
+
 // Input is one expected input. Supplied is an absolute path.
 type Input struct {
 	Name          string
+	Kind          string
 	Supplied      string
 	MaxAge        time.Duration
 	ExpectRecords bool
@@ -188,6 +196,7 @@ type fileShape struct {
 
 type inputFile struct {
 	Name          string `yaml:"name"`
+	Kind          string `yaml:"kind"`
 	Supplied      string `yaml:"supplied"`
 	MaxAge        string `yaml:"max_age"`
 	ExpectRecords bool   `yaml:"expect_records"`
@@ -255,6 +264,13 @@ func parse(data []byte, path string) (*Config, error) {
 		if slices.ContainsFunc(cfg.Inputs, func(i Input) bool { return i.Name == in.Name }) {
 			return nil, fmt.Errorf("input %q is listed twice", in.Name)
 		}
+		switch in.Kind {
+		case "":
+			return nil, fmt.Errorf("input %q needs kind: supplied, for a file an outside tool writes", in.Name)
+		case KindSupplied:
+		default:
+			return nil, fmt.Errorf("input %q kind %q is not one lookout reads: use supplied", in.Name, in.Kind)
+		}
 		if in.Supplied == "" {
 			return nil, fmt.Errorf("input %q needs supplied: the path of the file its supplier writes", in.Name)
 		}
@@ -269,7 +285,7 @@ func parse(data []byte, path string) (*Config, error) {
 		if !filepath.IsAbs(supplied) {
 			supplied = filepath.Join(base, supplied)
 		}
-		cfg.Inputs = append(cfg.Inputs, Input{Name: in.Name, Supplied: supplied, MaxAge: maxAge, ExpectRecords: in.ExpectRecords})
+		cfg.Inputs = append(cfg.Inputs, Input{Name: in.Name, Kind: in.Kind, Supplied: supplied, MaxAge: maxAge, ExpectRecords: in.ExpectRecords})
 	}
 
 	for _, ws := range shape.Workstreams {

@@ -18,6 +18,7 @@ event_window: 336h
 
 inputs:
   - name: tracker
+    kind: supplied
     supplied: tracker.json
     max_age: 24h
 
@@ -187,7 +188,7 @@ func TestAdoptNewAppendsAWorkstream(t *testing.T) {
 }
 
 func TestAdoptFillsAnEmptyOrMissingMemberList(t *testing.T) {
-	head := "inputs:\n  - name: tracker\n    supplied: tracker.json\n    max_age: 24h\n"
+	head := "inputs:\n  - name: tracker\n    kind: supplied\n    supplied: tracker.json\n    max_age: 24h\n"
 	cases := map[string]struct {
 		before, after string
 		create        bool
@@ -275,7 +276,7 @@ func TestAdoptRefusals(t *testing.T) {
 }
 
 func TestEditsRefuseFileShapesTheyCannotKeepIntact(t *testing.T) {
-	head := "inputs:\n  - name: tracker\n    supplied: tracker.json\n    max_age: 24h\n"
+	head := "inputs:\n  - name: tracker\n    kind: supplied\n    supplied: tracker.json\n    max_age: 24h\n"
 	cases := map[string]struct{ config, mention string }{
 		"alias":           {head + "workstreams:\n  - name: billing\n    members: &m\n      - tracker:ABC-1\n  - name: other\n    members: *m\n", "anchor"},
 		"second document": {head + "workstreams:\n  - name: billing\n    members:\n      - tracker:ABC-1\n---\nworkstreams: []\n", "more than one YAML document"},
@@ -309,6 +310,7 @@ event_window: 336h
 
 inputs:
   - name: tracker
+    kind: supplied
     supplied: tracker.json
     max_age: 24h
 
@@ -755,7 +757,7 @@ func TestAdoptMovesAResurfacedItemOutOfItsCompletedWorkstream(t *testing.T) {
 }
 
 func TestAdoptMovesACompletedWorkstreamsOnlyMember(t *testing.T) {
-	head := "inputs:\n  - name: tracker\n    supplied: tracker.json\n    max_age: 24h\nworkstreams:\n"
+	head := "inputs:\n  - name: tracker\n    kind: supplied\n    supplied: tracker.json\n    max_age: 24h\nworkstreams:\n"
 	f := newFixture(t)
 	f.write("personal.yml", head+"  - name: old\n    completed: 2030-06-10\n    members:\n      - tracker:ABC-1\n  - name: new\n")
 
@@ -800,7 +802,7 @@ func TestATouchAtTheStartOfTheNextDayResurfaces(t *testing.T) {
 }
 
 func TestAValueSpanningLinesIsRefused(t *testing.T) {
-	head := "inputs:\n  - name: tracker\n    supplied: tracker.json\n    max_age: 24h\nworkstreams:\n"
+	head := "inputs:\n  - name: tracker\n    kind: supplied\n    supplied: tracker.json\n    max_age: 24h\nworkstreams:\n"
 	for name, c := range map[string]struct {
 		config string
 		args   []string
@@ -854,7 +856,7 @@ func TestAMalformedQuotedTokenIsAUsageError(t *testing.T) {
 }
 
 func TestAOneLineNameThatLooksLikeADocumentMarkerIsEditable(t *testing.T) {
-	head := "inputs:\n  - name: tracker\n    supplied: tracker.json\n    max_age: 24h\nworkstreams:\n"
+	head := "inputs:\n  - name: tracker\n    kind: supplied\n    supplied: tracker.json\n    max_age: 24h\nworkstreams:\n"
 	for _, name := range []string{"---", "...", "--- parked"} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
@@ -869,7 +871,7 @@ func TestAOneLineNameThatLooksLikeADocumentMarkerIsEditable(t *testing.T) {
 // rather than assuming it: each value is written on one line, so every edit
 // beside it must go through, and the edit's own check confirms the splice.
 func TestEditsAcceptAwkwardOneLineValues(t *testing.T) {
-	head := "inputs:\n  - name: tracker\n    supplied: tracker.json\n    max_age: 24h\nworkstreams:\n"
+	head := "inputs:\n  - name: tracker\n    kind: supplied\n    supplied: tracker.json\n    max_age: 24h\nworkstreams:\n"
 	names := map[string]string{ // as written in YAML → the value it holds
 		`---`:          "---",
 		`...`:          "...",
