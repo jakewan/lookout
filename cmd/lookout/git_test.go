@@ -786,6 +786,23 @@ func TestReadSaysWhenItCouldNotSearchThePath(t *testing.T) {
 	}
 }
 
+// TestReadTakesAFileOnThePathForNoDirectory pins that a PATH element naming a
+// file holds no git, rather than being a directory lookout could not search.
+func TestReadTakesAFileOnThePathForNoDirectory(t *testing.T) {
+	f := newFixture(t).withGit()
+	f.write("personal.yml", fencedCode)
+	f.branch(f.repo("code/app", "git@github.com:alice/app.git"), "feat", time.Hour)
+	file := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.env["PATH"] = file + ":" + t.TempDir()
+
+	if h := f.read().health(t, "code"); !slices.Equal(h.Details, []string{"git: not found on PATH"}) {
+		t.Errorf("details = %q, want git simply not found", h.Details)
+	}
+}
+
 // TestReadIgnoresTheCallersRepositoryVariables pins that git is never pointed
 // at another repository by variables a hook or wrapper exported, such as a
 // pre-push hook running these specs.

@@ -62,7 +62,7 @@ func NewReader(getenv func(string) string) *Reader {
 			r.git, r.unsearched = candidate, 0
 			break
 		}
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err != nil && !absent(err) {
 			r.unsearched++
 		}
 	}
@@ -297,7 +297,7 @@ func (r *Reader) resolve(entry, base string) (dirs []string, unreadable int, lit
 	if !hasMeta(rest) {
 		path := filepath.Join(prefix, rest)
 		switch kind, err := probe(path); {
-		case errors.Is(err, fs.ErrNotExist):
+		case absent(err):
 			return nil, 0, true, health.Missing, "no such directory"
 		case err != nil:
 			return nil, 0, true, health.GitFailed, "git could not read it"
@@ -309,7 +309,7 @@ func (r *Reader) resolve(entry, base string) (dirs []string, unreadable int, lit
 	candidates, unreadable := match(prefix, rest)
 	for _, c := range candidates {
 		switch kind, err := probe(c); {
-		case err != nil && !errors.Is(err, fs.ErrNotExist):
+		case err != nil && !absent(err):
 			unreadable++
 		case kind == repositoryDir:
 			dirs = append(dirs, c)
@@ -344,9 +344,7 @@ func match(prefix, pattern string) (paths []string, unreadable int) {
 			}
 			info, err := os.Stat(dir)
 			switch {
-			// A path through a file, which a literal element after a wildcard
-			// can produce, names nothing, as a missing one does.
-			case errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) || (err == nil && !info.IsDir()):
+			case absent(err) || (err == nil && !info.IsDir()):
 				continue
 			case err != nil:
 				unreadable++
@@ -354,7 +352,9 @@ func match(prefix, pattern string) (paths []string, unreadable int) {
 			}
 			entries, err := os.ReadDir(dir)
 			if err != nil {
-				unreadable++
+				if !absent(err) {
+					unreadable++
+				}
 				continue
 			}
 			for _, e := range entries {
@@ -388,6 +388,16 @@ func (r *Reader) split(entry, base string) (prefix, rest string) {
 
 func hasMeta(p string) bool { return strings.ContainsAny(p, `*?[\`) }
 
+// absent reports whether err from inspecting a path means nothing is there,
+// as opposed to lookout being unable to look. A path running through a file,
+// which a PATH element or a pattern's literal element after a wildcard can
+// produce, names nothing, as a missing one does. Every inspection in this
+// package sorts its errors here, so the two can never be told apart
+// differently in different places.
+func absent(err error) bool {
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR)
+}
+
 // dirKind is what probe finds at a path.
 type dirKind int
 
@@ -400,15 +410,10 @@ const (
 // status: git exits 128 alike for a plain directory and for a repository it
 // refuses to read, and a broken repository must be reported rather than
 // skipped. A checkout or linked worktree has a .git entry; a bare repository
-// has HEAD and objects of its own. An error other than a missing entry means
+// has HEAD and objects of its own. An error absent does not cover means
 // lookout could not look, which is not the same as finding nothing.
 func probe(dir string) (dirKind, error) {
 	info, err := os.Stat(dir)
-	// A path through a file, which a pattern's literal element can produce
-	// after a wildcard matched a file, names nothing, as a missing one does.
-	if errors.Is(err, syscall.ENOTDIR) {
-		return otherDir, fs.ErrNotExist
-	}
 	if err != nil {
 		return otherDir, err
 	}
@@ -417,13 +422,13 @@ func probe(dir string) (dirKind, error) {
 	}
 	if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
 		return repositoryDir, nil
-	} else if !errors.Is(err, fs.ErrNotExist) {
+	} else if !absent(err) {
 		return otherDir, err
 	}
 	head, headErr := os.Stat(filepath.Join(dir, "HEAD"))
 	objects, objErr := os.Stat(filepath.Join(dir, "objects"))
 	for _, e := range []error{headErr, objErr} {
-		if e != nil && !errors.Is(e, fs.ErrNotExist) {
+		if e != nil && !absent(e) {
 			return otherDir, e
 		}
 	}
