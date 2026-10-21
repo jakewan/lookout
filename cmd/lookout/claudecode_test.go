@@ -181,6 +181,22 @@ func TestReadRollsClaudeCodeSessionsUpByBranch(t *testing.T) {
 	}
 }
 
+func TestReadTitlesAClaudeCodeItemByItsNewestSession(t *testing.T) {
+	f := newFixture(t).withGit()
+	f.write("personal.yml", claudeOnly)
+	app := f.repo("code/app", "git@github.com:alice/app.git")
+	claude := f.home(".claude")
+	f.transcript(claude, app, sessionA, 5*time.Hour, turn(sessionA, app, "feature/x", 5*time.Hour), titled(sessionA, "Last week's work"))
+	// A run with no generated title, such as claude -p, is still the newest.
+	f.transcript(claude, app, sessionB, time.Hour, turn(sessionB, app, "feature/x", time.Hour))
+
+	it := sessionItem(f.read(), "claude", "alice/app:feature/x")
+
+	if it == nil || it["title"] != "feature/x" {
+		t.Errorf("item = %v, want the branch name, since the newest session has no title", it)
+	}
+}
+
 func TestReadKeepsClaudeCodeSessionsOutsideTheOwnerFence(t *testing.T) {
 	f := newFixture(t).withGit()
 	f.write("personal.yml", claudeOnly)
@@ -370,6 +386,55 @@ func TestReadDiscoversRecentSessionsButReadsMembersAtAnyAge(t *testing.T) {
 			t.Errorf("health = %+v, want ok", h)
 		}
 	})
+	t.Run("a member whose branch JSON escapes is read from an old transcript", func(t *testing.T) {
+		f := setup(t, `['claude:alice/app:a"b']`)
+		app := f.home("code/app")
+		f.transcript(f.home(".claude"), app, sessionC, old, turn(sessionC, app, `a"b`, old))
+		doc := f.read()
+		if len(doc.Workstreams) != 1 || len(doc.Workstreams[0].MembersUnread) != 0 {
+			t.Errorf("workstreams = %+v, want the member read", doc.Workstreams)
+		}
+	})
+	t.Run("sessions read for a member join an item already found", func(t *testing.T) {
+		f := setup(t, `["claude:alice/app:feature/gone"]`)
+		app := f.home("code/app")
+		f.transcript(f.home(".claude"), app, sessionC, old, turn(sessionC, app, "feature/new", old), turn(sessionC, app, "feature/gone", old))
+		it := sessionItem(f.read(), "claude", "alice/app:feature/new")
+		if it == nil || it["last_touched"] != stamp(time.Hour) || !slices.Equal(sessionsOf(it), []string{sessionA, sessionC}) {
+			t.Errorf("item = %v, want the older session added and the newer touch kept", it)
+		}
+	})
+	t.Run("a repository git cannot read behind a member is reported", func(t *testing.T) {
+		f := setup(t, `["claude:alice/broken:feature/old"]`)
+		broken := f.repo("code/broken", "git@github.com:alice/broken.git")
+		if err := os.WriteFile(filepath.Join(broken, ".git", "config"), []byte("[[[\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		f.transcript(f.home(".claude"), broken, sessionC, old, turn(sessionC, broken, "feature/old", old))
+		h := f.read().health(t, "claude")
+		if h.Status != "degraded" || !slices.Equal(h.Reasons, []string{"git_failed"}) || !slices.Equal(h.Details, []string{"1 working directory is in a repository git could not read"}) {
+			t.Errorf("health = %+v, want the failure behind the member reported", h)
+		}
+	})
+	t.Run("an older transcript read for a member does not stand in for the window", func(t *testing.T) {
+		f := setup(t, `["claude:alice/app:feature/old"]`)
+		f.locked(filepath.Join(f.home(".claude"), "projects", projectDir(f.home("code/app")), sessionA+".jsonl"))
+		if h := f.read().health(t, "claude"); h.Status != "error" || !slices.Equal(h.Reasons, []string{"unreadable"}) {
+			t.Errorf("health = %+v, want error: no transcript in the window could be read", h)
+		}
+	})
+	t.Run("expect_records looks only at the window", func(t *testing.T) {
+		for _, members := range []string{"[]", `["claude:alice/app:feature/old"]`} {
+			f := newFixture(t).withGit()
+			f.write("personal.yml", strings.Replace(strings.Replace(claudeOnly, "workstreams: []", "workstreams:\n  - name: search\n    members: "+members, 1),
+				"kind: claude_code", "kind: claude_code\n    expect_records: true", 1))
+			app := f.repo("code/app", "git@github.com:alice/app.git")
+			f.transcript(f.home(".claude"), app, sessionB, old, turn(sessionB, app, "feature/old", old))
+			if h := f.read().health(t, "claude"); h.Status != "degraded" || !slices.Equal(h.Reasons, []string{"empty"}) {
+				t.Errorf("members %s: health = %+v, want empty either way", members, h)
+			}
+		}
+	})
 	t.Run("an old transcript naming no unread member is not decoded", func(t *testing.T) {
 		f := setup(t, `["claude:alice/app:feature/gone"]`)
 		f.writeAt(filepath.Join(f.home(".claude"), "projects", "-elsewhere", sessionC+".jsonl"), "not json at all\n", old)
@@ -456,7 +521,36 @@ func TestReadClaudeCodeHealth(t *testing.T) {
 		{name: "transcripts with no conversation record", dirs: `["~/.claude"]`, build: func(f *fixture, app string) {
 			f.transcript(f.home(".claude"), app, sessionA, time.Hour,
 				jsonLine(map[string]any{"type": "speech", "sessionId": sessionA, "cwd": app, "gitBranch": "feat", "timestamp": now.Add(-time.Hour).Format(time.RFC3339)}))
-		}, status: "error", reasons: []string{"unrecognized_format"}, details: []string{"~/.claude: no transcript holds a conversation record lookout recognizes"}},
+		}, status: "error", reasons: []string{"unrecognized_format"}, details: []string{"~/.claude: 1 transcript holds no conversation record lookout recognizes"}},
+		{name: "a transcript in a shape lookout does not know beside one it does", dirs: `["~/.claude"]`, build: func(f *fixture, app string) {
+			// Right after Claude Code changes its format, transcripts in both
+			// shapes are in the window together.
+			f.transcript(f.home(".claude"), app, sessionA, time.Hour, turn(sessionA, app, "feat", time.Hour))
+			f.transcript(f.home(".claude"), app, sessionB, time.Hour,
+				jsonLine(map[string]any{"type": "speech", "sessionId": sessionB, "cwd": app, "gitBranch": "other", "timestamp": now.Add(-time.Hour).Format(time.RFC3339)}),
+				jsonLine(map[string]any{"type": "ai-title", "sessionId": sessionB, "aiTitle": "New format"}))
+		}, status: "degraded", reasons: []string{"unrecognized_format"}, details: []string{"~/.claude: 1 transcript holds no conversation record lookout recognizes"}, items: 1},
+		{name: "a transcript of a session not yet prompted", dirs: `["~/.claude"]`, build: func(f *fixture, app string) {
+			f.transcript(f.home(".claude"), app, sessionA, time.Hour,
+				jsonLine(map[string]any{"type": "mode", "sessionId": sessionA}),
+				jsonLine(map[string]any{"type": "permission-mode", "sessionId": sessionA}))
+		}, status: "ok"},
+		{name: "a metadata record of a type lookout does not read, in a shape it does not expect", dirs: `["~/.claude"]`, build: func(f *fixture, app string) {
+			f.transcript(f.home(".claude"), app, sessionA, time.Hour,
+				turn(sessionA, app, "feat", time.Hour),
+				jsonLine(map[string]any{"type": "pr-link", "sessionId": sessionA, "timestamp": 12345, "cwd": []any{}}))
+		}, status: "ok", items: 1},
+		{name: "a record dated where no readout can carry it", dirs: `["~/.claude"]`, build: func(f *fixture, app string) {
+			f.transcript(f.home(".claude"), app, sessionA, time.Hour,
+				turn(sessionA, app, "feat", time.Hour),
+				jsonLine(map[string]any{"type": "user", "sessionId": sessionA, "cwd": app, "gitBranch": "early", "timestamp": "0000-01-01T00:00:00+01:00"}))
+		}, status: "degraded", reasons: []string{"unrecognized_format"}, details: []string{"~/.claude: 1 transcript line is not in a shape lookout reads"}, items: 1},
+		{name: "a project directory that cannot be looked into", dirs: `["~/.claude"]`, build: func(f *fixture, app string) {
+			f.transcript(f.home(".claude"), app, sessionA, time.Hour, turn(sessionA, app, "feat", time.Hour))
+			other := f.home("code/other")
+			f.transcript(f.home(".claude"), other, sessionB, time.Hour, turn(sessionB, other, "x", time.Hour))
+			f.locked(filepath.Join(f.home(".claude"), "projects", projectDir(other)))
+		}, status: "degraded", reasons: []string{"unreadable"}, details: []string{"~/.claude: 1 project directory could not be looked into"}, items: 1},
 		{name: "a partial last line and an unknown record type", dirs: `["~/.claude"]`, build: func(f *fixture, app string) {
 			path := f.transcript(f.home(".claude"), app, sessionA, time.Hour,
 				jsonLine(map[string]any{"type": "speech", "sessionId": sessionA}), turn(sessionA, app, "feat", time.Hour))
@@ -531,6 +625,23 @@ func TestReadClaudeCodeHealth(t *testing.T) {
 				t.Errorf("record_count = %d, unplaced = %v, want %d", h.RecordCount, unplacedIDs(doc), tc.items)
 			}
 		})
+	}
+}
+
+func TestReadReportsGitMissingBehindAClaudeCodeMember(t *testing.T) {
+	old := 20 * 24 * time.Hour
+	f := newFixture(t).withGit()
+	f.write("personal.yml", strings.Replace(strings.Replace(claudeOnly, "workstreams: []", "workstreams:\n  - name: search\n    members: [\"claude:alice/app:feature/old\"]", 1),
+		`["~/.claude"]`, `["~/.claude", "~/.claude-gone"]`, 1))
+	app := f.repo("code/app", "git@github.com:alice/app.git")
+	f.transcript(f.home(".claude"), app, sessionA, old, turn(sessionA, app, "feature/old", old))
+	f.env["PATH"] = t.TempDir()
+
+	h := f.read().health(t, "claude")
+
+	if h.Status != "error" || !slices.Contains(h.Reasons, "git_failed") ||
+		!slices.Contains(h.Details, "git: not found on PATH") || !slices.Contains(h.Details, "~/.claude-gone: no such directory") {
+		t.Errorf("health = %+v, want git missing reported beside the other findings", h)
 	}
 }
 
