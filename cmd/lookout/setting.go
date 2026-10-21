@@ -9,6 +9,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/jakewan/lookout/internal/claudecode"
 	"github.com/jakewan/lookout/internal/config"
 	"github.com/jakewan/lookout/internal/git"
 	"github.com/jakewan/lookout/internal/github"
@@ -100,6 +101,7 @@ func readInputs(ctx context.Context, env environment, cfg *config.Config, now ti
 	}
 	repos := git.NewReader(env.getenv)
 	hub := github.NewReader(env.getenv, env.github)
+	sessions := claudecode.NewReader(env.getenv)
 	readings := make(map[string]readout.Reading, len(cfg.Inputs))
 	for _, in := range cfg.Inputs {
 		scope := readout.Scope{Owners: cfg.ForgeOwners, Since: now.Add(-cfg.DiscoveryWindow), Members: cfg.MemberIDs(in.Name)}
@@ -110,6 +112,8 @@ func readInputs(ctx context.Context, env environment, cfg *config.Config, now ti
 			readings[in.Name] = repos.Read(ctx, in, scope, now)
 		case config.KindGitHub:
 			readings[in.Name] = hub.Read(ctx, in, scope, now)
+		case config.KindClaudeCode:
+			readings[in.Name] = sessions.Read(ctx, in, scope, now)
 		default:
 			// The configuration refuses a kind lookout has no reader for, so
 			// this guards only a kind added there without one here.
