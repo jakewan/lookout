@@ -3,6 +3,7 @@ package execpath
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -10,11 +11,13 @@ import (
 )
 
 // Find returns the first regular, executable file called name in a directory
-// on getenv's PATH, or "" when there is none. exec.Command would search the
-// PATH this process started with instead, which is not the environment the
-// invocation was given. unsearched counts the directories that could not be
-// looked into while nothing was found, so "not found" is not claimed of them.
-func Find(getenv func(string) string, name string) (path string, unsearched int) {
+// on getenv's PATH. exec.Command would search the PATH this process started
+// with instead, which is not the environment the invocation was given. When
+// there is none, missing is a line for people saying so, which counts the
+// directories that could not be looked into, so "not found" is not claimed of
+// them.
+func Find(getenv func(string) string, name string) (path, missing string) {
+	unsearched := 0
 	for _, dir := range filepath.SplitList(getenv("PATH")) {
 		// A relative or empty element names the working directory, where an
 		// executable nobody installed may sit; os/exec refuses those for the
@@ -25,7 +28,7 @@ func Find(getenv func(string) string, name string) (path string, unsearched int)
 		candidate := filepath.Join(dir, name)
 		info, err := os.Stat(candidate)
 		if err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
-			return candidate, 0
+			return candidate, ""
 		}
 		// A missing directory, or a file listed on PATH in place of one,
 		// holds nothing to find; anything else is a directory not searched.
@@ -33,5 +36,11 @@ func Find(getenv func(string) string, name string) (path string, unsearched int)
 			unsearched++
 		}
 	}
-	return "", unsearched
+	switch unsearched {
+	case 0:
+		return "", name + ": not found on PATH"
+	case 1:
+		return "", name + ": not found on PATH, and 1 directory on it could not be searched"
+	}
+	return "", fmt.Sprintf("%s: not found on PATH, and %d directories on it could not be searched", name, unsearched)
 }

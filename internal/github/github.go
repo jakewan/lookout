@@ -44,11 +44,11 @@ const (
 // Reader reads GitHub for one invocation. The token is asked of gh once, when
 // the first github input is read.
 type Reader struct {
-	getenv     func(string) string
-	gh         string
-	unsearched int
-	api        string
-	client     *http.Client
+	getenv  func(string) string
+	gh      string
+	missing string // why there is no gh, when there is none
+	api     string
+	client  *http.Client
 
 	asked    bool
 	token    string
@@ -58,7 +58,7 @@ type Reader struct {
 // NewReader finds gh on the invocation's PATH and sends queries to api.
 func NewReader(getenv func(string) string, api string) *Reader {
 	r := &Reader{getenv: getenv, api: api, client: &http.Client{Timeout: httpTimeout}}
-	r.gh, r.unsearched = execpath.Find(getenv, "gh")
+	r.gh, r.missing = execpath.Find(getenv, "gh")
 	return r
 }
 
@@ -152,19 +152,20 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 		}
 	}
 
-	searches := make([]string, 0, 2*len(owners))
+	type search struct{ q, label string }
+	searches := make([]search, 0, 2*len(owners))
 	since := sc.Since.UTC().Format(time.RFC3339)
 	for _, o := range owners {
 		searches = append(searches,
-			"is:pr is:open author:@me user:"+o+" updated:>="+since,
-			"is:issue is:open assignee:@me user:"+o+" updated:>="+since)
+			search{"is:pr is:open author:@me user:" + o + " updated:>=" + since, "pull request search of " + o},
+			search{"is:issue is:open assignee:@me user:" + o + " updated:>=" + since, "issue search of " + o})
 	}
 	stopped := slices.ContainsFunc(failures, func(f failure) bool { return f.stops() })
-	for _, q := range searches {
+	for _, s := range searches {
 		if stopped {
 			break
 		}
-		nodes, short, f := r.search(ctx, token, q)
+		nodes, short, f := r.search(ctx, token, s.q, s.label)
 		if f != nil {
 			failures = append(failures, *f)
 			stopped = f.stops()
@@ -244,14 +245,7 @@ func (r *Reader) credential(ctx context.Context) (string, string) {
 func (r *Reader) askGH(ctx context.Context) (string, string) {
 	const login = "run gh auth login --hostname " + host
 	if r.gh == "" {
-		switch r.unsearched {
-		case 0:
-			return "", "gh: not found on PATH"
-		case 1:
-			return "", "gh: not found on PATH, and 1 directory on it could not be searched"
-		default:
-			return "", fmt.Sprintf("gh: not found on PATH, and %d directories on it could not be searched", r.unsearched)
-		}
+		return "", r.missing
 	}
 	runCtx, cancel := context.WithTimeout(ctx, ghTimeout)
 	defer cancel()
@@ -478,9 +472,8 @@ nodes { ` + nodeFields + ` }
 }`
 
 // search pages through one search. short, when not empty, says why the
-// results stop before the matches do.
-func (r *Reader) search(ctx context.Context, token, q string) (nodes []node, short string, f *failure) {
-	label := strings.Fields(q)[0] + " search of " + owner(q)
+// results stop before the matches do, opening with label.
+func (r *Reader) search(ctx context.Context, token, q, label string) (nodes []node, short string, f *failure) {
 	var after any
 	// searchCap/pageSize pages reach the cap; the two beyond let the last
 	// page say there is no next one.
@@ -522,16 +515,6 @@ func (r *Reader) search(ctx context.Context, token, q string) (nodes []node, sho
 		short = label + ": stopped paging at GitHub's search limit"
 	}
 	return nodes, short, nil
-}
-
-// owner is the user: qualifier's value in a search lookout built.
-func owner(q string) string {
-	for _, term := range strings.Fields(q) {
-		if v, ok := strings.CutPrefix(term, "user:"); ok {
-			return v
-		}
-	}
-	return ""
 }
 
 // gqlError is one entry of a GraphQL response's errors.

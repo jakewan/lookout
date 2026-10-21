@@ -31,15 +31,14 @@ import (
 type Reader struct {
 	getenv func(string) string
 	git    string
-	// unsearched counts the PATH directories lookout could not look into
-	// while it found no git, so "not found" is not claimed of them.
-	unsearched int
+	// missing says why there is no git, when there is none.
+	missing string
 }
 
 // NewReader finds git on the invocation's PATH.
 func NewReader(getenv func(string) string) *Reader {
 	r := &Reader{getenv: getenv}
-	r.git, r.unsearched = execpath.Find(getenv, "git")
+	r.git, r.missing = execpath.Find(getenv, "git")
 	return r
 }
 
@@ -85,14 +84,7 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 	out := readout.Reading{Health: health.New(in.Name), Items: make([]readout.Item, 0)}
 	if r.git == "" {
 		out.Health.Lower(health.Error, health.GitFailed)
-		switch r.unsearched {
-		case 0:
-			out.Health.Details = append(out.Health.Details, "git: not found on PATH")
-		case 1:
-			out.Health.Details = append(out.Health.Details, "git: not found on PATH, and 1 directory on it could not be searched")
-		default:
-			out.Health.Details = append(out.Health.Details, fmt.Sprintf("git: not found on PATH, and %d directories on it could not be searched", r.unsearched))
-		}
+		out.Health.Details = append(out.Health.Details, r.missing)
 		return out
 	}
 	if problem := r.checkVersion(ctx); problem != "" {
