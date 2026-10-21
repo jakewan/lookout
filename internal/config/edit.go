@@ -123,8 +123,11 @@ func (d *Document) Adopt(member Member, workstream string, create bool) ([]strin
 	if err != nil {
 		return nil, err
 	}
-	// Naming an item of an input states that the input should have records.
-	want.Inputs[slices.IndexFunc(want.Inputs, func(i Input) bool { return i.Name == member.Input })].ExpectRecords = true
+	// Naming an item of a supplied input states that the input should have
+	// records; Parse applies the same rule, and the two must agree.
+	if in := &want.Inputs[slices.IndexFunc(want.Inputs, func(i Input) bool { return i.Name == member.Input })]; in.Kind == KindSupplied {
+		in.ExpectRecords = true
+	}
 	if idx >= 0 {
 		want.Workstreams[idx].Members = append(want.Workstreams[idx].Members, member)
 		text, err = l.addMember(idx, scalar)

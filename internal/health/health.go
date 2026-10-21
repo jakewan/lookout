@@ -2,7 +2,10 @@
 // schema/health.v1.json publishes.
 package health
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // Status values, as health.v1 enumerates them.
 const (
@@ -11,7 +14,7 @@ const (
 	Error    = "error"
 )
 
-// Reasons, as health.v1 enumerates them. Each names one cause that lowered a
+// Reasons, as health.v1 documents them. Each names one cause that lowered a
 // status.
 const (
 	Missing          = "missing"
@@ -26,7 +29,13 @@ const (
 	Empty            = "empty"
 	ClockSkew        = "clock_skew"
 	DuplicateID      = "duplicate_id"
+	NotARepository   = "not_a_repository"
+	GitFailed        = "git_failed"
 )
+
+// ClockTolerance is how far ahead of this machine's clock an input's
+// timestamp may be before lookout reports clock skew.
+const ClockTolerance = 5 * time.Minute
 
 // Record is one input's health.
 type Record struct {
@@ -38,6 +47,8 @@ type Record struct {
 	MissingFields    []string   `json:"missing_fields"`
 	SchemaViolations []string   `json:"schema_violations"`
 	SupplierReason   *string    `json:"supplier_reason"`
+	Details          []string   `json:"details"`
+	ExcludedCount    int        `json:"excluded_count"`
 }
 
 // New returns an ok record for input with every list empty rather than nil,
@@ -49,13 +60,18 @@ func New(input string) Record {
 		Reasons:          make([]string, 0, 1),
 		MissingFields:    make([]string, 0),
 		SchemaViolations: make([]string, 0),
+		Details:          make([]string, 0),
 	}
 }
 
 // Lower records reason and moves the status to status unless it is already
-// worse, so no later finding can soften an earlier one.
+// worse, so no later finding can soften an earlier one. An input that reads
+// several sources can find one cause more than once, and health.v1 lists each
+// reason once.
 func (r *Record) Lower(status, reason string) {
-	r.Reasons = append(r.Reasons, reason)
+	if !slices.Contains(r.Reasons, reason) {
+		r.Reasons = append(r.Reasons, reason)
+	}
 	if rank(status) > rank(r.Status) {
 		r.Status = status
 	}

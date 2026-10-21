@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"io"
 	"log"
+	"time"
 
 	"github.com/jakewan/lookout/internal/config"
+	"github.com/jakewan/lookout/internal/git"
 	"github.com/jakewan/lookout/internal/readout"
 	"github.com/jakewan/lookout/internal/state"
 	"github.com/jakewan/lookout/internal/supplied"
@@ -36,11 +39,11 @@ func locate(env environment, setting string, mode state.Mode) (*located, error) 
 	return &located{path: path, store: store}, nil
 }
 
-func currentReadout(env environment, setting string) (readout.Readout, error) {
+func currentReadout(ctx context.Context, env environment, setting string) (readout.Readout, error) {
 	// A second attempt finds the state and holds its lock, so a third is
 	// reached only if the state keeps vanishing and reappearing.
 	for range 3 {
-		out, again, err := readOnce(env, setting)
+		out, again, err := readOnce(ctx, env, setting)
 		if err != nil || !again {
 			return out, err
 		}
@@ -53,30 +56,61 @@ func currentReadout(env environment, setting string) (readout.Readout, error) {
 // the configuration was loaded, a gesture may have changed both, and the read
 // starts over holding the lock. A gesture creates the state before it changes
 // anything, so a read that finds none afterward saw no gesture at all.
-func readOnce(env environment, setting string) (_ readout.Readout, again bool, err error) {
-	loc, err := locate(env, setting, state.Read)
+func readOnce(ctx context.Context, env environment, setting string) (readout.Readout, bool, error) {
+	cfg, dismissed, again, err := settingNow(env, setting)
+	if err != nil || again {
+		return readout.Readout{}, again, err
+	}
+	now := env.now()
+	readings, err := readInputs(ctx, env, cfg, now)
 	if err != nil {
 		return readout.Readout{}, false, err
+	}
+	return readout.Build(cfg, readings, dismissed, now), false, nil
+}
+
+// settingNow loads the configuration and the dismissals together under the
+// state's lock, then lets it go: inputs are not state, and reading them can
+// take long enough that holding the lock would keep every gesture waiting.
+func settingNow(env environment, setting string) (_ *config.Config, _ map[string]time.Time, again bool, err error) {
+	loc, err := locate(env, setting, state.Read)
+	if err != nil {
+		return nil, nil, false, err
 	}
 	defer func() { err = errors.Join(err, loc.store.Close()) }()
 	afterStateOpen()
 	cfg, err := config.Load(loc.path)
 	if err != nil {
-		return readout.Readout{}, false, err
+		return nil, nil, false, err
 	}
 	if loc.store.Appeared() {
-		return readout.Readout{}, true, nil
+		return nil, nil, true, nil
 	}
-	reader, err := supplied.NewReader()
+	return cfg, loc.store.Dismissals(), false, nil
+}
+
+// readInputs reads every input the configuration expects. A run interrupted
+// part way fails, since the inputs it cut short would read as broken.
+func readInputs(ctx context.Context, env environment, cfg *config.Config, now time.Time) (map[string]readout.Reading, error) {
+	files, err := supplied.NewReader()
 	if err != nil {
-		return readout.Readout{}, false, err
+		return nil, err
 	}
-	now := env.now()
-	readings := make(map[string]supplied.Reading, len(cfg.Inputs))
+	repos := git.NewReader(env.getenv)
+	readings := make(map[string]readout.Reading, len(cfg.Inputs))
 	for _, in := range cfg.Inputs {
-		readings[in.Name] = reader.Read(in, now)
+		switch in.Kind {
+		case config.KindGit:
+			scope := git.Scope{Owners: cfg.ForgeOwners, Since: now.Add(-cfg.DiscoveryWindow), Members: cfg.MemberIDs(in.Name)}
+			readings[in.Name] = repos.Read(ctx, in, scope, now)
+		default:
+			readings[in.Name] = files.Read(ctx, in, now)
+		}
 	}
-	return readout.Build(cfg, readings, loc.store.Dismissals(), now), false, nil
+	if ctx.Err() != nil {
+		return nil, errors.New("reading inputs: interrupted")
+	}
+	return readings, nil
 }
 
 // afterStateOpen runs once a read holds its state; specs use it to run

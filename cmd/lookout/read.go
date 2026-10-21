@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,7 +12,7 @@ import (
 
 // read writes one setting's readout to stdout. A readout whose inputs are
 // unhealthy still succeeds: reporting that is its job.
-func read(args []string, env environment, stdout io.Writer, diag *log.Logger) int {
+func read(ctx context.Context, args []string, env environment, stdout io.Writer, diag *log.Logger) int {
 	fs, setting := newFlags("read")
 	asJSON := fs.Bool("json", false, "")
 	pos, ok := parseFlags(fs, setting, args, diag)
@@ -27,7 +28,7 @@ func read(args []string, env environment, stdout io.Writer, diag *log.Logger) in
 		return exitUsage
 	}
 
-	out, err := currentReadout(env, *setting)
+	out, err := currentReadout(ctx, env, *setting)
 	if err != nil {
 		diag.Printf("lookout read: %v", err)
 		return exitFailure
@@ -44,7 +45,7 @@ func read(args []string, env environment, stdout io.Writer, diag *log.Logger) in
 // unplaced lists the readout's unplaced items one per line, each starting with
 // the token adopt and dismiss take, so a person can act on one without reading
 // JSON.
-func unplaced(args []string, env environment, stdout io.Writer, diag *log.Logger) int {
+func unplaced(ctx context.Context, args []string, env environment, stdout io.Writer, diag *log.Logger) int {
 	fs, setting := newFlags("unplaced")
 	pos, ok := parseFlags(fs, setting, args, diag)
 	if !ok {
@@ -54,7 +55,7 @@ func unplaced(args []string, env environment, stdout io.Writer, diag *log.Logger
 		diag.Printf("lookout unplaced: unexpected argument %q\n%s", pos[0], usage)
 		return exitUsage
 	}
-	out, err := currentReadout(env, *setting)
+	out, err := currentReadout(ctx, env, *setting)
 	if err != nil {
 		diag.Printf("lookout unplaced: %v", err)
 		return exitFailure

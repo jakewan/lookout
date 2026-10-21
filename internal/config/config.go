@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -30,16 +31,47 @@ type Config struct {
 	Setting     string
 	Path        string
 	EventWindow time.Duration
+	// DiscoveryWindow bounds how long ago an item a built-in input finds may
+	// have moved and still be offered as unplaced.
+	DiscoveryWindow time.Duration
+	// ForgeOwners are the forge owners whose work this setting admits.
+	ForgeOwners []Owner
 	Inputs      []Input
 	Workstreams []Workstream
 }
 
-// Input is one expected input. Supplied is an absolute path.
+// Owner is one forge owner a setting admits: an account or organization on a
+// host, both lowercase, since forges compare them without regard to case.
+type Owner struct {
+	Host string
+	Name string
+}
+
+// defaultForgeHost is the host a forge_owners entry written without one names.
+const defaultForgeHost = "github.com"
+
+// Input kinds, as a configuration's kind key names them.
+const (
+	// KindSupplied is a file an outside supplier writes in the supplied.v1
+	// contract.
+	KindSupplied = "supplied"
+	// KindGit is the local branches of git repositories, read live.
+	KindGit = "git"
+)
+
+// Input is one expected input. Supplied is an absolute path. Repos are paths or
+// glob patterns exactly as the configuration writes them, so that health can
+// name an entry the way the user wrote it; a git reader expands a leading ~/
+// and reads a relative entry from Dir, the configuration's directory.
 type Input struct {
-	Name          string
-	Supplied      string
-	MaxAge        time.Duration
-	ExpectRecords bool
+	Name           string
+	Kind           string
+	Supplied       string
+	MaxAge         time.Duration
+	ExpectRecords  bool
+	Repos          []string
+	IgnoreBranches []string
+	Dir            string
 }
 
 // Workstream is one user-defined line of work and the items that belong to it.
@@ -65,6 +97,24 @@ func (w Workstream) CompletedThrough(loc *time.Location) time.Time {
 		return time.Time{}
 	}
 	return day.AddDate(0, 0, 1)
+}
+
+// MemberIDs is the ids of input's items that a live workstream names. A
+// completed workstream's item is offered again only as discovery would offer
+// any other, so it is left out.
+func (c *Config) MemberIDs(input string) map[string]bool {
+	ids := map[string]bool{}
+	for _, w := range c.Workstreams {
+		if w.Completed != "" {
+			continue
+		}
+		for _, m := range w.Members {
+			if m.Input == input {
+				ids[m.ID] = true
+			}
+		}
+	}
+	return ids
 }
 
 // Member names one item by its input and its id within that input.
@@ -177,9 +227,11 @@ func settingName(path string) (string, error) {
 }
 
 type fileShape struct {
-	EventWindow string      `yaml:"event_window"`
-	Inputs      []inputFile `yaml:"inputs"`
-	Workstreams []struct {
+	EventWindow     string      `yaml:"event_window"`
+	DiscoveryWindow string      `yaml:"discovery_window"`
+	ForgeOwners     []string    `yaml:"forge_owners"`
+	Inputs          []inputFile `yaml:"inputs"`
+	Workstreams     []struct {
 		Name      string   `yaml:"name"`
 		Members   []string `yaml:"members"`
 		Completed string   `yaml:"completed"`
@@ -187,10 +239,13 @@ type fileShape struct {
 }
 
 type inputFile struct {
-	Name          string `yaml:"name"`
-	Supplied      string `yaml:"supplied"`
-	MaxAge        string `yaml:"max_age"`
-	ExpectRecords bool   `yaml:"expect_records"`
+	Name           string   `yaml:"name"`
+	Kind           string   `yaml:"kind"`
+	Supplied       string   `yaml:"supplied"`
+	MaxAge         string   `yaml:"max_age"`
+	ExpectRecords  bool     `yaml:"expect_records"`
+	Repos          []string `yaml:"repos"`
+	IgnoreBranches []string `yaml:"ignore_branches"`
 }
 
 // Load reads and checks the configuration at path. Every error names the file.
@@ -248,12 +303,45 @@ func parse(data []byte, path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolving the configuration's directory: %w", err)
 	}
+	cfg.DiscoveryWindow = cfg.EventWindow
+	if shape.DiscoveryWindow != "" {
+		if cfg.DiscoveryWindow, err = duration("discovery_window", shape.DiscoveryWindow); err != nil {
+			return nil, err
+		}
+	}
+	if cfg.ForgeOwners, err = owners(shape.ForgeOwners); err != nil {
+		return nil, err
+	}
+
 	for _, in := range shape.Inputs {
 		if !namePattern.MatchString(in.Name) {
 			return nil, fmt.Errorf("input name %q is not valid: use lowercase letters, digits, - and _", in.Name)
 		}
 		if slices.ContainsFunc(cfg.Inputs, func(i Input) bool { return i.Name == in.Name }) {
 			return nil, fmt.Errorf("input %q is listed twice", in.Name)
+		}
+		switch in.Kind {
+		case "":
+			return nil, fmt.Errorf("input %q needs kind: supplied, for a file an outside tool writes, or git, for local repositories", in.Name)
+		case KindSupplied:
+		case KindGit:
+			git, gitErr := gitInput(in, base)
+			if gitErr != nil {
+				return nil, gitErr
+			}
+			if len(cfg.ForgeOwners) == 0 {
+				return nil, fmt.Errorf("forge_owners is required once a git input is configured: list the owners whose repositories this setting admits, such as forge_owners: [your-name]")
+			}
+			cfg.Inputs = append(cfg.Inputs, git)
+			continue
+		default:
+			return nil, fmt.Errorf("input %q kind %q is not one lookout reads: use supplied or git", in.Name, in.Kind)
+		}
+		if len(in.Repos) > 0 {
+			return nil, fmt.Errorf("input %q is kind supplied, so repos applies only to kind git: remove it", in.Name)
+		}
+		if len(in.IgnoreBranches) > 0 {
+			return nil, fmt.Errorf("input %q is kind supplied, so ignore_branches applies only to kind git: remove it", in.Name)
 		}
 		if in.Supplied == "" {
 			return nil, fmt.Errorf("input %q needs supplied: the path of the file its supplier writes", in.Name)
@@ -269,7 +357,7 @@ func parse(data []byte, path string) (*Config, error) {
 		if !filepath.IsAbs(supplied) {
 			supplied = filepath.Join(base, supplied)
 		}
-		cfg.Inputs = append(cfg.Inputs, Input{Name: in.Name, Supplied: supplied, MaxAge: maxAge, ExpectRecords: in.ExpectRecords})
+		cfg.Inputs = append(cfg.Inputs, Input{Name: in.Name, Kind: in.Kind, Supplied: supplied, MaxAge: maxAge, ExpectRecords: in.ExpectRecords})
 	}
 
 	for _, ws := range shape.Workstreams {
@@ -302,9 +390,13 @@ func parse(data []byte, path string) (*Config, error) {
 		cfg.Workstreams = append(cfg.Workstreams, w)
 	}
 
-	// Naming an item of an input states that the input should have records,
-	// whether or not expect_records says so.
+	// Naming an item of a supplied input states that the input should have
+	// records, whether or not expect_records says so. A git member's branch
+	// ends its life by being deleted, which members_unread already shows.
 	for i := range cfg.Inputs {
+		if cfg.Inputs[i].Kind != KindSupplied {
+			continue
+		}
 		for _, w := range cfg.Workstreams {
 			if slices.ContainsFunc(w.Members, func(m Member) bool { return m.Input == cfg.Inputs[i].Name }) {
 				cfg.Inputs[i].ExpectRecords = true
@@ -312,6 +404,61 @@ func parse(data []byte, path string) (*Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// gitInput checks a git input's keys. A relative repos entry is read from the
+// configuration's directory, as a supplied path is.
+func gitInput(in inputFile, base string) (Input, error) {
+	if in.Supplied != "" {
+		return Input{}, fmt.Errorf("input %q is kind git, which lookout reads live rather than from a file: remove supplied", in.Name)
+	}
+	if in.MaxAge != "" {
+		return Input{}, fmt.Errorf("input %q is kind git, which lookout reads live, so it is never stale: remove max_age", in.Name)
+	}
+	if len(in.Repos) == 0 {
+		return Input{}, fmt.Errorf("input %q needs repos: the repository paths or patterns to read, such as ~/code/*", in.Name)
+	}
+	repos := make([]string, 0, len(in.Repos))
+	for _, r := range in.Repos {
+		// filepath.Glob reads ** as two * within one name, never as any depth.
+		if strings.Contains(r, "**") {
+			return Input{}, fmt.Errorf("input %q repos entry %q uses **, which matches within one directory name only: list each depth, such as ~/code/* and ~/code/*/*", in.Name, r)
+		}
+		if _, err := filepath.Match(r, ""); err != nil {
+			return Input{}, fmt.Errorf("input %q repos entry %q is not a valid pattern: %w", in.Name, r, err)
+		}
+		if r == "" {
+			return Input{}, fmt.Errorf("input %q has an empty repos entry", in.Name)
+		}
+		repos = append(repos, r)
+	}
+	for _, p := range in.IgnoreBranches {
+		if _, err := path.Match(p, ""); err != nil {
+			return Input{}, fmt.Errorf("input %q ignore_branches entry %q is not a valid pattern: %w", in.Name, p, err)
+		}
+	}
+	return Input{Name: in.Name, Kind: KindGit, ExpectRecords: in.ExpectRecords, Repos: repos, IgnoreBranches: in.IgnoreBranches, Dir: base}, nil
+}
+
+// owners reads forge_owners. An entry is an owner on github.com, or
+// host/owner for any other host.
+func owners(entries []string) ([]Owner, error) {
+	out := make([]Owner, 0, len(entries))
+	for _, e := range entries {
+		host, name, ok := strings.Cut(e, "/")
+		if !ok {
+			host, name = defaultForgeHost, e
+		}
+		if host == "" || name == "" || strings.ContainsAny(name, "/ \t") || strings.ContainsAny(host, " \t") {
+			return nil, fmt.Errorf("forge_owners entry %q is not an owner: write it as your-name for github.com, or host/your-name for another host", e)
+		}
+		o := Owner{Host: strings.ToLower(host), Name: strings.ToLower(name)}
+		if slices.Contains(out, o) {
+			return nil, fmt.Errorf("forge_owners lists %s/%s twice", o.Host, o.Name)
+		}
+		out = append(out, o)
+	}
+	return out, nil
 }
 
 func duration(field, value string) (time.Duration, error) {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -62,12 +63,18 @@ func (f *fixture) supplied(name string, doc map[string]any) {
 
 func (f *fixture) run(args ...string) (int, string, string) {
 	f.t.Helper()
+	return f.runIn(f.t.Context(), args...)
+}
+
+// runIn runs one invocation under ctx, so a spec can cancel it.
+func (f *fixture) runIn(ctx context.Context, args ...string) (int, string, string) {
+	f.t.Helper()
 	var stdout, stderr bytes.Buffer
 	e := environment{
 		getenv: func(k string) string { return f.env[k] },
 		now:    func() time.Time { return f.clock },
 	}
-	code := run(args, e, &stdout, &stderr)
+	code := run(ctx, args, e, &stdout, &stderr)
 	return code, stdout.String(), stderr.String()
 }
 
@@ -144,6 +151,8 @@ type healthDoc struct {
 	MissingFields    []string `json:"missing_fields"`
 	SchemaViolations []string `json:"schema_violations"`
 	SupplierReason   *string  `json:"supplier_reason"`
+	Details          []string `json:"details"`
+	ExcludedCount    *int     `json:"excluded_count"`
 }
 
 func (d readoutDoc) health(t *testing.T, input string) healthDoc {
@@ -191,6 +200,7 @@ const oneInput = `
 event_window: 336h
 inputs:
   - name: tracker
+    kind: supplied
     supplied: tracker.json
     max_age: 24h
     expect_records: true
@@ -268,6 +278,9 @@ func TestReadEmitsReadoutInStatedOrder(t *testing.T) {
 	if h.FetchedAt == nil || *h.FetchedAt != stamp(time.Hour) {
 		t.Errorf("fetched_at = %v", h.FetchedAt)
 	}
+	if h.Details == nil || len(h.Details) != 0 || h.ExcludedCount == nil || *h.ExcludedCount != 0 {
+		t.Errorf("details = %v, excluded_count = %v, want an empty list and zero: a supplied file has nothing to fence", h.Details, h.ExcludedCount)
+	}
 }
 
 func TestReadEventsStopAtTheWindow(t *testing.T) {
@@ -276,6 +289,7 @@ func TestReadEventsStopAtTheWindow(t *testing.T) {
 event_window: 48h
 inputs:
   - name: tracker
+    kind: supplied
     supplied: tracker.json
     max_age: 24h
 workstreams:
@@ -409,6 +423,7 @@ func TestReadHealth(t *testing.T) {
 			f.write("personal.yml", `
 inputs:
   - name: tracker
+    kind: supplied
     supplied: tracker.json
     max_age: 24h
     expect_records: `+map[bool]string{true: "true", false: "false"}[tc.expect]+`
@@ -467,6 +482,7 @@ func TestReadTreatsAWorkstreamMemberAsAnExpectation(t *testing.T) {
 	f.write("personal.yml", `
 inputs:
   - name: tracker
+    kind: supplied
     supplied: tracker.json
     max_age: 24h
 workstreams:
@@ -510,9 +526,11 @@ func TestReadMarksWorkstreamsFedByAnUnhealthyInput(t *testing.T) {
 	f.write("personal.yml", `
 inputs:
   - name: tracker
+    kind: supplied
     supplied: tracker.json
     max_age: 24h
   - name: calendar
+    kind: supplied
     supplied: calendar.json
     max_age: 24h
 workstreams:
@@ -549,6 +567,7 @@ func TestReadCarriesATrackerSuppliersDetail(t *testing.T) {
 	f.write("work.yml", `
 inputs:
   - name: tickets
+    kind: supplied
     supplied: tickets.json
     max_age: 12h
     expect_records: true
@@ -594,6 +613,7 @@ func TestReadCarriesDatedObligations(t *testing.T) {
 	f.write("personal.yml", `
 inputs:
   - name: obligations
+    kind: supplied
     supplied: obligations.json
     max_age: 168h
 workstreams:
@@ -701,15 +721,49 @@ func TestReadSelectsOneSetting(t *testing.T) {
 
 func TestReadRefusesAnInvalidConfiguration(t *testing.T) {
 	cases := map[string]string{
-		"member names an unknown input":    "inputs: []\nworkstreams:\n  - name: a\n    members: [\"tracker:ABC-1\"]\n",
-		"member has no input prefix":       "inputs:\n  - {name: tracker, supplied: t.json, max_age: 1h}\nworkstreams:\n  - name: a\n    members: [\"ABC-1\"]\n",
-		"duplicate input":                  "inputs:\n  - {name: tracker, supplied: t.json, max_age: 1h}\n  - {name: tracker, supplied: u.json, max_age: 1h}\nworkstreams: []\n",
-		"duplicate workstream":             "inputs: []\nworkstreams:\n  - {name: a, members: []}\n  - {name: a, members: []}\n",
-		"input without max_age":            "inputs:\n  - {name: tracker, supplied: t.json}\nworkstreams: []\n",
-		"unknown key":                      "inputs: []\nworkstreams: []\nworkstream: []\n",
-		"input name with a colon":          "inputs:\n  - {name: \"a:b\", supplied: t.json, max_age: 1h}\nworkstreams: []\n",
-		"member listed twice":              "inputs:\n  - {name: tracker, supplied: t.json, max_age: 1h}\nworkstreams:\n  - name: a\n    members: [\"tracker:ABC-1\", \"tracker:ABC-1\"]\n",
-		"event window finer than a second": "event_window: 1500ms\ninputs: []\nworkstreams: []\n",
+		"member names an unknown input":       "inputs: []\nworkstreams:\n  - name: a\n    members: [\"tracker:ABC-1\"]\n",
+		"member has no input prefix":          "inputs:\n  - {name: tracker, kind: supplied, supplied: t.json, max_age: 1h}\nworkstreams:\n  - name: a\n    members: [\"ABC-1\"]\n",
+		"duplicate input":                     "inputs:\n  - {name: tracker, kind: supplied, supplied: t.json, max_age: 1h}\n  - {name: tracker, kind: supplied, supplied: u.json, max_age: 1h}\nworkstreams: []\n",
+		"duplicate workstream":                "inputs: []\nworkstreams:\n  - {name: a, members: []}\n  - {name: a, members: []}\n",
+		"input without max_age":               "inputs:\n  - {name: tracker, kind: supplied, supplied: t.json}\nworkstreams: []\n",
+		"unknown key":                         "inputs: []\nworkstreams: []\nworkstream: []\n",
+		"input name with a colon":             "inputs:\n  - {name: \"a:b\", kind: supplied, supplied: t.json, max_age: 1h}\nworkstreams: []\n",
+		"member listed twice":                 "inputs:\n  - {name: tracker, kind: supplied, supplied: t.json, max_age: 1h}\nworkstreams:\n  - name: a\n    members: [\"tracker:ABC-1\", \"tracker:ABC-1\"]\n",
+		"event window finer than a second":    "event_window: 1500ms\ninputs: []\nworkstreams: []\n",
+		"input without kind":                  "inputs:\n  - {name: tracker, supplied: t.json, max_age: 1h}\nworkstreams: []\n",
+		"input of an unknown kind":            "inputs:\n  - {name: tracker, kind: jira, supplied: t.json, max_age: 1h}\nworkstreams: []\n",
+		"git input with a supplied path":      "forge_owners: [alice]\ninputs:\n  - {name: code, kind: git, repos: [/x], supplied: t.json}\nworkstreams: []\n",
+		"git input with max_age":              "forge_owners: [alice]\ninputs:\n  - {name: code, kind: git, repos: [/x], max_age: 1h}\nworkstreams: []\n",
+		"git input without repos":             "forge_owners: [alice]\ninputs:\n  - {name: code, kind: git}\nworkstreams: []\n",
+		"supplied input with repos":           "inputs:\n  - {name: tracker, kind: supplied, supplied: t.json, max_age: 1h, repos: [/x]}\nworkstreams: []\n",
+		"supplied input with ignore_branches": "inputs:\n  - {name: tracker, kind: supplied, supplied: t.json, max_age: 1h, ignore_branches: [x]}\nworkstreams: []\n",
+		"git input without forge_owners":      "inputs:\n  - {name: code, kind: git, repos: [/x]}\nworkstreams: []\n",
+		"empty owner":                         "forge_owners: [\"\"]\ninputs:\n  - {name: code, kind: git, repos: [/x]}\nworkstreams: []\n",
+		"owner with two slashes":              "forge_owners: [github.com/alice/app]\ninputs:\n  - {name: code, kind: git, repos: [/x]}\nworkstreams: []\n",
+		"owner listed twice":                  "forge_owners: [alice, GitHub.com/Alice]\ninputs:\n  - {name: code, kind: git, repos: [/x]}\nworkstreams: []\n",
+		"repos pattern with **":               "forge_owners: [alice]\ninputs:\n  - {name: code, kind: git, repos: [\"/src/**\"]}\nworkstreams: []\n",
+		"repos pattern that cannot match":     "forge_owners: [alice]\ninputs:\n  - {name: code, kind: git, repos: [\"/src/[\"]}\nworkstreams: []\n",
+		"ignore_branches bad pattern":         "forge_owners: [alice]\ninputs:\n  - {name: code, kind: git, repos: [/x], ignore_branches: [\"[\"]}\nworkstreams: []\n",
+		"discovery window not a duration":     "discovery_window: soon\ninputs: []\nworkstreams: []\n",
+	}
+	// mentions is what a refusal must say beyond the file's path, where another
+	// refusal of the same file could otherwise pass for it.
+	mentions := map[string]string{
+		"input without kind":                  "needs kind",
+		"input of an unknown kind":            `kind "jira"`,
+		"git input with a supplied path":      "remove supplied",
+		"git input with max_age":              "remove max_age",
+		"git input without repos":             "needs repos",
+		"supplied input with repos":           "repos applies only to kind git",
+		"supplied input with ignore_branches": "ignore_branches applies only to kind git",
+		"git input without forge_owners":      "forge_owners is required",
+		"empty owner":                         "is not an owner",
+		"owner with two slashes":              "is not an owner",
+		"owner listed twice":                  "twice",
+		"repos pattern with **":               "**",
+		"repos pattern that cannot match":     "not a valid pattern",
+		"ignore_branches bad pattern":         "not a valid pattern",
+		"discovery window not a duration":     "discovery_window",
 	}
 	for name, config := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -724,6 +778,9 @@ func TestReadRefusesAnInvalidConfiguration(t *testing.T) {
 			}
 			if !strings.Contains(stderr, path) {
 				t.Errorf("stderr = %q, want it to name the configuration file", stderr)
+			}
+			if want := mentions[name]; !strings.Contains(stderr, want) {
+				t.Errorf("stderr = %q, want it to say %q", stderr, want)
 			}
 		})
 	}
@@ -744,5 +801,22 @@ func TestReadRequiresJSONOutput(t *testing.T) {
 	code, stdout, stderr := f.run("read")
 	if code != exitUsage || stdout != "" || !strings.Contains(stderr, "--json") {
 		t.Errorf("exit code = %d, stdout = %q, stderr = %q, want a usage error naming --json", code, stdout, stderr)
+	}
+}
+
+// TestReadWritesNothingWhenInterrupted pins that a run cancelled while it reads
+// its inputs fails rather than emitting a readout whose inputs only look
+// broken because they were cut short.
+func TestReadWritesNothingWhenInterrupted(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", oneInput)
+	f.supplied("tracker.json", suppliedDoc("tracker", []any{item("ABC-1", time.Hour, nil)}, nil))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	code, stdout, stderr := f.runIn(ctx, "read", "--json")
+
+	if code != exitFailure || stdout != "" || !strings.Contains(stderr, "interrupted") {
+		t.Errorf("exit code = %d, stdout = %q, stderr = %q, want a failure saying the read was interrupted", code, stdout, stderr)
 	}
 }

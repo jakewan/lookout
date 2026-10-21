@@ -4,6 +4,7 @@ package supplied
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,31 +14,10 @@ import (
 
 	"github.com/jakewan/lookout/internal/config"
 	"github.com/jakewan/lookout/internal/health"
+	"github.com/jakewan/lookout/internal/readout"
 	"github.com/jakewan/lookout/schema"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
-
-// Item is one supplied item. Raw is the item exactly as the supplier wrote it,
-// passed through to the readout so no source detail is lost.
-type Item struct {
-	ID          string
-	Title       string
-	LastTouched time.Time
-	StartedAt   *time.Time
-	Raw         json.RawMessage
-}
-
-// Reading is what one supplied input contributed: its health, and the items a
-// workstream may use. Items is empty when the file cannot be trusted to belong
-// to this input at all.
-type Reading struct {
-	Health health.Record
-	Items  []Item
-}
-
-// clockTolerance is how far ahead of this machine's clock a supplier's
-// timestamp may be before lookout reports clock skew.
-const clockTolerance = 5 * time.Minute
 
 type document struct {
 	Input          string            `json:"input"`
@@ -71,9 +51,14 @@ func NewReader() (*Reader, error) {
 }
 
 // Read judges the input in at now. Every problem with the file is reported in
-// the returned health record, so one bad file never stops a run.
-func (rd *Reader) Read(in config.Input, now time.Time) Reading {
-	r := Reading{Health: health.New(in.Name), Items: make([]Item, 0)}
+// the returned health record, so one bad file never stops a run. Items is
+// empty when the file cannot be trusted to belong to this input at all. A
+// cancelled ctx reads nothing; the caller reports the interruption.
+func (rd *Reader) Read(ctx context.Context, in config.Input, now time.Time) readout.Reading {
+	r := readout.Reading{Health: health.New(in.Name), Items: make([]readout.Item, 0)}
+	if ctx.Err() != nil {
+		return r
+	}
 
 	data, err := os.ReadFile(in.Supplied)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -100,7 +85,7 @@ func (rd *Reader) Read(in config.Input, now time.Time) Reading {
 	// fail to decode. That is a problem with the file, not with lookout, so it
 	// degrades the input rather than failing the run.
 	var doc document
-	items := make([]Item, 0)
+	items := make([]readout.Item, 0)
 	decodeErr := json.Unmarshal(data, &doc)
 	if decodeErr == nil {
 		decodeErr = encodable(doc.FetchedAt, &doc.AttemptedAt)
@@ -111,7 +96,7 @@ func (rd *Reader) Read(in config.Input, now time.Time) Reading {
 			decodeErr = encodable(f.LastTouched, f.StartedAt)
 		}
 		if decodeErr == nil {
-			items = append(items, Item{ID: f.ID, Title: f.Title, LastTouched: f.LastTouched, StartedAt: f.StartedAt, Raw: doc.Items[i]})
+			items = append(items, readout.Item{ID: f.ID, Title: f.Title, LastTouched: f.LastTouched, StartedAt: f.StartedAt, Raw: doc.Items[i]})
 		}
 	}
 	if decodeErr != nil {
@@ -145,7 +130,7 @@ func (rd *Reader) Read(in config.Input, now time.Time) Reading {
 	// beyond a tolerance for ordinary drift it is a finding, not a freshness.
 	// Activity times count too, since a future touch would pin a workstream at
 	// zero idle. A due date is meant to lie ahead, so it does not.
-	horizon := now.Add(clockTolerance)
+	horizon := now.Add(health.ClockTolerance)
 	skewed := doc.FetchedAt.After(horizon) || doc.AttemptedAt.After(horizon)
 	for _, it := range items {
 		skewed = skewed || it.LastTouched.After(horizon) || (it.StartedAt != nil && it.StartedAt.After(horizon))
@@ -180,7 +165,7 @@ func (rd *Reader) Read(in config.Input, now time.Time) Reading {
 // withheld, but where the envelope still says plainly which input it is for,
 // or that its supplier failed, that stronger evidence is kept rather than
 // softened into a schema problem.
-func untrusted(r Reading, in config.Input, inst any, problems []string) Reading {
+func untrusted(r readout.Reading, in config.Input, inst any, problems []string) readout.Reading {
 	// Read each property by its exact name from the parsed document, so neither
 	// a mistyped neighbor nor a key differing only in case can erase it.
 	obj, _ := inst.(map[string]any)

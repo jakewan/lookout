@@ -12,7 +12,9 @@
     "record_count",
     "missing_fields",
     "schema_violations",
-    "supplier_reason"
+    "supplier_reason",
+    "details",
+    "excluded_count"
   ],
   "properties": {
     "input": {
@@ -29,28 +31,16 @@
       ]
     },
     "reasons": {
-      "description": "Every cause that lowered the status; empty when it is ok.",
+      "description": "Every cause that lowered the status, each once; empty when it is ok. Version 1 can gain reasons, so a consumer should show one it does not know rather than reject it. Known reasons: missing, unreadable, schema, input_mismatch, stale, supplier_failed, supplier_error, supplier_degraded, missing_fields, empty, clock_skew, duplicate_id, not_a_repository, git_failed.",
       "type": "array",
       "items": {
-        "enum": [
-          "missing",
-          "unreadable",
-          "schema",
-          "input_mismatch",
-          "stale",
-          "supplier_failed",
-          "supplier_error",
-          "supplier_degraded",
-          "missing_fields",
-          "empty",
-          "clock_skew",
-          "duplicate_id"
-        ]
+        "type": "string",
+        "minLength": 1
       },
       "uniqueItems": true
     },
     "fetched_at": {
-      "description": "When the source was last read successfully, where the input says.",
+      "description": "When the source was last read successfully: for a supplied file, when its supplier says; for an input lookout reads itself, such as git, the time of this read, set when at least one of its sources was read.",
       "type": [
         "string",
         "null"
@@ -80,6 +70,18 @@
         "string",
         "null"
       ]
+    },
+    "details": {
+      "description": "Lines for people saying where findings arose, such as which configured path is missing; a finding with nothing more to say than its reason has none. It names a source the owner fence kept out only as the configuration itself names it.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "excluded_count": {
+      "description": "Sources lookout found but the setting's owner fence kept out, so work the fence hides is counted rather than silently missing.",
+      "type": "integer",
+      "minimum": 0
     }
   }
 }
