@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -471,6 +472,10 @@ func gitHubInput(in inputFile, owners []Owner) (Input, error) {
 	return Input{Name: in.Name, Kind: KindGitHub, ExpectRecords: in.ExpectRecords}, nil
 }
 
+// gitHubLogin is the shape of a github.com user or organization name, as
+// GitHub's sign-up form allows them.
+var gitHubLogin = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,38}$`)
+
 // owners reads forge_owners. An entry is an owner on github.com, or
 // host/owner for any other host.
 func owners(entries []string) ([]Owner, error) {
@@ -480,10 +485,15 @@ func owners(entries []string) ([]Owner, error) {
 		if !ok {
 			host, name = defaultForgeHost, e
 		}
-		if host == "" || name == "" || strings.ContainsAny(name, "/ \t") || strings.ContainsAny(host, " \t") {
+		if host == "" || name == "" || strings.Contains(name, "/") || strings.IndexFunc(e, unicode.IsSpace) >= 0 {
 			return nil, fmt.Errorf("forge_owners entry %q is not an owner: write it as your-name for github.com, or host/your-name for another host", e)
 		}
 		o := Owner{Host: strings.ToLower(host), Name: strings.ToLower(name)}
+		// A github.com owner is written into search queries, where any other
+		// character could start a qualifier of its own.
+		if o.Host == defaultForgeHost && !gitHubLogin.MatchString(o.Name) {
+			return nil, fmt.Errorf("forge_owners entry %q is not a github.com account name: use letters, digits and -", e)
+		}
 		if slices.Contains(out, o) {
 			return nil, fmt.Errorf("forge_owners lists %s/%s twice", o.Host, o.Name)
 		}

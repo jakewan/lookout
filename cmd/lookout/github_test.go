@@ -31,6 +31,12 @@ type ghNode struct {
 	branch   string
 	authored bool
 	assigned bool
+	// formerly is a name a lookup by number still finds the node under, as
+	// for a repository renamed or transferred since.
+	formerly string
+	// forbidden makes a lookup of it fail as an organization refusing the
+	// token does.
+	forbidden bool
 }
 
 // ghRequest is one request the fake received.
@@ -242,10 +248,21 @@ func (g *githubFake) members(w http.ResponseWriter, vars map[string]any) {
 		number, _ := vars["k"+strconv.Itoa(i)].(float64)
 		alias := "m" + strconv.Itoa(i)
 		var found map[string]any
+		forbidden := false
 		for _, n := range g.nodes {
-			if strings.EqualFold(n.repo, owner+"/"+name) && n.number == int(number) {
-				found = n.json()
+			asked := owner + "/" + name
+			if (strings.EqualFold(n.repo, asked) || strings.EqualFold(n.formerly, asked)) && n.number == int(number) {
+				found, forbidden = n.json(), n.forbidden
 			}
+		}
+		if forbidden {
+			data[alias] = nil
+			errs = append(errs, map[string]any{
+				"type":    "FORBIDDEN",
+				"path":    []any{alias},
+				"message": "Resource protected by organization SAML enforcement.",
+			})
+			continue
 		}
 		if found == nil {
 			data[alias] = map[string]any{"issueOrPullRequest": nil}
@@ -779,5 +796,163 @@ func TestReadDoesNotExpectRecordsOfAGitHubInputItsMembersName(t *testing.T) {
 
 	if h := f.read().health(t, "hub"); h.Status != "ok" {
 		t.Errorf("health = %+v, want ok: membership does not imply records for github", h)
+	}
+}
+
+func TestReadKeepsTheOtherMembersWhenOneIsRefused(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", githubMembers("alice/app#1", "alice/secret#2", "alice/app#99999999999"))
+	f.withGitHub(
+		ghNode{pr: true, repo: "alice/app", number: 1, state: "OPEN", updated: time.Hour},
+		ghNode{pr: true, repo: "alice/secret", number: 2, state: "OPEN", updated: time.Hour, forbidden: true},
+	)
+
+	doc := f.read()
+	ws := doc.Workstreams[0]
+	if len(ws.Items) != 1 || ws.Items[0].Item["id"] != "alice/app#1" {
+		t.Errorf("items = %+v, want the member GitHub answered for", ws.Items)
+	}
+	if want := []string{"hub:alice/secret#2", "hub:alice/app#99999999999"}; !slices.Equal(ws.MembersUnread, want) {
+		t.Errorf("members_unread = %v, want %v", ws.MembersUnread, want)
+	}
+	h := doc.health(t, "hub")
+	if h.Status != "degraded" || !slices.Equal(h.Reasons, []string{"github_failed"}) {
+		t.Errorf("health = %s %v, want degraded github_failed", h.Status, h.Reasons)
+	}
+	for _, want := range []string{
+		"hub:alice/secret#2: github.com reported FORBIDDEN",
+		"hub:alice/app#99999999999: not a pull request or issue id, such as owner/repo#12",
+	} {
+		if !slices.Contains(h.Details, want) {
+			t.Errorf("details = %q, want %q", h.Details, want)
+		}
+	}
+}
+
+func TestReadNamesAMemberWhoseRepositoryMoved(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", githubMembers("alice/old#3", "alice/gone#4"))
+	f.withGitHub(
+		ghNode{pr: true, repo: "alice/new", formerly: "alice/old", number: 3, state: "MERGED", updated: 900 * time.Hour},
+		ghNode{pr: true, repo: "mallory/loot", formerly: "alice/gone", number: 4, state: "OPEN", updated: time.Hour},
+	)
+
+	code, stdout, stderr := f.run("read", "--json")
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	if strings.Contains(strings.ToLower(stdout), "mallory") {
+		t.Errorf("stdout names a repository the fence keeps out:\n%s", stdout)
+	}
+	var doc readoutDoc
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Unplaced) != 0 {
+		t.Errorf("unplaced = %v, want none: a moved member is not discovered work", unplacedIDs(doc))
+	}
+	if want := []string{"hub:alice/old#3", "hub:alice/gone#4"}; !slices.Equal(doc.Workstreams[0].MembersUnread, want) {
+		t.Errorf("members_unread = %v, want %v", doc.Workstreams[0].MembersUnread, want)
+	}
+	h := doc.health(t, "hub")
+	for _, want := range []string{
+		"hub:alice/old#3: now at hub:alice/new#3",
+		"hub:alice/gone#4: moved to an owner outside forge_owners",
+	} {
+		if !slices.Contains(h.Details, want) {
+			t.Errorf("details = %q, want %q", h.Details, want)
+		}
+	}
+	if h.ExcludedCount == nil || *h.ExcludedCount != 1 {
+		t.Errorf("excluded_count = %v, want 1", h.ExcludedCount)
+	}
+}
+
+func TestReadStopsAtASecondaryRateLimitNamedOnlyInTheBody(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", githubOnly)
+	fake := f.withGitHub()
+	fake.respond = func(w http.ResponseWriter, _ ghRequest) bool {
+		w.WriteHeader(http.StatusForbidden)
+		if _, err := w.Write([]byte(`{"message":"You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}`)); err != nil {
+			t.Error(err)
+		}
+		return true
+	}
+
+	h := f.read().health(t, "hub")
+	if h.Status != "error" || !slices.Equal(h.Reasons, []string{"rate_limited"}) {
+		t.Errorf("health = %s %v, want error rate_limited", h.Status, h.Reasons)
+	}
+	if n := len(fake.requests); n != 1 {
+		t.Errorf("requests = %d, want lookout to stop at the first limited one", n)
+	}
+}
+
+func TestReadSaysWhenAGraphQLRateLimitEnds(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", githubOnly)
+	fake := f.withGitHub()
+	reset := now.Add(30 * time.Minute)
+	fake.respond = func(w http.ResponseWriter, _ ghRequest) bool {
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(reset.Unix(), 10))
+		writeJSON(t, w, map[string]any{"data": nil, "errors": []any{map[string]any{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}}})
+		return true
+	}
+
+	h := f.read().health(t, "hub")
+	if want := "github.com: rate limited until " + reset.Format(time.RFC3339); !slices.Contains(h.Details, want) {
+		t.Errorf("details = %q, want %q", h.Details, want)
+	}
+}
+
+func TestReadNeverFollowsARedirectWithTheToken(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", githubOnly)
+	elsewhere := 0
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		elsewhere++
+	}))
+	t.Cleanup(other.Close)
+	fake := f.withGitHub()
+	fake.respond = func(w http.ResponseWriter, _ ghRequest) bool {
+		w.Header().Set("Location", other.URL+"/graphql")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+		return true
+	}
+
+	h := f.read().health(t, "hub")
+	if elsewhere != 0 {
+		t.Errorf("the redirect target was asked %d times", elsewhere)
+	}
+	if h.Status != "error" || !slices.Equal(h.Reasons, []string{"github_failed"}) || !slices.Contains(h.Details, "github.com answered 307") {
+		t.Errorf("health = %+v, want error github_failed naming the redirect", h)
+	}
+}
+
+func TestReadTellsAGHThatCannotRunFromOneNotLoggedIn(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", githubOnly)
+	f.withGitHub()
+	// An executable file that is no program the kernel can start.
+	if err := os.WriteFile(filepath.Join(f.env["PATH"], "gh"), []byte{0x7f, 0x00, 0x01}, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	h := f.read().health(t, "hub")
+	if !slices.Contains(h.Details, "gh: could not run") {
+		t.Errorf("details = %q, want gh: could not run", h.Details)
+	}
+}
+
+func TestReadNamesGHTokenWhenGitHubRefusesIt(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", githubOnly)
+	f.withGitHub()
+	f.env["GH_TOKEN"] = "refused-token-not-a-secret"
+
+	h := f.read().health(t, "hub")
+	if !slices.Contains(h.Details, "github.com refused the token in GH_TOKEN") {
+		t.Errorf("details = %q, want the refusal to name GH_TOKEN", h.Details)
 	}
 }

@@ -754,6 +754,7 @@ func TestReadRefusesAnInvalidConfiguration(t *testing.T) {
 		"github input with max_age":               "forge_owners: [alice]\ninputs:\n  - {name: hub, kind: github, max_age: 1h}\nworkstreams: []\n",
 		"github input with repos":                 "forge_owners: [alice]\ninputs:\n  - {name: hub, kind: github, repos: [/x]}\nworkstreams: []\n",
 		"github input with ignore_branches":       "forge_owners: [alice]\ninputs:\n  - {name: hub, kind: github, ignore_branches: [x]}\nworkstreams: []\n",
+		"github.com owner no account can have":    "forge_owners: [\"alice,user:carol\"]\ninputs:\n  - {name: hub, kind: github}\nworkstreams: []\n",
 	}
 	// mentions is what a refusal must say beyond the file's path, where another
 	// refusal of the same file could otherwise pass for it.
@@ -779,6 +780,7 @@ func TestReadRefusesAnInvalidConfiguration(t *testing.T) {
 		"github input with max_age":               "remove max_age",
 		"github input with repos":                 "repos applies only to kind git",
 		"github input with ignore_branches":       "ignore_branches applies only to kind git",
+		"github.com owner no account can have":    "is not a github.com account name",
 	}
 	for name, config := range cases {
 		t.Run(name, func(t *testing.T) {

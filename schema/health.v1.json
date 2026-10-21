@@ -79,7 +79,7 @@
       }
     },
     "excluded_count": {
-      "description": "Sources lookout found but the setting's owner fence kept out, so work the fence hides is counted rather than silently missing.",
+      "description": "What lookout found but the setting's owner fence kept out, so work the fence hides is counted rather than silently missing: repositories for a git input, pull requests and issues for a GitHub input.",
       "type": "integer",
       "minimum": 0
     }

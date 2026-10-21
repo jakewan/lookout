@@ -7,8 +7,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os/exec"
 	"slices"
@@ -57,7 +59,12 @@ type Reader struct {
 
 // NewReader finds gh on the invocation's PATH and sends queries to api.
 func NewReader(getenv func(string) string, api string) *Reader {
-	r := &Reader{getenv: getenv, api: api, client: &http.Client{Timeout: httpTimeout}}
+	r := &Reader{getenv: getenv, api: api, client: &http.Client{
+		Timeout: httpTimeout,
+		// A redirect is answered as the response it is, never followed, so
+		// the token goes to the one endpoint lookout names and nowhere else.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}}
 	r.gh, r.missing = execpath.Find(getenv, "gh")
 	return r
 }
@@ -135,7 +142,7 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 	}
 
 	for chunk := range slices.Chunk(wanted, memberChunk) {
-		nodes, missing, f := r.lookup(ctx, token, chunk)
+		answers, f := r.lookup(ctx, token, chunk)
 		if f != nil {
 			failures = append(failures, *f)
 			if f.stops() {
@@ -144,11 +151,26 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 			continue
 		}
 		readAny = true
-		for _, n := range nodes {
-			admit(n)
-		}
-		for _, m := range missing {
-			detail(in.Name + ":" + m.id() + ": not found, or the token cannot see it")
+		for _, a := range answers {
+			member := in.Name + ":" + a.ref.id()
+			switch {
+			case a.refused != "":
+				failures = append(failures, failure{health.GitHubFailed, member + ": github.com reported " + a.refused})
+			case a.node == nil:
+				detail(member + ": not found, or the token cannot see it")
+			case a.node.id() != a.ref.id():
+				// A member is matched by the id the configuration names, so
+				// one found under another name is not that member. Where the
+				// new owner is outside the fence it is counted, never named.
+				if slices.Contains(owners, strings.ToLower(a.node.Repository.Owner.Login)) {
+					detail(member + ": now at " + in.Name + ":" + a.node.id())
+				} else {
+					detail(member + ": moved to an owner outside forge_owners")
+					fenced[a.node.id()] = true
+				}
+			default:
+				admit(*a.node)
+			}
 		}
 	}
 
@@ -268,11 +290,14 @@ func (r *Reader) askGH(ctx context.Context) (string, string) {
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	err := cmd.Run()
+	_, exited := errors.AsType[*exec.ExitError](err)
 	switch {
 	case ctx.Err() != nil:
 		return "", "gh: interrupted"
 	case runCtx.Err() != nil:
 		return "", "gh: gave no token within " + ghTimeout.String() + ": check gh auth status --hostname " + host
+	case err != nil && !exited:
+		return "", "gh: could not run"
 	case err != nil:
 		return "", "gh: not logged in to " + host + ": " + login
 	}
@@ -304,7 +329,8 @@ func parseID(id string) (ref, bool) {
 		return ref{}, false
 	}
 	n, err := strconv.Atoi(num)
-	if err != nil || n <= 0 || strconv.Itoa(n) != num {
+	// GraphQL's Int is 32-bit, so a larger number cannot be asked for.
+	if err != nil || n <= 0 || n > math.MaxInt32 || strconv.Itoa(n) != num {
 		return ref{}, false
 	}
 	return ref{owner: strings.ToLower(owner), repo: strings.ToLower(name), number: n}, true
@@ -414,10 +440,21 @@ func (n node) item() (readout.Item, bool) {
 	return readout.Item{ID: shape.ID, Title: n.Title, LastTouched: touched, StartedAt: shape.StartedAt, Raw: raw}, true
 }
 
-// lookup asks for each member by number in one query, one alias each. A
-// member GitHub cannot find is returned as missing rather than failing the
-// lookup, so the others still count.
-func (r *Reader) lookup(ctx context.Context, token string, refs []ref) ([]node, []ref, *failure) {
+// answer is what a lookup found for one member.
+type answer struct {
+	ref ref
+	// node is set when GitHub answered for the member. Its id differs from
+	// the ref's when the repository has been renamed or transferred since.
+	node *node
+	// refused is GitHub's error code when it answered for this member alone
+	// with an error other than not finding it.
+	refused string
+}
+
+// lookup asks for each member by number in one query, one alias each. An
+// error GitHub ties to one alias is that member's alone, so the others still
+// count.
+func (r *Reader) lookup(ctx context.Context, token string, refs []ref) ([]answer, *failure) {
 	var params, fields strings.Builder
 	vars := map[string]any{}
 	for i, m := range refs {
@@ -426,44 +463,44 @@ func (r *Reader) lookup(ctx context.Context, token string, refs []ref) ([]node, 
 		fmt.Fprintf(&fields, "m%s: repository(owner: $o%s, name: $n%s) { issueOrPullRequest(number: $k%s) { %s } }\n", s, s, s, s, nodeFields)
 		vars["o"+s], vars["n"+s], vars["k"+s] = m.owner, m.repo, m.number
 	}
-	query := "query(" + strings.TrimPrefix(params.String(), ", ") + ") {\nrateLimit { remaining resetAt }\n" + fields.String() + "}"
+	query := "query(" + strings.TrimPrefix(params.String(), ", ") + ") {\n" + fields.String() + "}"
 	var data map[string]json.RawMessage
 	errs, f := r.query(ctx, token, query, vars, &data)
 	if f != nil {
-		return nil, nil, f
+		return nil, f
 	}
-	notFound := map[string]bool{}
+	refused := map[string]string{}
 	for _, e := range errs {
-		if e.Type != "NOT_FOUND" || len(e.Path) == 0 {
-			return nil, nil, e.failure()
+		alias := ""
+		if len(e.Path) > 0 {
+			alias, _ = e.Path[0].(string)
 		}
-		alias, _ := e.Path[0].(string)
-		notFound[alias] = true
+		if _, ok := data[alias]; !ok {
+			return nil, e.failure()
+		}
+		if e.Type != "NOT_FOUND" {
+			refused[alias] = e.code()
+		}
 	}
-	var nodes []node
-	var missing []ref
+	answers := make([]answer, 0, len(refs))
 	for i, m := range refs {
 		alias := "m" + strconv.Itoa(i)
+		a := answer{ref: m, refused: refused[alias]}
 		var repo struct {
 			Item *node `json:"issueOrPullRequest"`
 		}
-		raw := data[alias]
-		if len(raw) > 0 && string(raw) != "null" {
+		if raw := data[alias]; a.refused == "" && len(raw) > 0 && string(raw) != "null" {
 			if err := json.Unmarshal(raw, &repo); err != nil {
-				return nil, nil, unreadable()
+				return nil, unreadable()
 			}
+			a.node = repo.Item
 		}
-		if repo.Item == nil || notFound[alias] {
-			missing = append(missing, m)
-			continue
-		}
-		nodes = append(nodes, *repo.Item)
+		answers = append(answers, a)
 	}
-	return nodes, missing, nil
+	return answers, nil
 }
 
 var searchQuery = `query($q: String!, $after: String) {
-rateLimit { remaining resetAt }
 search(type: ISSUE, query: $q, first: ` + strconv.Itoa(pageSize) + `, after: $after) {
 issueCount
 pageInfo { hasNextPage endCursor }
@@ -524,17 +561,17 @@ type gqlError struct {
 	Message string `json:"message"`
 }
 
+// code is GitHub's code for the error. Its message can quote the query, so it
+// is not repeated.
+func (e gqlError) code() string {
+	if e.Type == "" {
+		return "an error"
+	}
+	return e.Type
+}
+
 func (e gqlError) failure() *failure {
-	if e.Type == "RATE_LIMITED" {
-		return &failure{health.RateLimited, "github.com: rate limited"}
-	}
-	// The type is GitHub's code for the error; the message can quote the
-	// query, so it is not repeated.
-	cause := e.Type
-	if cause == "" {
-		cause = "an error"
-	}
-	return &failure{health.GitHubFailed, "github.com reported " + cause}
+	return &failure{health.GitHubFailed, "github.com reported " + e.code()}
 }
 
 func unreadable() *failure {
@@ -567,7 +604,7 @@ func (r *Reader) query(ctx context.Context, token, query string, vars map[string
 	if closeErr := resp.Body.Close(); readErr == nil {
 		readErr = closeErr
 	}
-	if f := classify(resp); f != nil {
+	if f := r.classify(resp, data); f != nil {
 		return nil, f
 	}
 	if readErr != nil {
@@ -579,6 +616,10 @@ func (r *Reader) query(ctx context.Context, token, query string, vars map[string
 	}
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return nil, unreadable()
+	}
+	// GraphQL reports its own rate limit as an error in a 200 response.
+	if slices.ContainsFunc(doc.Errors, func(e gqlError) bool { return e.Type == "RATE_LIMITED" }) {
+		return nil, rateLimited(resp.Header)
 	}
 	if len(doc.Data) == 0 || string(doc.Data) == "null" {
 		if len(doc.Errors) > 0 {
@@ -593,21 +634,37 @@ func (r *Reader) query(ctx context.Context, token, query string, vars map[string
 }
 
 // classify reads a response's status. GitHub signals a rate limit as 429, or
-// as 403 with no requests remaining or a Retry-After (GitHub's REST and
-// GraphQL rate-limit documentation); any other 403 is a refusal.
-func classify(resp *http.Response) *failure {
+// as 403 with no requests remaining, a Retry-After, or a body naming a
+// secondary rate limit, any of which a secondary limit may send alone
+// (GitHub's REST and GraphQL rate-limit documentation); any other 403 is a
+// refusal.
+func (r *Reader) classify(resp *http.Response, body []byte) *failure {
 	switch {
 	case resp.StatusCode == http.StatusOK:
 		return nil
 	case resp.StatusCode == http.StatusUnauthorized:
+		// gh hands back GH_TOKEN, or else GITHUB_TOKEN, ahead of its login,
+		// and refuses gh auth login while either is set.
+		for _, key := range []string{"GH_TOKEN", "GITHUB_TOKEN"} {
+			if r.getenv(key) != "" {
+				return &failure{health.AuthFailed, "github.com refused the token in " + key}
+			}
+		}
 		return &failure{health.AuthFailed, "github.com refused the token: run gh auth login --hostname " + host}
 	case resp.StatusCode == http.StatusTooManyRequests,
-		resp.StatusCode == http.StatusForbidden && (resp.Header.Get("X-RateLimit-Remaining") == "0" || resp.Header.Get("Retry-After") != ""):
-		detail := "github.com: rate limited"
-		if reset, err := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64); err == nil {
-			detail += " until " + time.Unix(reset, 0).UTC().Format(time.RFC3339)
-		}
-		return &failure{health.RateLimited, detail}
+		resp.StatusCode == http.StatusForbidden && (resp.Header.Get("X-RateLimit-Remaining") == "0" ||
+			resp.Header.Get("Retry-After") != "" ||
+			bytes.Contains(bytes.ToLower(body), []byte("secondary rate limit"))):
+		return rateLimited(resp.Header)
 	}
 	return &failure{health.GitHubFailed, "github.com answered " + strconv.Itoa(resp.StatusCode)}
+}
+
+// rateLimited says until when, where the response's headers say.
+func rateLimited(h http.Header) *failure {
+	detail := "github.com: rate limited"
+	if reset, err := strconv.ParseInt(h.Get("X-RateLimit-Reset"), 10, 64); err == nil {
+		detail += " until " + time.Unix(reset, 0).UTC().Format(time.RFC3339)
+	}
+	return &failure{health.RateLimited, detail}
 }
