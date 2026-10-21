@@ -101,7 +101,7 @@ func readInputs(ctx context.Context, env environment, cfg *config.Config, now ti
 	for _, in := range cfg.Inputs {
 		switch in.Kind {
 		case config.KindGit:
-			scope := git.Scope{Owners: cfg.ForgeOwners, Since: now.Add(-cfg.DiscoveryWindow), Members: cfg.MemberIDs(in.Name)}
+			scope := readout.Scope{Owners: cfg.ForgeOwners, Since: now.Add(-cfg.DiscoveryWindow), Members: cfg.MemberIDs(in.Name)}
 			readings[in.Name] = repos.Read(ctx, in, scope, now)
 		default:
 			readings[in.Name] = files.Read(ctx, in, now)

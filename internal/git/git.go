@@ -22,18 +22,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/jakewan/lookout/internal/config"
+	"github.com/jakewan/lookout/internal/execpath"
 	"github.com/jakewan/lookout/internal/health"
 	"github.com/jakewan/lookout/internal/readout"
 )
-
-// Scope is what a setting admits from a git input.
-type Scope struct {
-	Owners []config.Owner
-	// Since is the earliest touch an unclaimed branch may have and still be
-	// offered; a branch Members names is read whatever its age.
-	Since   time.Time
-	Members map[string]bool
-}
 
 // Reader runs git for one invocation.
 type Reader struct {
@@ -44,28 +36,10 @@ type Reader struct {
 	unsearched int
 }
 
-// NewReader finds git on the invocation's PATH. exec.Command would search the
-// PATH this process started with instead, which is not the environment the
-// invocation was given.
+// NewReader finds git on the invocation's PATH.
 func NewReader(getenv func(string) string) *Reader {
 	r := &Reader{getenv: getenv}
-	for _, dir := range filepath.SplitList(getenv("PATH")) {
-		// A relative or empty element names the working directory, where a
-		// git nobody installed may sit; os/exec refuses those for the same
-		// reason.
-		if !filepath.IsAbs(dir) {
-			continue
-		}
-		candidate := filepath.Join(dir, "git")
-		info, err := os.Stat(candidate)
-		if err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
-			r.git, r.unsearched = candidate, 0
-			break
-		}
-		if err != nil && !absent(err) {
-			r.unsearched++
-		}
-	}
+	r.git, r.unsearched = execpath.Find(getenv, "git")
 	return r
 }
 
@@ -107,7 +81,7 @@ type source struct {
 // place below. A source is named only as the configuration names it or once
 // the owner fence admits it, so a repository the fence keeps out never
 // reaches the readout by its path.
-func (r *Reader) Read(ctx context.Context, in config.Input, sc Scope, now time.Time) readout.Reading {
+func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, now time.Time) readout.Reading {
 	out := readout.Reading{Health: health.New(in.Name), Items: make([]readout.Item, 0)}
 	if r.git == "" {
 		out.Health.Lower(health.Error, health.GitFailed)
@@ -250,7 +224,7 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc Scope, now time.T
 // classified through another of its directories is returned as it was, with
 // first false, so it is counted once; a directory git could not even open
 // has no common directory to recognize it by, and stands alone.
-func (r *Reader) classify(ctx context.Context, dir string, sc Scope, ignore []string, sources map[string]*source) (*source, bool) {
+func (r *Reader) classify(ctx context.Context, dir string, sc readout.Scope, ignore []string, sources map[string]*source) (*source, bool) {
 	repo, err := r.open(ctx, dir)
 	if err != nil {
 		return &source{outcome: failed}, true

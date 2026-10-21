@@ -30,6 +30,15 @@ type Reading struct {
 	Items  []Item
 }
 
+// Scope is what a setting admits from an input lookout reads itself.
+type Scope struct {
+	Owners []config.Owner
+	// Since is the earliest touch an unclaimed item may have and still be
+	// offered; an item Members names is read whatever its age.
+	Since   time.Time
+	Members map[string]bool
+}
+
 // Readout is one setting's readout.
 type Readout struct {
 	Schema             string          `json:"schema"`
