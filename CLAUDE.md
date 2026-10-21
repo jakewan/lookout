@@ -10,7 +10,7 @@ It is the data layer only. It emits a readout for a renderer to consume and does
 
 ## Status and layout
 
-Early. `lookout read --json` and `lookout unplaced` report on supplied files, local git repositories and GitHub; `adopt`, `order` and `complete` edit the configuration file, and `dismiss` writes state, each recording a gesture. The session adapter and the baseline snapshot are not built yet.
+Early. `lookout read --json` and `lookout unplaced` report on supplied files, local git repositories, GitHub and Claude Code sessions; `adopt`, `order` and `complete` edit the configuration file, and `dismiss` writes state, each recording a gesture. The baseline snapshot is not built yet.
 
 ```
 cmd/lookout/              # binary entry point and its behavior specs
@@ -18,6 +18,7 @@ schema/                   # the published contracts, embedded so lookout enforce
 internal/config/          # locating, loading, and editing one setting's configuration file
 internal/git/             # reading local branches of owner-fenced git repositories
 internal/github/          # reading owner-fenced pull requests and issues on github.com
+internal/claudecode/      # reading owner-fenced Claude Code sessions, one item per repository and branch
 internal/execpath/        # finding an executable on the invocation's own PATH
 internal/fsx/             # the one rule filesystem errors are sorted by
 internal/supplied/        # reading a supplied file and judging its input's health
