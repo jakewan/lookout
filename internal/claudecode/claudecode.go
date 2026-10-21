@@ -311,8 +311,7 @@ func (r *Reader) list(entry, base string, t *tally) []transcript {
 			}
 			fi, infoErr := f.Info()
 			if infoErr != nil {
-				// Claude Code moves a transcript when its session enters or
-				// leaves a worktree, so one listed a moment ago may be gone.
+				// A transcript listed a moment ago may have moved; see readFile.
 				if !fsx.Absent(infoErr) {
 					t.unreadable++
 				}
@@ -343,34 +342,30 @@ func (r *Reader) expand(entry, base string) string {
 // for and is skipped undecoded; a bare name can only match more often than
 // the JSON-encoded one, so no file holding a member is skipped.
 func (r *Reader) readFile(f transcript, branches []string, sessions map[string]*session, t *tally) {
-	fh, err := os.Open(f.path)
-	if err != nil {
-		if !fsx.Absent(err) {
-			t.unreadable++
-		}
-		return
+	// Claude Code moves a transcript when its session enters or leaves a
+	// worktree, so one listed a moment ago may be gone.
+	if err := readTranscript(f.path, branches, sessions, t); err != nil && !fsx.Absent(err) {
+		t.unreadable++
 	}
-	defer func() {
-		// A file opened only for reading has nothing a failed close loses.
-		if cerr := fh.Close(); cerr != nil {
-			return
-		}
-	}()
+}
+
+func readTranscript(path string, branches []string, sessions map[string]*session, t *tally) error {
+	fh, err := os.Open(path)
+	if err != nil {
+		return err
+	}
 	var src io.Reader = fh
 	if branches != nil {
 		data, readErr := io.ReadAll(fh)
 		if readErr != nil {
-			t.unreadable++
-			return
+			return errors.Join(readErr, fh.Close())
 		}
 		if !slices.ContainsFunc(branches, func(b string) bool { return bytes.Contains(data, []byte(b)) }) {
-			return
+			return fh.Close()
 		}
 		src = bytes.NewReader(data)
 	}
-	if err := parse(src, strings.TrimSuffix(filepath.Base(f.path), ".jsonl"), sessions, t); err != nil {
-		t.unreadable++
-	}
+	return errors.Join(parse(src, strings.TrimSuffix(filepath.Base(path), ".jsonl"), sessions, t), fh.Close())
 }
 
 // parse reads transcript lines into sessions. Lines are read whole however
@@ -627,11 +622,8 @@ func (p *placer) items(ctx context.Context, sessions map[string]*session, ignore
 				it = &item{title: title, branch: tc.branch, sessions: map[string]time.Time{}}
 				found[tc.id] = it
 			}
-			if tc.at.After(it.touched) || it.repo == "" {
-				it.touched = maxTime(it.touched, tc.at)
-				if !tc.at.Before(it.touched) {
-					it.repo = tc.repo
-				}
+			if tc.at.After(it.touched) {
+				it.touched, it.repo = tc.at, tc.repo
 			}
 			if prev, ok := it.sessions[s.id]; !ok || tc.at.After(prev) {
 				it.sessions[s.id] = tc.at
@@ -642,13 +634,6 @@ func (p *placer) items(ctx context.Context, sessions map[string]*session, ignore
 		}
 	}
 	return found
-}
-
-func maxTime(a, b time.Time) time.Time {
-	if b.After(a) {
-		return b
-	}
-	return a
 }
 
 // ignored reports whether a branch matches one of the configured patterns,
