@@ -34,6 +34,10 @@ const usage = `usage:
 type environment struct {
 	getenv func(string) string
 	now    func() time.Time
+	// github is the GraphQL endpoint GitHub inputs are read from. It is not
+	// read from the environment or the configuration, where one line could
+	// send the github.com token to another host.
+	github string
 }
 
 func main() {
@@ -42,7 +46,7 @@ func main() {
 	// end the process even where lookout is waiting on something it cannot
 	// cancel, such as another invocation's hold on the state.
 	context.AfterFunc(ctx, stop)
-	code := run(ctx, os.Args[1:], environment{getenv: os.Getenv, now: time.Now}, os.Stdout, os.Stderr)
+	code := run(ctx, os.Args[1:], environment{getenv: os.Getenv, now: time.Now, github: "https://api.github.com/graphql"}, os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)
 }

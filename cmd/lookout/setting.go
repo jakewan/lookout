@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"time"
 
 	"github.com/jakewan/lookout/internal/config"
 	"github.com/jakewan/lookout/internal/git"
+	"github.com/jakewan/lookout/internal/github"
 	"github.com/jakewan/lookout/internal/readout"
 	"github.com/jakewan/lookout/internal/state"
 	"github.com/jakewan/lookout/internal/supplied"
@@ -97,14 +99,21 @@ func readInputs(ctx context.Context, env environment, cfg *config.Config, now ti
 		return nil, err
 	}
 	repos := git.NewReader(env.getenv)
+	hub := github.NewReader(env.getenv, env.github)
 	readings := make(map[string]readout.Reading, len(cfg.Inputs))
 	for _, in := range cfg.Inputs {
+		scope := readout.Scope{Owners: cfg.ForgeOwners, Since: now.Add(-cfg.DiscoveryWindow), Members: cfg.MemberIDs(in.Name)}
 		switch in.Kind {
-		case config.KindGit:
-			scope := readout.Scope{Owners: cfg.ForgeOwners, Since: now.Add(-cfg.DiscoveryWindow), Members: cfg.MemberIDs(in.Name)}
-			readings[in.Name] = repos.Read(ctx, in, scope, now)
-		default:
+		case config.KindSupplied:
 			readings[in.Name] = files.Read(ctx, in, now)
+		case config.KindGit:
+			readings[in.Name] = repos.Read(ctx, in, scope, now)
+		case config.KindGitHub:
+			readings[in.Name] = hub.Read(ctx, in, scope, now)
+		default:
+			// The configuration refuses a kind lookout has no reader for, so
+			// this guards only a kind added there without one here.
+			return nil, fmt.Errorf("input %q: lookout has no reader for kind %q", in.Name, in.Kind)
 		}
 	}
 	if ctx.Err() != nil {

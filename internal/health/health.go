@@ -31,6 +31,10 @@ const (
 	DuplicateID      = "duplicate_id"
 	NotARepository   = "not_a_repository"
 	GitFailed        = "git_failed"
+	AuthFailed       = "auth_failed"
+	RateLimited      = "rate_limited"
+	Truncated        = "truncated"
+	GitHubFailed     = "github_failed"
 )
 
 // ClockTolerance is how far ahead of this machine's clock an input's
