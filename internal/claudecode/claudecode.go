@@ -69,10 +69,11 @@ type line struct {
 	WorktreeSession json.RawMessage `json:"worktreeSession"`
 }
 
-// text is raw as a JSON string, or false where it is absent or anything else.
+// text is raw as a JSON string, or false where it is absent or anything else,
+// null included, which json.Unmarshal would take for an empty string.
 func text(raw json.RawMessage) (string, bool) {
 	var s string
-	if len(raw) == 0 || json.Unmarshal(raw, &s) != nil {
+	if len(raw) == 0 || raw[0] != '"' || json.Unmarshal(raw, &s) != nil {
 		return "", false
 	}
 	return s, true
@@ -122,6 +123,8 @@ type tally struct {
 	notListed      string
 	inWindow       int
 	readable       int
+	projectDirs    int
+	listedDirs     int
 	drifted        int
 	unreadable     int
 	unreadableDirs int
@@ -191,7 +194,9 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 		case t.noProjectsDir:
 			out.Health.Details = append(out.Health.Details, entry+": has no projects directory, so it holds no sessions")
 		}
-		if t.listed && (t.inWindow == 0 || t.readable > 0) {
+		// A window with no transcripts in it was read only if the project
+		// directories it could hold them in were.
+		if t.listed && (t.readable > 0 || (t.inWindow == 0 && (t.projectDirs == 0 || t.listedDirs > 0))) {
 			readAny = true
 		}
 		if t.unreadableDirs > 0 {
@@ -333,10 +338,13 @@ func (r *Reader) list(entry, base string, t *tally) []transcript {
 		files, readErr := os.ReadDir(filepath.Join(projects, project.Name()))
 		if readErr != nil {
 			if !fsx.Absent(readErr) {
+				t.projectDirs++
 				t.unreadableDirs++
 			}
 			continue
 		}
+		t.projectDirs++
+		t.listedDirs++
 		for _, f := range files {
 			if !f.Type().IsRegular() || !transcriptName.MatchString(f.Name()) {
 				continue

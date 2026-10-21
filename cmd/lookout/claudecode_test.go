@@ -245,6 +245,41 @@ func TestReadKeepsClaudeCodeSessionsOutsideTheOwnerFence(t *testing.T) {
 	}
 }
 
+func TestReadPlacesAClaudeCodeSessionWhereItsDirectoryReallyIs(t *testing.T) {
+	f := newFixture(t).withGit()
+	f.write("personal.yml", claudeOnly)
+	app := f.repo("code/app", "git@github.com:alice/app.git")
+	other := f.repo("code/mallory-x", "git@github.com:mallory/x.git")
+	target := f.mkdir("code/mallory-x/src")
+	// A directory inside an admitted repository that leads into another one
+	// is in the other one, however its path reads.
+	link := filepath.Join(app, "vendored")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	f.transcript(f.home(".claude"), link, sessionA, time.Hour, turn(sessionA, link, "mallory-branch", time.Hour), titled(sessionA, "mallory work"))
+	f.transcript(f.home(".claude"), other, sessionB, time.Hour, turn(sessionB, app, "feature/x", time.Hour))
+
+	code, stdout, stderr := f.run("read", "--json")
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	if strings.Contains(stdout, "mallory") {
+		t.Errorf("stdout names work outside the fence:\n%s", stdout)
+	}
+	var doc readoutDoc
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if got := unplacedIDs(doc); !slices.Equal(got, []string{"claude:alice/app:feature/x"}) {
+		t.Errorf("unplaced = %v, want only the session really in alice/app", got)
+	}
+	if h := doc.health(t, "claude"); h.ExcludedCount == nil || *h.ExcludedCount != 1 {
+		t.Errorf("excluded_count = %v, want the linked directory counted as outside the fence", h.ExcludedCount)
+	}
+}
+
 func TestReadNeverLetsAHomeRepositoryClaimClaudeCodeSessions(t *testing.T) {
 	f := newFixture(t).withGit()
 	f.write("personal.yml", claudeOnly)
@@ -545,6 +580,20 @@ func TestReadClaudeCodeHealth(t *testing.T) {
 				turn(sessionA, app, "feat", time.Hour),
 				jsonLine(map[string]any{"type": "user", "sessionId": sessionA, "cwd": app, "gitBranch": "early", "timestamp": "0000-01-01T00:00:00+01:00"}))
 		}, status: "degraded", reasons: []string{"unrecognized_format"}, details: []string{"~/.claude: 1 transcript line is not in a shape lookout reads"}, items: 1},
+		{name: "no project directory can be looked into", dirs: `["~/.claude"]`, build: func(f *fixture, app string) {
+			f.transcript(f.home(".claude"), app, sessionA, time.Hour, turn(sessionA, app, "feat", time.Hour))
+			f.locked(filepath.Join(f.home(".claude"), "projects", projectDir(app)))
+		}, status: "error", reasons: []string{"unreadable"}, details: []string{"~/.claude: 1 project directory could not be looked into"}},
+		{name: "no project directory can be looked into where records are expected", dirs: `["~/.claude"]`, expect: true, build: func(f *fixture, app string) {
+			f.transcript(f.home(".claude"), app, sessionA, time.Hour, turn(sessionA, app, "feat", time.Hour))
+			f.locked(filepath.Join(f.home(".claude"), "projects", projectDir(app)))
+		}, status: "error", reasons: []string{"unreadable"}, details: []string{"~/.claude: 1 project directory could not be looked into"}},
+		{name: "null where a record needs a string", dirs: `["~/.claude"]`, build: func(f *fixture, app string) {
+			f.transcript(f.home(".claude"), app, sessionA, time.Hour,
+				turn(sessionA, app, "feat", time.Hour),
+				jsonLine(map[string]any{"type": "user", "sessionId": sessionA, "cwd": app, "gitBranch": nil, "timestamp": now.Add(-time.Hour).Format(time.RFC3339)}),
+				jsonLine(map[string]any{"type": nil, "sessionId": sessionA, "cwd": app, "gitBranch": "feat", "timestamp": now.Add(-time.Hour).Format(time.RFC3339)}))
+		}, status: "degraded", reasons: []string{"unrecognized_format"}, details: []string{"~/.claude: 2 transcript lines are not in a shape lookout reads"}, items: 1},
 		{name: "a project directory that cannot be looked into", dirs: `["~/.claude"]`, build: func(f *fixture, app string) {
 			f.transcript(f.home(".claude"), app, sessionA, time.Hour, turn(sessionA, app, "feat", time.Hour))
 			other := f.home("code/other")

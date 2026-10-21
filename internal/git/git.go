@@ -422,33 +422,45 @@ func (r *Reader) Missing() string { return r.missing }
 
 // Locate finds the repository dir lies in, walking up from dir on disk to the
 // nearest directory probe takes for one, so git never runs on a directory
-// that is not a repository. The walk stops below the home directory, for the
-// reason run sets a ceiling: a home directory kept in git would otherwise
-// claim every directory under it. An error means lookout could not tell, which
-// is not the same as finding no repository.
+// that is not a repository. The walk follows the directory's real path, with
+// every symlink resolved, so a link inside one repository that leads into
+// another is placed in the one it leads into. It stops below the home
+// directory, for the reason run sets a ceiling: a home directory kept in git
+// would otherwise claim every directory under it. An error means lookout
+// could not tell, which is not the same as finding no repository.
 func (r *Reader) Locate(ctx context.Context, dir string, owners []config.Owner) (Location, error) {
 	if r.git == "" {
 		return Location{}, errors.New(r.missing)
 	}
-	dir = filepath.Clean(dir)
+	dir, err := filepath.EvalSymlinks(filepath.Clean(dir))
+	switch {
+	case fsx.Absent(err):
+		return Location{Placement: Gone}, nil
+	case err != nil:
+		return Location{}, err
+	}
 	home := r.getenv("HOME")
 	underHome := false
 	if home != "" {
-		if rel, err := filepath.Rel(filepath.Clean(home), dir); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if real, realErr := filepath.EvalSymlinks(home); realErr == nil {
+			home = real
+		}
+		home = filepath.Clean(home)
+		if rel, relErr := filepath.Rel(home, dir); relErr == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			underHome = true
 		}
 	}
 	root := ""
 	for d := dir; ; d = filepath.Dir(d) {
-		if underHome && d == filepath.Clean(home) {
+		if underHome && d == home {
 			break
 		}
-		kind, err := probe(d)
+		kind, probeErr := probe(d)
 		switch {
-		case d == dir && fsx.Absent(err):
+		case d == dir && fsx.Absent(probeErr):
 			return Location{Placement: Gone}, nil
-		case err != nil:
-			return Location{}, err
+		case probeErr != nil:
+			return Location{}, probeErr
 		case kind == repositoryDir:
 			root = d
 		}
