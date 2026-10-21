@@ -2,12 +2,11 @@
 package execpath
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"syscall"
+
+	"github.com/jakewan/lookout/internal/fsx"
 )
 
 // Find returns the first regular, executable file called name in a directory
@@ -32,7 +31,7 @@ func Find(getenv func(string) string, name string) (path, missing string) {
 		}
 		// A missing directory, or a file listed on PATH in place of one,
 		// holds nothing to find; anything else is a directory not searched.
-		if err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR) {
+		if err != nil && !fsx.Absent(err) {
 			unsearched++
 		}
 	}

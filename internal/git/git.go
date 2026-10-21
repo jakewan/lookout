@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path"
@@ -17,12 +16,12 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 	"unicode/utf8"
 
 	"github.com/jakewan/lookout/internal/config"
 	"github.com/jakewan/lookout/internal/execpath"
+	"github.com/jakewan/lookout/internal/fsx"
 	"github.com/jakewan/lookout/internal/health"
 	"github.com/jakewan/lookout/internal/readout"
 )
@@ -263,7 +262,7 @@ func (r *Reader) resolve(entry, base string) (dirs []string, unreadable int, lit
 	if !hasMeta(rest) {
 		path := filepath.Join(prefix, rest)
 		switch kind, err := probe(path); {
-		case absent(err):
+		case fsx.Absent(err):
 			return nil, 0, true, health.Missing, "no such directory"
 		case err != nil:
 			return nil, 0, true, health.GitFailed, "git could not read it"
@@ -275,7 +274,7 @@ func (r *Reader) resolve(entry, base string) (dirs []string, unreadable int, lit
 	candidates, unreadable := match(prefix, rest)
 	for _, c := range candidates {
 		switch kind, err := probe(c); {
-		case err != nil && !absent(err):
+		case err != nil && !fsx.Absent(err):
 			unreadable++
 		case kind == repositoryDir:
 			dirs = append(dirs, c)
@@ -310,7 +309,7 @@ func match(prefix, pattern string) (paths []string, unreadable int) {
 			}
 			info, err := os.Stat(dir)
 			switch {
-			case absent(err) || (err == nil && !info.IsDir()):
+			case fsx.Absent(err) || (err == nil && !info.IsDir()):
 				continue
 			case err != nil:
 				unreadable++
@@ -318,7 +317,7 @@ func match(prefix, pattern string) (paths []string, unreadable int) {
 			}
 			entries, err := os.ReadDir(dir)
 			if err != nil {
-				if !absent(err) {
+				if !fsx.Absent(err) {
 					unreadable++
 				}
 				continue
@@ -354,16 +353,6 @@ func (r *Reader) split(entry, base string) (prefix, rest string) {
 
 func hasMeta(p string) bool { return strings.ContainsAny(p, `*?[\`) }
 
-// absent reports whether err from inspecting a path means nothing is there,
-// as opposed to lookout being unable to look. A path running through a file,
-// which a PATH element or a pattern's literal element after a wildcard can
-// produce, names nothing, as a missing one does. Every inspection in this
-// package sorts its errors here, so the two can never be told apart
-// differently in different places.
-func absent(err error) bool {
-	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR)
-}
-
 // dirKind is what probe finds at a path.
 type dirKind int
 
@@ -376,7 +365,7 @@ const (
 // status: git exits 128 alike for a plain directory and for a repository it
 // refuses to read, and a broken repository must be reported rather than
 // skipped. A checkout or linked worktree has a .git entry; a bare repository
-// has HEAD and objects of its own. An error absent does not cover means
+// has HEAD and objects of its own. An error fsx.Absent does not cover means
 // lookout could not look, which is not the same as finding nothing.
 func probe(dir string) (dirKind, error) {
 	info, err := os.Stat(dir)
@@ -388,13 +377,13 @@ func probe(dir string) (dirKind, error) {
 	}
 	if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
 		return repositoryDir, nil
-	} else if !absent(err) {
+	} else if !fsx.Absent(err) {
 		return otherDir, err
 	}
 	head, headErr := os.Stat(filepath.Join(dir, "HEAD"))
 	objects, objErr := os.Stat(filepath.Join(dir, "objects"))
 	for _, e := range []error{headErr, objErr} {
-		if e != nil && !absent(e) {
+		if e != nil && !fsx.Absent(e) {
 			return otherDir, e
 		}
 	}
