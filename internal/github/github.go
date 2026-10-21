@@ -187,13 +187,12 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 		if stopped {
 			break
 		}
-		nodes, short, f := r.search(ctx, token, s.q, s.label)
+		nodes, read, short, f := r.search(ctx, token, s.q, s.label)
 		if f != nil {
 			failures = append(failures, *f)
 			stopped = f.stops()
-			continue
 		}
-		readAny = true
+		readAny = readAny || read
 		if short != "" {
 			out.Health.Lower(health.Degraded, health.Truncated)
 			detail(short)
@@ -509,8 +508,10 @@ nodes { ` + nodeFields + ` }
 }`
 
 // search pages through one search. short, when not empty, says why the
-// results stop before the matches do, opening with label.
-func (r *Reader) search(ctx context.Context, token, q, label string) (nodes []node, short string, f *failure) {
+// results stop before the matches do, opening with label. A page that fails
+// ends the search with the pages before it kept, and read says whether any
+// page was.
+func (r *Reader) search(ctx context.Context, token, q, label string) (nodes []node, read bool, short string, f *failure) {
 	var after any
 	// searchCap/pageSize pages reach the cap; the two beyond let the last
 	// page say there is no next one.
@@ -527,31 +528,32 @@ func (r *Reader) search(ctx context.Context, token, q, label string) (nodes []no
 		}
 		errs, qf := r.query(ctx, token, searchQuery, map[string]any{"q": q, "after": after}, &data)
 		if qf != nil {
-			return nil, "", qf
+			return nodes, read, short, qf
 		}
 		if len(errs) > 0 {
-			return nil, "", errs[0].failure()
+			return nodes, read, short, errs[0].failure()
 		}
 		if data.Search == nil {
-			return nil, "", unreadable()
+			return nodes, read, short, unreadable()
 		}
+		read = true
 		nodes = append(nodes, data.Search.Nodes...)
 		if data.Search.IssueCount > searchCap {
 			short = fmt.Sprintf("%s: %d matches, more than the %d GitHub's search returns", label, data.Search.IssueCount, searchCap)
 		}
 		page := data.Search.PageInfo
 		if !page.HasNextPage {
-			return nodes, short, nil
+			return nodes, read, short, nil
 		}
 		if page.EndCursor == "" || page.EndCursor == after {
-			return nodes, label + ": github.com repeated a page, so lookout stopped paging", nil
+			return nodes, read, label + ": github.com repeated a page, so lookout stopped paging", nil
 		}
 		after = page.EndCursor
 	}
 	if short == "" {
 		short = label + ": stopped paging at GitHub's search limit"
 	}
-	return nodes, short, nil
+	return nodes, read, short, nil
 }
 
 // gqlError is one entry of a GraphQL response's errors.

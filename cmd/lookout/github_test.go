@@ -956,3 +956,29 @@ func TestReadNamesGHTokenWhenGitHubRefusesIt(t *testing.T) {
 		t.Errorf("details = %q, want the refusal to name GH_TOKEN", h.Details)
 	}
 }
+
+func TestReadKeepsTheSearchPagesReadBeforeOneFails(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", githubOnly)
+	fake := f.withGitHub(
+		ghNode{pr: true, repo: "alice/app", number: 1, state: "OPEN", updated: time.Hour, authored: true},
+		ghNode{pr: true, repo: "alice/app", number: 2, state: "OPEN", updated: 2 * time.Hour, authored: true},
+	)
+	fake.page = 1
+	fake.respond = func(w http.ResponseWriter, r ghRequest) bool {
+		if after, ok := r.variables["after"].(string); !ok || after == "" {
+			return false
+		}
+		w.WriteHeader(http.StatusTooManyRequests)
+		return true
+	}
+
+	doc := f.read()
+	if got, want := unplacedIDs(doc), []string{"hub:alice/app#1"}; !slices.Equal(got, want) {
+		t.Errorf("unplaced = %v, want the page read before the limit", got)
+	}
+	h := doc.health(t, "hub")
+	if h.Status != "degraded" || !slices.Equal(h.Reasons, []string{"rate_limited"}) || h.FetchedAt == nil || h.RecordCount != 1 {
+		t.Errorf("health = %+v, want degraded rate_limited with the page counted", h)
+	}
+}
