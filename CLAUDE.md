@@ -10,13 +10,16 @@ It is the data layer only. It emits a readout for a renderer to consume and does
 
 ## Status and layout
 
-Early. `lookout read --json` and `lookout unplaced` report on supplied files and local git repositories; `adopt`, `order` and `complete` edit the configuration file, and `dismiss` writes state, each recording a gesture. The GitHub and session adapters and the baseline snapshot are not built yet.
+Early. `lookout read --json` and `lookout unplaced` report on supplied files, local git repositories and GitHub; `adopt`, `order` and `complete` edit the configuration file, and `dismiss` writes state, each recording a gesture. The session adapter and the baseline snapshot are not built yet.
 
 ```
 cmd/lookout/              # binary entry point and its behavior specs
 schema/                   # the published contracts, embedded so lookout enforces the same files
 internal/config/          # locating, loading, and editing one setting's configuration file
 internal/git/             # reading local branches of owner-fenced git repositories
+internal/github/          # reading owner-fenced pull requests and issues on github.com
+internal/execpath/        # finding an executable on the invocation's own PATH
+internal/fsx/             # the one rule filesystem errors are sorted by
 internal/supplied/        # reading a supplied file and judging its input's health
 internal/health/          # the health record every input reports
 internal/readout/         # assembling the readout
@@ -66,7 +69,7 @@ Go authoring conventions are in `.claude/rules/go-practices.md` (loaded when Cla
 - **lookout never talks to an issue tracker.** A tracker's data reaches it as a file an outside supplier writes, already reduced, in a versioned contract. Suppliers know nothing about workstreams, so either side can change without the other.
 - **Input health is computed, never self-reported, and never softened.** A missing expected input is an error, a stale or schema-violating one is degraded, and a supplier's own degraded or error status passes through. A workstream fed by a failing input says so rather than quietly reporting less.
 - **One configuration file per setting, never merged.** A setting (personal, work, …) is selected explicitly whenever more than one is configured; with several configured and none selected, lookout refuses rather than combining them.
-- **Every forge-backed adapter is fenced by configured owners.** Only repositories, pull requests, and sessions belonging to the configured owners are admitted, so one account's credentials cannot pull another context's work into a readout.
+- **Every forge-backed adapter is fenced by configured owners.** Only repositories, pull requests, issues, and sessions belonging to the configured owners are admitted, so one account's credentials cannot pull another context's work into a readout.
 - **Configuration is user intent; state is tool history.** Workstreams and their order live in the hand-editable configuration file, and commands that change them preserve its comments and layout. Dismissals, the gesture log, and the baseline live under the state directory and are never hand-edited.
 
 ## Conventions in this repo

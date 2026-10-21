@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path"
@@ -17,55 +16,28 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 	"unicode/utf8"
 
 	"github.com/jakewan/lookout/internal/config"
+	"github.com/jakewan/lookout/internal/execpath"
+	"github.com/jakewan/lookout/internal/fsx"
 	"github.com/jakewan/lookout/internal/health"
 	"github.com/jakewan/lookout/internal/readout"
 )
-
-// Scope is what a setting admits from a git input.
-type Scope struct {
-	Owners []config.Owner
-	// Since is the earliest touch an unclaimed branch may have and still be
-	// offered; a branch Members names is read whatever its age.
-	Since   time.Time
-	Members map[string]bool
-}
 
 // Reader runs git for one invocation.
 type Reader struct {
 	getenv func(string) string
 	git    string
-	// unsearched counts the PATH directories lookout could not look into
-	// while it found no git, so "not found" is not claimed of them.
-	unsearched int
+	// missing says why there is no git, when there is none.
+	missing string
 }
 
-// NewReader finds git on the invocation's PATH. exec.Command would search the
-// PATH this process started with instead, which is not the environment the
-// invocation was given.
+// NewReader finds git on the invocation's PATH.
 func NewReader(getenv func(string) string) *Reader {
 	r := &Reader{getenv: getenv}
-	for _, dir := range filepath.SplitList(getenv("PATH")) {
-		// A relative or empty element names the working directory, where a
-		// git nobody installed may sit; os/exec refuses those for the same
-		// reason.
-		if !filepath.IsAbs(dir) {
-			continue
-		}
-		candidate := filepath.Join(dir, "git")
-		info, err := os.Stat(candidate)
-		if err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
-			r.git, r.unsearched = candidate, 0
-			break
-		}
-		if err != nil && !absent(err) {
-			r.unsearched++
-		}
-	}
+	r.git, r.missing = execpath.Find(getenv, "git")
 	return r
 }
 
@@ -107,18 +79,11 @@ type source struct {
 // place below. A source is named only as the configuration names it or once
 // the owner fence admits it, so a repository the fence keeps out never
 // reaches the readout by its path.
-func (r *Reader) Read(ctx context.Context, in config.Input, sc Scope, now time.Time) readout.Reading {
+func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, now time.Time) readout.Reading {
 	out := readout.Reading{Health: health.New(in.Name), Items: make([]readout.Item, 0)}
 	if r.git == "" {
 		out.Health.Lower(health.Error, health.GitFailed)
-		switch r.unsearched {
-		case 0:
-			out.Health.Details = append(out.Health.Details, "git: not found on PATH")
-		case 1:
-			out.Health.Details = append(out.Health.Details, "git: not found on PATH, and 1 directory on it could not be searched")
-		default:
-			out.Health.Details = append(out.Health.Details, fmt.Sprintf("git: not found on PATH, and %d directories on it could not be searched", r.unsearched))
-		}
+		out.Health.Details = append(out.Health.Details, r.missing)
 		return out
 	}
 	if problem := r.checkVersion(ctx); problem != "" {
@@ -250,7 +215,7 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc Scope, now time.T
 // classified through another of its directories is returned as it was, with
 // first false, so it is counted once; a directory git could not even open
 // has no common directory to recognize it by, and stands alone.
-func (r *Reader) classify(ctx context.Context, dir string, sc Scope, ignore []string, sources map[string]*source) (*source, bool) {
+func (r *Reader) classify(ctx context.Context, dir string, sc readout.Scope, ignore []string, sources map[string]*source) (*source, bool) {
 	repo, err := r.open(ctx, dir)
 	if err != nil {
 		return &source{outcome: failed}, true
@@ -297,7 +262,7 @@ func (r *Reader) resolve(entry, base string) (dirs []string, unreadable int, lit
 	if !hasMeta(rest) {
 		path := filepath.Join(prefix, rest)
 		switch kind, err := probe(path); {
-		case absent(err):
+		case fsx.Absent(err):
 			return nil, 0, true, health.Missing, "no such directory"
 		case err != nil:
 			return nil, 0, true, health.GitFailed, "git could not read it"
@@ -309,7 +274,7 @@ func (r *Reader) resolve(entry, base string) (dirs []string, unreadable int, lit
 	candidates, unreadable := match(prefix, rest)
 	for _, c := range candidates {
 		switch kind, err := probe(c); {
-		case err != nil && !absent(err):
+		case err != nil && !fsx.Absent(err):
 			unreadable++
 		case kind == repositoryDir:
 			dirs = append(dirs, c)
@@ -344,7 +309,7 @@ func match(prefix, pattern string) (paths []string, unreadable int) {
 			}
 			info, err := os.Stat(dir)
 			switch {
-			case absent(err) || (err == nil && !info.IsDir()):
+			case fsx.Absent(err) || (err == nil && !info.IsDir()):
 				continue
 			case err != nil:
 				unreadable++
@@ -352,7 +317,7 @@ func match(prefix, pattern string) (paths []string, unreadable int) {
 			}
 			entries, err := os.ReadDir(dir)
 			if err != nil {
-				if !absent(err) {
+				if !fsx.Absent(err) {
 					unreadable++
 				}
 				continue
@@ -388,16 +353,6 @@ func (r *Reader) split(entry, base string) (prefix, rest string) {
 
 func hasMeta(p string) bool { return strings.ContainsAny(p, `*?[\`) }
 
-// absent reports whether err from inspecting a path means nothing is there,
-// as opposed to lookout being unable to look. A path running through a file,
-// which a PATH element or a pattern's literal element after a wildcard can
-// produce, names nothing, as a missing one does. Every inspection in this
-// package sorts its errors here, so the two can never be told apart
-// differently in different places.
-func absent(err error) bool {
-	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR)
-}
-
 // dirKind is what probe finds at a path.
 type dirKind int
 
@@ -410,7 +365,7 @@ const (
 // status: git exits 128 alike for a plain directory and for a repository it
 // refuses to read, and a broken repository must be reported rather than
 // skipped. A checkout or linked worktree has a .git entry; a bare repository
-// has HEAD and objects of its own. An error absent does not cover means
+// has HEAD and objects of its own. An error fsx.Absent does not cover means
 // lookout could not look, which is not the same as finding nothing.
 func probe(dir string) (dirKind, error) {
 	info, err := os.Stat(dir)
@@ -422,13 +377,13 @@ func probe(dir string) (dirKind, error) {
 	}
 	if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
 		return repositoryDir, nil
-	} else if !absent(err) {
+	} else if !fsx.Absent(err) {
 		return otherDir, err
 	}
 	head, headErr := os.Stat(filepath.Join(dir, "HEAD"))
 	objects, objErr := os.Stat(filepath.Join(dir, "objects"))
 	for _, e := range []error{headErr, objErr} {
-		if e != nil && !absent(e) {
+		if e != nil && !fsx.Absent(e) {
 			return otherDir, e
 		}
 	}

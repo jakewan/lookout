@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -57,6 +58,8 @@ const (
 	KindSupplied = "supplied"
 	// KindGit is the local branches of git repositories, read live.
 	KindGit = "git"
+	// KindGitHub is pull requests and issues on github.com, read live.
+	KindGitHub = "github"
 )
 
 // Input is one expected input. Supplied is an absolute path. Repos are paths or
@@ -322,7 +325,7 @@ func parse(data []byte, path string) (*Config, error) {
 		}
 		switch in.Kind {
 		case "":
-			return nil, fmt.Errorf("input %q needs kind: supplied, for a file an outside tool writes, or git, for local repositories", in.Name)
+			return nil, fmt.Errorf("input %q needs kind: supplied, for a file an outside tool writes, git, for local repositories, or github, for pull requests and issues on github.com", in.Name)
 		case KindSupplied:
 		case KindGit:
 			git, gitErr := gitInput(in, base)
@@ -334,8 +337,15 @@ func parse(data []byte, path string) (*Config, error) {
 			}
 			cfg.Inputs = append(cfg.Inputs, git)
 			continue
+		case KindGitHub:
+			hub, hubErr := gitHubInput(in, cfg.ForgeOwners)
+			if hubErr != nil {
+				return nil, hubErr
+			}
+			cfg.Inputs = append(cfg.Inputs, hub)
+			continue
 		default:
-			return nil, fmt.Errorf("input %q kind %q is not one lookout reads: use supplied or git", in.Name, in.Kind)
+			return nil, fmt.Errorf("input %q kind %q is not one lookout reads: use supplied, git or github", in.Name, in.Kind)
 		}
 		if len(in.Repos) > 0 {
 			return nil, fmt.Errorf("input %q is kind supplied, so repos applies only to kind git: remove it", in.Name)
@@ -391,8 +401,9 @@ func parse(data []byte, path string) (*Config, error) {
 	}
 
 	// Naming an item of a supplied input states that the input should have
-	// records, whether or not expect_records says so. A git member's branch
-	// ends its life by being deleted, which members_unread already shows.
+	// records, whether or not expect_records says so. An input lookout reads
+	// itself is asked for its members by name, so one that has gone, such as
+	// a deleted branch, already shows in members_unread.
 	for i := range cfg.Inputs {
 		if cfg.Inputs[i].Kind != KindSupplied {
 			continue
@@ -440,6 +451,31 @@ func gitInput(in inputFile, base string) (Input, error) {
 	return Input{Name: in.Name, Kind: KindGit, ExpectRecords: in.ExpectRecords, Repos: repos, IgnoreBranches: in.IgnoreBranches, Dir: base}, nil
 }
 
+// gitHubInput checks a github input, which takes no keys of its own and reads
+// only the owners forge_owners lists on github.com.
+func gitHubInput(in inputFile, owners []Owner) (Input, error) {
+	live := "input %q is kind github, which lookout reads live"
+	switch {
+	case in.Supplied != "":
+		return Input{}, fmt.Errorf(live+" rather than from a file: remove supplied", in.Name)
+	case in.MaxAge != "":
+		return Input{}, fmt.Errorf(live+", so it is never stale: remove max_age", in.Name)
+	case len(in.Repos) > 0:
+		return Input{}, fmt.Errorf("input %q is kind github, so repos applies only to kind git: remove it", in.Name)
+	case len(in.IgnoreBranches) > 0:
+		return Input{}, fmt.Errorf("input %q is kind github, so ignore_branches applies only to kind git: remove it", in.Name)
+	case len(owners) == 0:
+		return Input{}, fmt.Errorf("forge_owners is required once a github input is configured: list the owners whose pull requests and issues this setting admits, such as forge_owners: [your-name]")
+	case !slices.ContainsFunc(owners, func(o Owner) bool { return o.Host == defaultForgeHost }):
+		return Input{}, fmt.Errorf("input %q: a github input needs a github.com owner in forge_owners, written without a host, such as forge_owners: [your-name]", in.Name)
+	}
+	return Input{Name: in.Name, Kind: KindGitHub, ExpectRecords: in.ExpectRecords}, nil
+}
+
+// gitHubLogin is the shape of a github.com user or organization name, as
+// GitHub's sign-up form allows them.
+var gitHubLogin = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,38}$`)
+
 // owners reads forge_owners. An entry is an owner on github.com, or
 // host/owner for any other host.
 func owners(entries []string) ([]Owner, error) {
@@ -449,10 +485,15 @@ func owners(entries []string) ([]Owner, error) {
 		if !ok {
 			host, name = defaultForgeHost, e
 		}
-		if host == "" || name == "" || strings.ContainsAny(name, "/ \t") || strings.ContainsAny(host, " \t") {
+		if host == "" || name == "" || strings.Contains(name, "/") || strings.IndexFunc(e, unicode.IsSpace) >= 0 {
 			return nil, fmt.Errorf("forge_owners entry %q is not an owner: write it as your-name for github.com, or host/your-name for another host", e)
 		}
 		o := Owner{Host: strings.ToLower(host), Name: strings.ToLower(name)}
+		// A github.com owner is written into search queries, where any other
+		// character could start a qualifier of its own.
+		if o.Host == defaultForgeHost && !gitHubLogin.MatchString(o.Name) {
+			return nil, fmt.Errorf("forge_owners entry %q is not a github.com account name: use letters, digits and -", e)
+		}
 		if slices.Contains(out, o) {
 			return nil, fmt.Errorf("forge_owners lists %s/%s twice", o.Host, o.Name)
 		}

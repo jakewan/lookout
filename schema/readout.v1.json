@@ -40,7 +40,7 @@
       }
     },
     "unplaced": {
-      "description": "Items from readable inputs that no live workstream names. A completed workstream's member returns here once touched after the day it was completed, and an item the user dismissed returns once touched after the dismissal; until then dismissed_count counts it. An input lookout reads itself, such as git, offers here only items touched within the setting's discovery window.",
+      "description": "Items from readable inputs that no live workstream names. A completed workstream's member returns here once touched after the day it was completed, and an item the user dismissed returns once touched after the dismissal; until then dismissed_count counts it. An input lookout reads itself, such as git or GitHub, offers here only items touched within the setting's discovery window.",
       "type": "array",
       "items": {
         "$ref": "#/$defs/placed_item"
@@ -150,7 +150,7 @@
           }
         },
         "members_unread": {
-          "description": "Members, as <input>:<id>, whose item no input supplied, so the configuration may name work that has moved or closed, or an item its input leaves out, such as a repository's default branch, an ignored branch, or a branch of a repository outside the owner fence.",
+          "description": "Members, as <input>:<id>, whose item no input supplied, so the configuration may name work that has moved or closed, or an item its input leaves out, such as a repository's default branch, an ignored branch, or work outside the owner fence.",
           "type": "array",
           "items": {
             "type": "string"
