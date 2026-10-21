@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -796,7 +795,7 @@ func (p *placer) items(ctx context.Context, sessions map[string]*session, ignore
 			if branch == "HEAD" {
 				branch = ""
 			}
-			if branch != "" && ignored(branch, ignore) {
+			if branch != "" && git.Ignored(branch, ignore) {
 				single = false
 				continue
 			}
@@ -833,17 +832,4 @@ func (p *placer) items(ctx context.Context, sessions map[string]*session, ignore
 		}
 	}
 	return found
-}
-
-// ignored reports whether a branch matches one of the configured patterns,
-// where * stops at a slash as path.Match has it.
-func ignored(name string, patterns []string) bool {
-	for _, p := range patterns {
-		// Config.Parse refused a malformed pattern, so a Match error is only
-		// reached by an Input built some other way, and ignores nothing.
-		if ok, err := path.Match(p, name); err == nil && ok {
-			return true
-		}
-	}
-	return false
 }

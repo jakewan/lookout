@@ -589,7 +589,7 @@ func (r *Reader) branches(ctx context.Context, dir string, repo repository, igno
 			continue
 		}
 		name := strings.TrimPrefix(fields[0], "refs/heads/")
-		if name == def || ignored(name, ignore) {
+		if name == def || Ignored(name, ignore) {
 			continue
 		}
 		// A refname may hold any bytes, but a readout is JSON, which would
@@ -695,9 +695,9 @@ func (r *Reader) worktrees(ctx context.Context, dir string) (map[string][]string
 	return found, nil
 }
 
-// ignored reports whether a branch matches one of the configured patterns,
+// Ignored reports whether a branch matches one of the configured patterns,
 // where * stops at a slash as path.Match has it.
-func ignored(name string, patterns []string) bool {
+func Ignored(name string, patterns []string) bool {
 	for _, p := range patterns {
 		// Config.Parse refused a malformed pattern, so a Match error is only
 		// reached by an Input built some other way, and ignores nothing.
