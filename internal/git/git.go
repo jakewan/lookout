@@ -408,6 +408,15 @@ func fenceCause(repo repository, owners []config.Owner) string {
 	return ""
 }
 
+// idPrefix is the part of an item id that names its repository: owner/repo on
+// github.com, matching GitHub's own ids, and host/owner/repo anywhere else.
+func idPrefix(origin remote) string {
+	if origin.host != "github.com" {
+		return origin.host + "/" + origin.path
+	}
+	return origin.path
+}
+
 // repository is what open learns about one repository before the owner fence
 // decides whether its branches are read at all.
 type repository struct {
@@ -472,10 +481,7 @@ func (r *Reader) branches(ctx context.Context, dir string, repo repository, igno
 	if err != nil {
 		return nil, nil, err
 	}
-	prefix := repo.origin.path
-	if repo.origin.host != "github.com" {
-		prefix = repo.origin.host + "/" + prefix
-	}
+	prefix := idPrefix(repo.origin)
 
 	var out []branch
 	nonUTF8 := false
