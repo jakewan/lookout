@@ -31,7 +31,7 @@
       ]
     },
     "reasons": {
-      "description": "Every cause that lowered the status, each once; empty when it is ok. Version 1 can gain reasons, so a consumer should show one it does not know rather than reject it. Known reasons: missing, unreadable, schema, input_mismatch, stale, supplier_failed, supplier_error, supplier_degraded, missing_fields, empty, clock_skew, duplicate_id, not_a_repository, git_failed.",
+      "description": "Every cause that lowered the status, each once; empty when it is ok. Version 1 can gain reasons, so a consumer should show one it does not know rather than reject it. Known reasons: missing, unreadable, schema, input_mismatch, stale, supplier_failed, supplier_error, supplier_degraded, missing_fields, empty, clock_skew, duplicate_id, not_a_repository, git_failed, auth_failed, rate_limited, truncated, github_failed.",
       "type": "array",
       "items": {
         "type": "string",
@@ -40,7 +40,7 @@
       "uniqueItems": true
     },
     "fetched_at": {
-      "description": "When the source was last read successfully: for a supplied file, when its supplier says; for an input lookout reads itself, such as git, the time of this read, set when at least one of its sources was read.",
+      "description": "When the source was last read successfully: for a supplied file, when its supplier says; for an input lookout reads itself, such as git or GitHub, the time of this read, set when any part of it was read.",
       "type": [
         "string",
         "null"
