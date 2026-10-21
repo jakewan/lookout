@@ -60,12 +60,16 @@ const (
 	KindGit = "git"
 	// KindGitHub is pull requests and issues on github.com, read live.
 	KindGitHub = "github"
+	// KindClaudeCode is the session transcripts Claude Code keeps in its
+	// configuration directories, read live.
+	KindClaudeCode = "claude_code"
 )
 
 // Input is one expected input. Supplied is an absolute path. Repos are paths or
-// glob patterns exactly as the configuration writes them, so that health can
-// name an entry the way the user wrote it; a git reader expands a leading ~/
-// and reads a relative entry from Dir, the configuration's directory.
+// glob patterns, and ConfigDirs paths, exactly as the configuration writes
+// them, so that health can name an entry the way the user wrote it; a reader
+// expands a leading ~/ and reads a relative entry from Dir, the
+// configuration's directory.
 type Input struct {
 	Name           string
 	Kind           string
@@ -74,6 +78,7 @@ type Input struct {
 	ExpectRecords  bool
 	Repos          []string
 	IgnoreBranches []string
+	ConfigDirs     []string
 	Dir            string
 }
 
@@ -249,6 +254,7 @@ type inputFile struct {
 	ExpectRecords  bool     `yaml:"expect_records"`
 	Repos          []string `yaml:"repos"`
 	IgnoreBranches []string `yaml:"ignore_branches"`
+	ConfigDirs     []string `yaml:"config_dirs"`
 }
 
 // Load reads and checks the configuration at path. Every error names the file.
@@ -325,7 +331,7 @@ func parse(data []byte, path string) (*Config, error) {
 		}
 		switch in.Kind {
 		case "":
-			return nil, fmt.Errorf("input %q needs kind: supplied, for a file an outside tool writes, git, for local repositories, or github, for pull requests and issues on github.com", in.Name)
+			return nil, fmt.Errorf("input %q needs kind: supplied, for a file an outside tool writes, git, for local repositories, github, for pull requests and issues on github.com, or claude_code, for Claude Code sessions", in.Name)
 		case KindSupplied:
 		case KindGit:
 			git, gitErr := gitInput(in, base)
@@ -344,14 +350,27 @@ func parse(data []byte, path string) (*Config, error) {
 			}
 			cfg.Inputs = append(cfg.Inputs, hub)
 			continue
+		case KindClaudeCode:
+			sessions, sessionsErr := claudeCodeInput(in, base)
+			if sessionsErr != nil {
+				return nil, sessionsErr
+			}
+			if len(cfg.ForgeOwners) == 0 {
+				return nil, fmt.Errorf("forge_owners is required once a claude_code input is configured: list the owners whose repositories this setting admits sessions from, such as forge_owners: [your-name]")
+			}
+			cfg.Inputs = append(cfg.Inputs, sessions)
+			continue
 		default:
-			return nil, fmt.Errorf("input %q kind %q is not one lookout reads: use supplied, git or github", in.Name, in.Kind)
+			return nil, fmt.Errorf("input %q kind %q is not one lookout reads: use supplied, git, github or claude_code", in.Name, in.Kind)
 		}
 		if len(in.Repos) > 0 {
 			return nil, fmt.Errorf("input %q is kind supplied, so repos applies only to kind git: remove it", in.Name)
 		}
 		if len(in.IgnoreBranches) > 0 {
-			return nil, fmt.Errorf("input %q is kind supplied, so ignore_branches applies only to kind git: remove it", in.Name)
+			return nil, fmt.Errorf("input %q is kind supplied, so ignore_branches applies only to kinds git and claude_code: remove it", in.Name)
+		}
+		if len(in.ConfigDirs) > 0 {
+			return nil, fmt.Errorf("input %q is kind supplied, so config_dirs applies only to kind claude_code: remove it", in.Name)
 		}
 		if in.Supplied == "" {
 			return nil, fmt.Errorf("input %q needs supplied: the path of the file its supplier writes", in.Name)
@@ -426,6 +445,9 @@ func gitInput(in inputFile, base string) (Input, error) {
 	if in.MaxAge != "" {
 		return Input{}, fmt.Errorf("input %q is kind git, which lookout reads live, so it is never stale: remove max_age", in.Name)
 	}
+	if len(in.ConfigDirs) > 0 {
+		return Input{}, fmt.Errorf("input %q is kind git, so config_dirs applies only to kind claude_code: remove it", in.Name)
+	}
 	if len(in.Repos) == 0 {
 		return Input{}, fmt.Errorf("input %q needs repos: the repository paths or patterns to read, such as ~/code/*", in.Name)
 	}
@@ -443,10 +465,8 @@ func gitInput(in inputFile, base string) (Input, error) {
 		}
 		repos = append(repos, r)
 	}
-	for _, p := range in.IgnoreBranches {
-		if _, err := path.Match(p, ""); err != nil {
-			return Input{}, fmt.Errorf("input %q ignore_branches entry %q is not a valid pattern: %w", in.Name, p, err)
-		}
+	if err := branchPatterns(in); err != nil {
+		return Input{}, err
 	}
 	return Input{Name: in.Name, Kind: KindGit, ExpectRecords: in.ExpectRecords, Repos: repos, IgnoreBranches: in.IgnoreBranches, Dir: base}, nil
 }
@@ -463,13 +483,48 @@ func gitHubInput(in inputFile, owners []Owner) (Input, error) {
 	case len(in.Repos) > 0:
 		return Input{}, fmt.Errorf("input %q is kind github, so repos applies only to kind git: remove it", in.Name)
 	case len(in.IgnoreBranches) > 0:
-		return Input{}, fmt.Errorf("input %q is kind github, so ignore_branches applies only to kind git: remove it", in.Name)
+		return Input{}, fmt.Errorf("input %q is kind github, so ignore_branches applies only to kinds git and claude_code: remove it", in.Name)
+	case len(in.ConfigDirs) > 0:
+		return Input{}, fmt.Errorf("input %q is kind github, so config_dirs applies only to kind claude_code: remove it", in.Name)
 	case len(owners) == 0:
 		return Input{}, fmt.Errorf("forge_owners is required once a github input is configured: list the owners whose pull requests and issues this setting admits, such as forge_owners: [your-name]")
 	case !slices.ContainsFunc(owners, func(o Owner) bool { return o.Host == defaultForgeHost }):
 		return Input{}, fmt.Errorf("input %q: a github input needs a github.com owner in forge_owners, written without a host, such as forge_owners: [your-name]", in.Name)
 	}
 	return Input{Name: in.Name, Kind: KindGitHub, ExpectRecords: in.ExpectRecords}, nil
+}
+
+// claudeCodeInput checks a claude_code input's keys. A relative config_dirs
+// entry is read from the configuration's directory, as a repos entry is.
+func claudeCodeInput(in inputFile, base string) (Input, error) {
+	live := "input %q is kind claude_code, which lookout reads live"
+	switch {
+	case in.Supplied != "":
+		return Input{}, fmt.Errorf(live+" rather than from a file: remove supplied", in.Name)
+	case in.MaxAge != "":
+		return Input{}, fmt.Errorf(live+", so it is never stale: remove max_age", in.Name)
+	case len(in.Repos) > 0:
+		return Input{}, fmt.Errorf("input %q is kind claude_code, so repos applies only to kind git: remove it", in.Name)
+	case len(in.ConfigDirs) == 0:
+		return Input{}, fmt.Errorf("input %q needs config_dirs: the Claude Code configuration directories whose sessions to read, such as [~/.claude]", in.Name)
+	case slices.Contains(in.ConfigDirs, ""):
+		return Input{}, fmt.Errorf("input %q has an empty config_dirs entry", in.Name)
+	}
+	if err := branchPatterns(in); err != nil {
+		return Input{}, err
+	}
+	return Input{Name: in.Name, Kind: KindClaudeCode, ExpectRecords: in.ExpectRecords, ConfigDirs: in.ConfigDirs, IgnoreBranches: in.IgnoreBranches, Dir: base}, nil
+}
+
+// branchPatterns checks an input's ignore_branches, which match a branch name
+// as path.Match does, so * stops at a slash.
+func branchPatterns(in inputFile) error {
+	for _, p := range in.IgnoreBranches {
+		if _, err := path.Match(p, ""); err != nil {
+			return fmt.Errorf("input %q ignore_branches entry %q is not a valid pattern: %w", in.Name, p, err)
+		}
+	}
+	return nil
 }
 
 // gitHubLogin is the shape of a github.com user or organization name, as

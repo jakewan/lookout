@@ -393,6 +393,84 @@ func probe(dir string) (dirKind, error) {
 	return otherDir, nil
 }
 
+// Placement is where Locate finds a directory, relative to the owner fence.
+type Placement int
+
+const (
+	// Gone means nothing is at the directory any more.
+	Gone Placement = iota
+	// Outside means the directory lies in no repository.
+	Outside
+	// Fenced means it lies in a repository whose origin the owner fence keeps
+	// out.
+	Fenced
+	// Placed means it lies in a repository the fence admits.
+	Placed
+)
+
+// Location is what Locate learns about the repository a directory lies in.
+// Prefix names that repository in item ids, as a branch's id does, and Root
+// is its top directory; both are set only where the fence admits it.
+type Location struct {
+	Placement Placement
+	Prefix    string
+	Root      string
+}
+
+// Missing says why there is no git, or is "" where there is one.
+func (r *Reader) Missing() string { return r.missing }
+
+// Locate finds the repository dir lies in, walking up from dir on disk to the
+// nearest directory probe takes for one, so git never runs on a directory
+// that is not a repository. The walk stops below the home directory, for the
+// reason run sets a ceiling: a home directory kept in git would otherwise
+// claim every directory under it. An error means lookout could not tell, which
+// is not the same as finding no repository.
+func (r *Reader) Locate(ctx context.Context, dir string, owners []config.Owner) (Location, error) {
+	if r.git == "" {
+		return Location{}, errors.New(r.missing)
+	}
+	dir = filepath.Clean(dir)
+	home := r.getenv("HOME")
+	underHome := false
+	if home != "" {
+		if rel, err := filepath.Rel(filepath.Clean(home), dir); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			underHome = true
+		}
+	}
+	root := ""
+	for d := dir; ; d = filepath.Dir(d) {
+		if underHome && d == filepath.Clean(home) {
+			break
+		}
+		kind, err := probe(d)
+		switch {
+		case d == dir && fsx.Absent(err):
+			return Location{Placement: Gone}, nil
+		case err != nil:
+			return Location{}, err
+		case kind == repositoryDir:
+			root = d
+		}
+		if root != "" || d == filepath.Dir(d) {
+			break
+		}
+	}
+	if root == "" {
+		return Location{Placement: Outside}, nil
+	}
+	// open runs git with its ceiling at root's parent, so it must be given the
+	// root, never dir: from a subdirectory, git could not reach the repository.
+	repo, err := r.open(ctx, root)
+	if err != nil {
+		return Location{}, err
+	}
+	if fenceCause(repo, owners) != "" {
+		return Location{Placement: Fenced}, nil
+	}
+	return Location{Placement: Placed, Prefix: idPrefix(repo.origin), Root: root}, nil
+}
+
 // fenceCause says why the owner fence keeps repo out, or is "" where it admits
 // it. The cause names no owner or host, since it may be about another
 // context's repository.

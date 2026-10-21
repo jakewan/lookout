@@ -755,17 +755,26 @@ func TestReadRefusesAnInvalidConfiguration(t *testing.T) {
 		"github input with repos":                 "forge_owners: [alice]\ninputs:\n  - {name: hub, kind: github, repos: [/x]}\nworkstreams: []\n",
 		"github input with ignore_branches":       "forge_owners: [alice]\ninputs:\n  - {name: hub, kind: github, ignore_branches: [x]}\nworkstreams: []\n",
 		"github.com owner no account can have":    "forge_owners: [\"alice,user:carol\"]\ninputs:\n  - {name: hub, kind: github}\nworkstreams: []\n",
+		"claude_code input without config_dirs":   "forge_owners: [alice]\ninputs:\n  - {name: claude, kind: claude_code}\nworkstreams: []\n",
+		"claude_code input without forge_owners":  "inputs:\n  - {name: claude, kind: claude_code, config_dirs: [~/.claude]}\nworkstreams: []\n",
+		"claude_code input with a supplied path":  "forge_owners: [alice]\ninputs:\n  - {name: claude, kind: claude_code, config_dirs: [~/.claude], supplied: t.json}\nworkstreams: []\n",
+		"claude_code input with max_age":          "forge_owners: [alice]\ninputs:\n  - {name: claude, kind: claude_code, config_dirs: [~/.claude], max_age: 1h}\nworkstreams: []\n",
+		"claude_code input with repos":            "forge_owners: [alice]\ninputs:\n  - {name: claude, kind: claude_code, config_dirs: [~/.claude], repos: [/x]}\nworkstreams: []\n",
+		"claude_code empty config_dirs entry":     "forge_owners: [alice]\ninputs:\n  - {name: claude, kind: claude_code, config_dirs: [\"\"]}\nworkstreams: []\n",
+		"git input with config_dirs":              "forge_owners: [alice]\ninputs:\n  - {name: code, kind: git, repos: [/x], config_dirs: [~/.claude]}\nworkstreams: []\n",
+		"supplied input with config_dirs":         "inputs:\n  - {name: tracker, kind: supplied, supplied: t.json, max_age: 1h, config_dirs: [~/.claude]}\nworkstreams: []\n",
+		"github input with config_dirs":           "forge_owners: [alice]\ninputs:\n  - {name: hub, kind: github, config_dirs: [~/.claude]}\nworkstreams: []\n",
 	}
 	// mentions is what a refusal must say beyond the file's path, where another
 	// refusal of the same file could otherwise pass for it.
 	mentions := map[string]string{
 		"input without kind":                      "needs kind",
-		"input of an unknown kind":                `kind "jira" is not one lookout reads: use supplied, git or github`,
+		"input of an unknown kind":                `kind "jira" is not one lookout reads: use supplied, git, github or claude_code`,
 		"git input with a supplied path":          "remove supplied",
 		"git input with max_age":                  "remove max_age",
 		"git input without repos":                 "needs repos",
 		"supplied input with repos":               "repos applies only to kind git",
-		"supplied input with ignore_branches":     "ignore_branches applies only to kind git",
+		"supplied input with ignore_branches":     "ignore_branches applies only to kinds git and claude_code",
 		"git input without forge_owners":          "forge_owners is required",
 		"empty owner":                             "is not an owner",
 		"owner with two slashes":                  "is not an owner",
@@ -779,8 +788,17 @@ func TestReadRefusesAnInvalidConfiguration(t *testing.T) {
 		"github input with a supplied path":       "remove supplied",
 		"github input with max_age":               "remove max_age",
 		"github input with repos":                 "repos applies only to kind git",
-		"github input with ignore_branches":       "ignore_branches applies only to kind git",
+		"github input with ignore_branches":       "ignore_branches applies only to kinds git and claude_code",
 		"github.com owner no account can have":    "is not a github.com account name",
+		"claude_code input without config_dirs":   "needs config_dirs",
+		"claude_code input without forge_owners":  "forge_owners is required",
+		"claude_code input with a supplied path":  "remove supplied",
+		"claude_code input with max_age":          "remove max_age",
+		"claude_code input with repos":            "repos applies only to kind git",
+		"claude_code empty config_dirs entry":     "empty config_dirs entry",
+		"git input with config_dirs":              "config_dirs applies only to kind claude_code",
+		"supplied input with config_dirs":         "config_dirs applies only to kind claude_code",
+		"github input with config_dirs":           "config_dirs applies only to kind claude_code",
 	}
 	for name, config := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -35,6 +35,9 @@ const (
 	RateLimited      = "rate_limited"
 	Truncated        = "truncated"
 	GitHubFailed     = "github_failed"
+	// UnrecognizedFormat is a transcript lookout reads in a format its
+	// producer does not publish, written in a shape lookout does not know.
+	UnrecognizedFormat = "unrecognized_format"
 )
 
 // ClockTolerance is how far ahead of this machine's clock an input's
