@@ -927,3 +927,20 @@ func TestSnapshotCountsARemovedItemThatReappearsAsArriving(t *testing.T) {
 		t.Errorf("arrivals = %v, unlogged_edit = %v, want the removed item asking for a decision again, by a logged gesture", b.Arrivals, b.UnloggedEdit)
 	}
 }
+
+func TestSnapshotCountsACompletionUnderANameARenameFreed(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", strings.Replace(handWritten, "  - name: onboarding\n", "  - name: onboarding\n    completed: 2030-06-01\n", 1))
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	f.snapshot()
+
+	f.nextDay()
+	f.mustRun("rename", "onboarding", "onboarding-2029")
+	f.mustRun("adopt", "--new", "tracker:ABC-3", "onboarding")
+	f.mustRun("complete", "onboarding")
+	f.tracker(map[string]time.Time{"ABC-1": now})
+
+	if b := f.snapshot(); b.CompletedSincePrevious != 1 {
+		t.Errorf("completed_since_previous = %d, want the new workstream under the freed name counted", b.CompletedSincePrevious)
+	}
+}

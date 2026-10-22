@@ -99,6 +99,21 @@ func TestMoveTakesAnItemOutOfEveryWorkstreamHoldingIt(t *testing.T) {
 	}
 }
 
+func TestMoveIntoAWorkstreamAlreadyHoldingTheItemLeavesItThere(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", twiceHeld)
+
+	f.mustRun("move", "tracker:ABC-1", "billing")
+
+	want := strings.Replace(twiceHeld, "      - tracker:ABC-9\n      - tracker:ABC-1\n", "      - tracker:ABC-9\n", 1)
+	if got := f.config("personal.yml"); got != want {
+		t.Errorf("configuration:\n%q\nwant:\n%q", got, want)
+	}
+	if gs := f.gestures("personal"); len(gs) != 1 || !slices.Equal(gs[0].From, []string{"onboarding"}) {
+		t.Errorf("gestures = %+v, want one move from onboarding only", gs)
+	}
+}
+
 func TestMoveRefusals(t *testing.T) {
 	withDone := handWritten + "  - name: done\n    completed: 2030-06-01\n    members:\n      - tracker:ABC-7\n"
 	cases := map[string]struct {
@@ -255,7 +270,7 @@ func TestRenameRefusals(t *testing.T) {
 	}{
 		"unknown workstream": {[]string{"support", "infra"}, "support"},
 		"name taken":         {[]string{"billing", "onboarding"}, "onboarding"},
-		"same name":          {[]string{"billing", "billing"}, "billing"},
+		"same name":          {[]string{"billing", "billing"}, "already has that name"},
 		"empty name":         {[]string{"billing", ""}, "name"},
 	}
 	for name, c := range cases {
