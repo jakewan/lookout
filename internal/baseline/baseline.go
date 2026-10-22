@@ -223,27 +223,24 @@ func healthy(rec Record, input string) bool {
 	return slices.Contains(rec.Health, Health{Input: input, Status: health.OK})
 }
 
-// handPlaced is each member a live workstream holds that the logged gestures
-// did not put in one. Moving an item out of a completed workstream places it
-// as adopting it would, while moving one between live workstreams places
-// nothing new.
+// handPlaced is each member the logged gestures do not account for having
+// been placed: one no live workstream held after replay, that either no
+// workstream held at all or a live one holds now. Moving an item out of a
+// completed workstream places it as adopting it would, and so does adding one
+// to a workstream completed since; moving one between live workstreams, or
+// leaving a completed workstream's members as they were, places nothing new.
 func handPlaced(replayed, current []config.Workstream) []string {
-	logged := map[config.Member]bool{}
+	live, held := map[config.Member]bool{}, map[config.Member]bool{}
 	for _, w := range replayed {
-		if w.Completed != "" {
-			continue
-		}
 		for _, m := range w.Members {
-			logged[m] = true
+			held[m] = true
+			live[m] = live[m] || w.Completed == ""
 		}
 	}
 	out := make([]string, 0)
 	for _, w := range current {
-		if w.Completed != "" {
-			continue
-		}
 		for _, m := range w.Members {
-			if !logged[m] {
+			if !live[m] && (!held[m] || w.Completed == "") {
 				out = append(out, m.Input+":"+m.ID)
 			}
 		}

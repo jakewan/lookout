@@ -808,3 +808,21 @@ func TestSnapshotReplaysACompletionOnTheDateItWrote(t *testing.T) {
 		t.Error("unlogged_edit = true, want a logged completion replayed on the date it wrote")
 	}
 }
+
+func TestSnapshotCountsAnItemPlacedByHandInAWorkstreamCompletedSince(t *testing.T) {
+	f := newFixture(t)
+	withDone := strings.Replace(handWritten, "workstreams:\n", "workstreams:\n  - name: done\n    completed: 2030-06-01\n    members:\n      - tracker:ABC-8\n", 1)
+	f.write("personal.yml", withDone)
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	f.snapshot()
+
+	f.nextDay()
+	f.write("personal.yml", strings.Replace(withDone, "      - tracker:ABC-9\n", "      - tracker:ABC-9\n      - tracker:ABC-5\n", 1))
+	f.mustRun("complete", "onboarding")
+	f.tracker(map[string]time.Time{"ABC-1": now, "ABC-5": f.clock.Add(-time.Hour)})
+
+	b := f.snapshot()
+	if !slices.Equal(b.HandPlaced, []string{"tracker:ABC-5"}) || !slices.Equal(b.Arrivals, []string{"tracker:ABC-5"}) {
+		t.Errorf("hand_placed = %v, arrivals = %v, want the item placed by hand before its workstream was completed, and never the completed workstream's untouched member", b.HandPlaced, b.Arrivals)
+	}
+}
