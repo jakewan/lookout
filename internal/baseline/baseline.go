@@ -84,6 +84,9 @@ type MergedRead struct {
 	Since  time.Time
 	Found  []MergedPR
 	Failed string
+	// Detail says why the read failed, for the person running the snapshot;
+	// the record keeps only Failed.
+	Detail string
 }
 
 const (
@@ -134,8 +137,8 @@ func mergedOrigin(history []Record, since time.Time) time.Time {
 }
 
 // merged lists each pull request read that merged within the series and by
-// now, and that no earlier record lists. It is matched by node id, which a
-// renamed or transferred repository keeps.
+// now, and that no earlier record lists. It is matched by node id, since
+// renaming a repository changes the readable id.
 func merged(history []Record, read *MergedRead, now time.Time) *Merged {
 	m := &Merged{Since: read.Since.UTC(), Through: now.UTC()}
 	if read.Failed != "" {

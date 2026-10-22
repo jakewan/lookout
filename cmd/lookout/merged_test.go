@@ -503,3 +503,46 @@ func TestSnapshotStartsOverWhenARecordLandsWhileItReads(t *testing.T) {
 		t.Errorf("since = %q, want the through of the record that landed", m.Since)
 	}
 }
+
+func TestSnapshotSaysWhatTheMergedReadFound(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", githubOnly)
+	fake := f.withGitHub(mergedPR("alice/app", 1, day(0, 9)))
+
+	_, _, stderr := f.run("snapshot")
+	if !strings.Contains(stderr, "1 merged") {
+		t.Errorf("stderr = %q, want the count of merges listed", stderr)
+	}
+
+	f.nextDay()
+	failMerged(fake, http.StatusInternalServerError)
+	code, _, stderr := f.run("snapshot")
+	if code != 0 || !strings.Contains(stderr, "merged pull requests not read: github_failed") || !strings.Contains(stderr, "merged pull request search of alice") {
+		t.Errorf("exit code = %d, stderr = %q, want a failed merged read named, with why", code, stderr)
+	}
+}
+
+func TestSnapshotAsksForGitHubsStableNodeIDs(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", githubOnly)
+	fake := f.withGitHub(mergedPR("alice/app", 1, day(0, 9)))
+
+	f.snapshot()
+
+	for _, r := range fake.requests {
+		if q, _ := r.variables["q"].(string); strings.Contains(q, "is:merged") && r.nextID != "1" {
+			t.Errorf("merged search sent X-Github-Next-Global-ID = %q, want 1, so an id never changes format between reads", r.nextID)
+		}
+	}
+}
+
+func TestSnapshotOpensTheFirstMergedWindowAtLocalMidnight(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", githubOnly)
+	f.withGitHub()
+	f.clock = time.Date(2030, 6, 15, 9, 0, 0, 0, time.FixedZone("west", -7*60*60))
+
+	if m := f.mergedRecord(); m.Since != "2030-06-15T07:00:00Z" {
+		t.Errorf("since = %q, want the start of the local date, 07:00 UTC", m.Since)
+	}
+}

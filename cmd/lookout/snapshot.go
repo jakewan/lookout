@@ -110,7 +110,18 @@ func snapshotOnce(ctx context.Context, env environment, setting string, diag *lo
 	if err := loc.store.AppendBaseline(line); err != nil {
 		return false, err
 	}
-	diag.Printf("lookout snapshot: recorded %s: %d unplaced, %d arrived", rec.Date, len(rec.Unplaced), len(rec.Arrivals))
+	summary := fmt.Sprintf("lookout snapshot: recorded %s: %d unplaced, %d arrived", rec.Date, len(rec.Unplaced), len(rec.Arrivals))
+	// A failed merged read is said here, since the record alone would go
+	// unread until its interval is counted, and a failure that persists keeps
+	// the window open until the reach bound starts dropping merges.
+	switch m := rec.MergedPRs; {
+	case m == nil:
+	case m.Failed != "":
+		summary += "; merged pull requests not read: " + m.Failed + " (" + mergedRead.Detail + ")"
+	default:
+		summary += fmt.Sprintf(", %d merged", len(m.PRs))
+	}
+	diag.Print(summary)
 	return true, nil
 }
 
@@ -123,11 +134,11 @@ func readMerged(ctx context.Context, r reading, history []baseline.Record) (*bas
 		return nil, nil
 	}
 	since, from := baseline.MergedWindow(history, r.now)
-	found, failed := r.hub.Merged(ctx, r.cfg.ForgeOwners, from)
+	found, failed, detail := r.hub.Merged(ctx, r.cfg.ForgeOwners, from)
 	if ctx.Err() != nil {
 		return nil, errors.New("reading merged pull requests: interrupted")
 	}
-	read := &baseline.MergedRead{Since: since, Failed: failed, Found: make([]baseline.MergedPR, 0, len(found))}
+	read := &baseline.MergedRead{Since: since, Failed: failed, Detail: detail, Found: make([]baseline.MergedPR, 0, len(found))}
 	for _, m := range found {
 		read.Found = append(read.Found, baseline.MergedPR{ID: m.ID, NodeID: m.NodeID, MergedAt: m.MergedAt, IntoDefault: m.IntoDefault})
 	}

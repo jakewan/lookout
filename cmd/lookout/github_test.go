@@ -53,7 +53,9 @@ type ghNode struct {
 
 // ghRequest is one request the fake received.
 type ghRequest struct {
-	auth      string
+	auth string
+	// nextID is the X-Github-Next-Global-ID header the request sent.
+	nextID    string
 	query     string
 	variables map[string]any
 }
@@ -138,7 +140,7 @@ func (g *githubFake) serve(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	req := ghRequest{auth: r.Header.Get("Authorization"), query: body.Query, variables: body.Variables}
+	req := ghRequest{auth: r.Header.Get("Authorization"), nextID: r.Header.Get("X-Github-Next-Global-ID"), query: body.Query, variables: body.Variables}
 	g.mu.Lock()
 	g.requests = append(g.requests, req)
 	g.mu.Unlock()

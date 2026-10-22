@@ -603,6 +603,11 @@ func (r *Reader) query(ctx context.Context, token, query string, vars map[string
 	req.Header.Set("Authorization", "bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "lookout")
+	// An object created before GitHub's current id format can be served under
+	// either format, chosen by this header's default (GitHub's guide to
+	// migrating global node ids); asking for the current one keeps an id the
+	// baseline stored from changing under it.
+	req.Header.Set("X-Github-Next-Global-ID", "1")
 	resp, err := r.client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {

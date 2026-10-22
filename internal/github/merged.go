@@ -14,12 +14,16 @@ import (
 type Merge struct {
 	// ID is owner/repo#N, as a github input names the pull request.
 	ID string
-	// NodeID is GitHub's global id for it, which a rename or transfer of its
-	// repository leaves unchanged where ID changes.
+	// NodeID is GitHub's global id for it, which GitHub says can be kept as a
+	// reference; renaming its repository changes ID. That it also survives a
+	// transfer is not confirmed; were it to change, a transfer within a day of
+	// the merge would list the merge twice.
 	NodeID   string
 	MergedAt time.Time
-	// IntoDefault reports whether it merged into its repository's default
-	// branch rather than, say, the branch of a pull request below it.
+	// IntoDefault reports whether it targeted the branch that is its
+	// repository's default when read, rather than, say, the branch of a pull
+	// request below it. A default branch renamed since the merge reads as
+	// another branch.
 	IntoDefault bool
 }
 
@@ -46,13 +50,14 @@ type mergedNode struct {
 
 // Merged returns the pull requests the token's account authored that merged
 // at or after from, in each github.com owner the fence lists. A merge whose
-// repository is now outside the fence is left out, never named. The second
-// result is the health reason the read failed for, or empty; a read that
-// failed returns no merges, since a partial list would read as fewer merges.
-func (r *Reader) Merged(ctx context.Context, owners []config.Owner, from time.Time) ([]Merge, string) {
+// repository is now outside the fence is left out, never named. Where the
+// read failed, reason is the health reason and detail says why for a person;
+// a read that failed returns no merges, since a partial list would read as
+// fewer merges.
+func (r *Reader) Merged(ctx context.Context, owners []config.Owner, from time.Time) (merges []Merge, reason, detail string) {
 	token, problem := r.credential(ctx)
 	if problem != "" {
-		return nil, health.AuthFailed
+		return nil, health.AuthFailed, problem
 	}
 	var hub []string
 	for _, o := range owners {
@@ -63,17 +68,18 @@ func (r *Reader) Merged(ctx context.Context, owners []config.Owner, from time.Ti
 	since := from.UTC().Format(time.RFC3339)
 	out := make([]Merge, 0)
 	for _, o := range hub {
-		nodes, _, short, f := searchAll[mergedNode](ctx, r, token, mergedSearch, "is:pr is:merged author:@me user:"+o+" merged:>="+since, "merged pull request search of "+o)
+		label := "merged pull request search of " + o
+		nodes, _, short, f := searchAll[mergedNode](ctx, r, token, mergedSearch, "is:pr is:merged author:@me user:"+o+" merged:>="+since, label)
 		switch {
 		case f != nil:
-			return nil, f.reason
+			return nil, f.reason, label + ": " + f.detail
 		case short != "":
-			return nil, health.Truncated
+			return nil, health.Truncated, short
 		}
 		for _, n := range nodes {
 			at, err := time.Parse(time.RFC3339, n.MergedAt)
 			if err != nil || n.ID == "" || n.Number <= 0 || n.Repository.NameWithOwner == "" {
-				return nil, health.GitHubFailed
+				return nil, health.GitHubFailed, label + ": github.com sent a merge without the fields lookout reads"
 			}
 			if !slices.Contains(hub, strings.ToLower(n.Repository.Owner.Login)) {
 				continue
@@ -88,5 +94,5 @@ func (r *Reader) Merged(ctx context.Context, owners []config.Owner, from time.Ti
 		}
 	}
 	slices.SortFunc(out, func(a, b Merge) int { return strings.Compare(a.ID, b.ID) })
-	return out, ""
+	return out, "", ""
 }
