@@ -242,19 +242,23 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 	previous := &history[len(history)-1]
 	r.PreviousDate = previous.Date
 	r.DiscoveryChanged = previous.DiscoveryDigest != r.DiscoveryDigest
-	// A completion counts on the first record that finds it in effect, so one
-	// made after the day's snapshot, or dated back by hand, is counted once and
-	// never lost.
-	for _, w := range cfg.Workstreams {
-		if w.Completed != "" && w.Completed <= r.Date && !completedIn(previous, w.Name) {
-			r.CompletedSincePrevious++
-		}
-	}
-
 	var since []state.Gesture
 	for _, g := range gestures {
 		if g.Outcome == state.OK && g.At.After(previous.At) {
 			since = append(since, g)
+		}
+	}
+	// A completion counts on the first record that finds it in effect, so one
+	// made after the day's snapshot, or dated back by hand, is counted once and
+	// never lost. A workstream renamed by command since is looked up under the
+	// name the previous record knew it by.
+	before := namesBefore(since)
+	for _, w := range cfg.Workstreams {
+		if w.Completed == "" || w.Completed > r.Date {
+			continue
+		}
+		if name, ok := before(w.Name); !ok || !completedIn(previous, name) {
+			r.CompletedSincePrevious++
 		}
 	}
 	replayed := replay(previous.Workstreams, since)
@@ -269,6 +273,32 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 	}
 	r.Arrivals, r.Backlog = arrivals(history, candidates)
 	return r, nil
+}
+
+// namesBefore maps a workstream's current name to the one it had before the
+// logged renames, reporting false for a name a rename freed, which no longer
+// stands for the workstream that held it.
+func namesBefore(gestures []state.Gesture) func(string) (string, bool) {
+	type origin struct {
+		name string
+		ok   bool
+	}
+	renamed := map[string]origin{}
+	lookup := func(name string) (string, bool) {
+		if o, found := renamed[name]; found {
+			return o.name, o.ok
+		}
+		return name, true
+	}
+	for _, g := range gestures {
+		if g.Gesture != "rename" {
+			continue
+		}
+		name, ok := lookup(g.Workstream)
+		renamed[g.To] = origin{name, ok}
+		renamed[g.Workstream] = origin{}
+	}
+	return lookup
 }
 
 // completedIn reports whether rec counted the named workstream as completed.
@@ -411,6 +441,12 @@ func replay(held []Workstream, gestures []state.Gesture) []config.Workstream {
 			ws = config.Ordered(ws, g.Workstreams)
 		case "complete":
 			ws = config.CompletedOn(ws, g.Workstream, g.Date)
+		case "move":
+			ws = config.Moved(ws, member(g.Item), g.Workstream)
+		case "remove":
+			ws = config.Removed(ws, member(g.Item))
+		case "rename":
+			ws = config.Renamed(ws, g.Workstream, g.To)
 		}
 	}
 	return ws

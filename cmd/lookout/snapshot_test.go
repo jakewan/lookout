@@ -386,6 +386,17 @@ func TestSnapshotFindsEditsNoGestureExplains(t *testing.T) {
 		"an adopt out of a completed workstream": {withCompleted, func(f *fixture) {
 			f.mustRun("adopt", "tracker:ABC-3", "onboarding")
 		}, false},
+		"a move, a remove and a rename": {handWritten, func(f *fixture) {
+			f.mustRun("move", "tracker:ABC-2", "onboarding")
+			f.mustRun("remove", "tracker:ABC-9")
+			f.mustRun("rename", "billing", "ledger")
+		}, false},
+		"a rename by hand": {handWritten, func(f *fixture) {
+			f.write("personal.yml", strings.Replace(handWritten, "  - name: billing\n", "  - name: ledger\n", 1))
+		}, true},
+		"a removal by hand": {handWritten, func(f *fixture) {
+			f.write("personal.yml", strings.Replace(handWritten, "      - tracker:ABC-2\n", "", 1))
+		}, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
@@ -859,5 +870,60 @@ func TestSnapshotCountsAnItemMovedByHandBetweenCompletedWorkstreams(t *testing.T
 	b := f.snapshot()
 	if !slices.Equal(b.HandPlaced, []string{"tracker:ABC-7"}) || !slices.Equal(b.Arrivals, []string{"tracker:ABC-7"}) {
 		t.Errorf("hand_placed = %v, arrivals = %v, want the item moved into a workstream completed since counted as an adopt would be", b.HandPlaced, b.Arrivals)
+	}
+}
+
+func TestSnapshotPlacesNothingForALoggedMoveOrRename(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten+"  - name: done\n    completed: 2030-06-01\n    members:\n      - tracker:ABC-7\n")
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	f.snapshot()
+
+	f.nextDay()
+	f.mustRun("move", "tracker:ABC-1", "onboarding")
+	f.mustRun("rename", "done", "archive")
+	f.mustRun("rename", "onboarding", "setup")
+	f.tracker(map[string]time.Time{"ABC-1": now})
+
+	b := f.snapshot()
+	if b.UnloggedEdit || len(b.HandPlaced) != 0 || len(b.Arrivals) != 0 {
+		t.Errorf("unlogged_edit = %v, hand_placed = %v, arrivals = %v, want logged gestures to explain every change", b.UnloggedEdit, b.HandPlaced, b.Arrivals)
+	}
+}
+
+func TestSnapshotCountsALoggedRenameOfACompletedWorkstreamOnce(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	f.snapshot()
+
+	f.nextDay()
+	f.mustRun("complete", "onboarding")
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	if b := f.snapshot(); b.CompletedSincePrevious != 1 {
+		t.Fatalf("completed_since_previous = %d, want the completion counted", b.CompletedSincePrevious)
+	}
+
+	f.nextDay()
+	f.mustRun("rename", "onboarding", "onboarding-2030")
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	if b := f.snapshot(); b.CompletedSincePrevious != 0 {
+		t.Errorf("completed_since_previous = %d, want a renamed completed workstream not counted again", b.CompletedSincePrevious)
+	}
+}
+
+func TestSnapshotCountsARemovedItemThatReappearsAsArriving(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	f.snapshot()
+
+	f.nextDay()
+	f.mustRun("remove", "tracker:ABC-1")
+	f.tracker(map[string]time.Time{"ABC-1": f.clock.Add(-time.Hour)})
+
+	b := f.snapshot()
+	if !slices.Equal(b.Arrivals, []string{"tracker:ABC-1"}) || b.UnloggedEdit {
+		t.Errorf("arrivals = %v, unlogged_edit = %v, want the removed item asking for a decision again, by a logged gesture", b.Arrivals, b.UnloggedEdit)
 	}
 }

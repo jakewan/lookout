@@ -47,6 +47,7 @@ type gestureDoc struct {
 	Workstreams []string `json:"workstreams"`
 	New         bool     `json:"new"`
 	From        []string `json:"from"`
+	To          string   `json:"to"`
 }
 
 func (f *fixture) stateDir(setting string) string {
@@ -488,6 +489,10 @@ func TestUsageErrorsRecordNothing(t *testing.T) {
 		"order with no names":        {"order"},
 		"complete with two names":    {"complete", "a", "b"},
 		"dismiss with no item":       {"dismiss"},
+		"move without a workstream":  {"move", "tracker:ABC-1"},
+		"move with a bare id":        {"move", "ABC-1", "onboarding"},
+		"remove with two items":      {"remove", "tracker:ABC-1", "tracker:ABC-2"},
+		"rename with one name":       {"rename", "billing"},
 		"unknown flag":               {"dismiss", "--force", "tracker:ABC-3"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -510,7 +515,7 @@ func TestUsageListsEveryCommand(t *testing.T) {
 	if code != exitUsage {
 		t.Errorf("exit code = %d", code)
 	}
-	for _, cmd := range []string{"read", "unplaced", "adopt", "dismiss", "order", "complete", "snapshot"} {
+	for _, cmd := range []string{"read", "unplaced", "adopt", "dismiss", "order", "complete", "move", "remove", "rename", "snapshot"} {
 		if !strings.Contains(stderr, "lookout "+cmd) {
 			t.Errorf("usage = %q, want it to list %q", stderr, cmd)
 		}
@@ -772,8 +777,8 @@ func TestAdoptMovesACompletedWorkstreamsOnlyMember(t *testing.T) {
 func TestAdoptStillRefusesAnItemALiveWorkstreamHolds(t *testing.T) {
 	f := newFixture(t)
 	f.write("personal.yml", handWritten)
-	if code, _, stderr := f.run("adopt", "tracker:ABC-1", "onboarding"); code != exitFailure || !strings.Contains(stderr, "billing") {
-		t.Errorf("exit code = %d, stderr = %q, want a refusal naming billing", code, stderr)
+	if code, _, stderr := f.run("adopt", "tracker:ABC-1", "onboarding"); code != exitFailure || !strings.Contains(stderr, "billing") || !strings.Contains(stderr, "lookout move") {
+		t.Errorf("exit code = %d, stderr = %q, want a refusal naming billing and lookout move", code, stderr)
 	}
 }
 
