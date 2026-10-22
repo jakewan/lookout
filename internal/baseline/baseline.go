@@ -54,6 +54,117 @@ type Record struct {
 	Workstreams      []Workstream `json:"workstreams"`
 	Health           []Health     `json:"health"`
 	Incomplete       bool         `json:"incomplete"`
+	// MergedPRs is absent where the setting reads no GitHub input.
+	MergedPRs *Merged `json:"merged_prs,omitempty"`
+}
+
+// Merged is the authored pull requests that merged between Since and Through.
+// A read that failed says why in Failed and lists nothing, so it cannot be
+// read as a day with no merges; the next read that succeeds covers its
+// interval.
+type Merged struct {
+	Since   time.Time  `json:"since"`
+	Through time.Time  `json:"through"`
+	PRs     []MergedPR `json:"prs,omitzero"`
+	Failed  string     `json:"failed,omitempty"`
+}
+
+// MergedPR is one merged pull request, with the time it merged so a record
+// that covers several days can be counted day by day.
+type MergedPR struct {
+	ID          string    `json:"id"`
+	NodeID      string    `json:"node_id"`
+	MergedAt    time.Time `json:"merged_at"`
+	IntoDefault bool      `json:"into_default"`
+}
+
+// MergedRead is what a merged pull request search returned for the window
+// MergedWindow gave.
+type MergedRead struct {
+	Since  time.Time
+	Found  []MergedPR
+	Failed string
+	// Detail says why the read failed, for the person running the snapshot;
+	// the record keeps only Failed.
+	Detail string
+}
+
+const (
+	// mergeMargin is how far before a window the search reaches. GitHub's
+	// search index trails a merge by an amount it does not document, so a
+	// merge from just before the previous record can first be found now.
+	mergeMargin = 24 * time.Hour
+	// mergeReach bounds how far back a window opens. A window that grows past
+	// what one search returns would fail every day after, since a failed read
+	// keeps its window open.
+	mergeReach = 90 * 24 * time.Hour
+)
+
+// MergedWindow is the interval the next record's merged pull requests cover,
+// opening where the last read that succeeded closed, and the time a search
+// for them should reach back to.
+func MergedWindow(history []Record, now time.Time) (since, from time.Time) {
+	y, m, d := now.Date()
+	since = time.Date(y, m, d, 0, 0, 0, 0, now.Location())
+	for i := len(history) - 1; i >= 0; i-- {
+		if p := history[i].MergedPRs; p != nil {
+			since = p.Through
+			if p.Failed != "" {
+				since = p.Since
+			}
+			break
+		}
+	}
+	if limit := now.Add(-mergeReach); since.Before(limit) {
+		since = limit
+	}
+	from = since.Add(-mergeMargin)
+	if origin := mergedOrigin(history, since); from.Before(origin) {
+		from = origin
+	}
+	return since, from
+}
+
+// mergedOrigin is where the merged series begins: the first record that read
+// merges, or since when none has.
+func mergedOrigin(history []Record, since time.Time) time.Time {
+	for _, rec := range history {
+		if rec.MergedPRs != nil {
+			return rec.MergedPRs.Since
+		}
+	}
+	return since
+}
+
+// merged lists each pull request read that merged within the series and by
+// now, and that no earlier record lists. It is matched by node id, since
+// renaming a repository changes the readable id.
+func merged(history []Record, read *MergedRead, now time.Time) *Merged {
+	m := &Merged{Since: read.Since.UTC(), Through: now.UTC()}
+	if read.Failed != "" {
+		m.Failed = read.Failed
+		return m
+	}
+	seen := map[string]bool{}
+	for _, rec := range history {
+		if rec.MergedPRs != nil {
+			for _, p := range rec.MergedPRs.PRs {
+				seen[p.NodeID] = true
+			}
+		}
+	}
+	origin := mergedOrigin(history, read.Since)
+	m.PRs = make([]MergedPR, 0, len(read.Found))
+	for _, p := range read.Found {
+		if p.MergedAt.Before(origin) || p.MergedAt.After(now) || seen[p.NodeID] {
+			continue
+		}
+		seen[p.NodeID] = true
+		p.MergedAt = p.MergedAt.UTC()
+		m.PRs = append(m.PRs, p)
+	}
+	slices.SortFunc(m.PRs, func(a, b MergedPR) int { return strings.Compare(a.ID, b.ID) })
+	return m
 }
 
 // Staleness is time since last touched across the live workstreams with an
@@ -81,9 +192,10 @@ type Health struct {
 }
 
 // Derive builds the record for now from the readout and the configuration it
-// was built from. history is the baseline's records, oldest first, and
-// gestures the whole gesture log.
-func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures []state.Gesture, now time.Time) (Record, error) {
+// was built from. history is the baseline's records, oldest first, gestures
+// the whole gesture log, and read the merged pull request search, nil where
+// none was made.
+func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures []state.Gesture, read *MergedRead, now time.Time) (Record, error) {
 	r := Record{
 		Date:        now.Format(DateLayout),
 		At:          now.UTC(),
@@ -112,6 +224,9 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 	for _, h := range out.Health {
 		r.Health = append(r.Health, Health{Input: h.Input, Status: h.Status})
 		r.Incomplete = r.Incomplete || h.Status == health.Error || h.Status == health.Degraded
+	}
+	if read != nil {
+		r.MergedPRs = merged(history, read, now)
 	}
 
 	if len(history) == 0 {

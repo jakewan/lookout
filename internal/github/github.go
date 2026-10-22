@@ -187,7 +187,7 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 		if stopped {
 			break
 		}
-		nodes, read, short, f := r.search(ctx, token, s.q, s.label)
+		nodes, read, short, f := searchAll[node](ctx, r, token, openSearch, s.q, s.label)
 		if f != nil {
 			failures = append(failures, *f)
 			stopped = f.stops()
@@ -360,8 +360,11 @@ type node struct {
 	} `json:"repository"`
 }
 
-func (n node) id() string {
-	return strings.ToLower(n.Repository.NameWithOwner) + "#" + strconv.Itoa(n.Number)
+func (n node) id() string { return itemID(n.Repository.NameWithOwner, n.Number) }
+
+// itemID is the id of number in the repository GitHub names nameWithOwner.
+func itemID(nameWithOwner string, number int) string {
+	return strings.ToLower(nameWithOwner) + "#" + strconv.Itoa(number)
 }
 
 // updated is the node's last update, or the zero time where it does not
@@ -499,19 +502,24 @@ func (r *Reader) lookup(ctx context.Context, token string, refs []ref) ([]answer
 	return answers, nil
 }
 
-var searchQuery = `query($q: String!, $after: String) {
+// searchQuery is a search selecting fields on each node.
+func searchQuery(fields string) string {
+	return `query($q: String!, $after: String) {
 search(type: ISSUE, query: $q, first: ` + strconv.Itoa(pageSize) + `, after: $after) {
 issueCount
 pageInfo { hasNextPage endCursor }
-nodes { ` + nodeFields + ` }
+nodes { ` + fields + ` }
 }
 }`
+}
 
-// search pages through one search. short, when not empty, says why the
-// results stop before the matches do, opening with label. A page that fails
-// ends the search with the pages before it kept, and read says whether any
-// page was.
-func (r *Reader) search(ctx context.Context, token, q, label string) (nodes []node, read bool, short string, f *failure) {
+var openSearch = searchQuery(nodeFields)
+
+// searchAll pages through one search, decoding each node as a T. short, when not
+// empty, says why the results stop before the matches do, opening with label.
+// A page that fails ends the search with the pages before it kept, and read
+// says whether any page was.
+func searchAll[T any](ctx context.Context, r *Reader, token, query, q, label string) (nodes []T, read bool, short string, f *failure) {
 	var after any
 	// searchCap/pageSize pages reach the cap; the two beyond let the last
 	// page say there is no next one.
@@ -523,10 +531,10 @@ func (r *Reader) search(ctx context.Context, token, q, label string) (nodes []no
 					HasNextPage bool   `json:"hasNextPage"`
 					EndCursor   string `json:"endCursor"`
 				} `json:"pageInfo"`
-				Nodes []node `json:"nodes"`
+				Nodes []T `json:"nodes"`
 			} `json:"search"`
 		}
-		errs, qf := r.query(ctx, token, searchQuery, map[string]any{"q": q, "after": after}, &data)
+		errs, qf := r.query(ctx, token, query, map[string]any{"q": q, "after": after}, &data)
 		if qf != nil {
 			return nodes, read, short, qf
 		}
@@ -595,6 +603,11 @@ func (r *Reader) query(ctx context.Context, token, query string, vars map[string
 	req.Header.Set("Authorization", "bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "lookout")
+	// An object created before GitHub's current id format can be served under
+	// either format, chosen by this header's default (GitHub's guide to
+	// migrating global node ids); asking for the current one keeps an id the
+	// baseline stored from changing under it.
+	req.Header.Set("X-Github-Next-Global-ID", "1")
 	resp, err := r.client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
