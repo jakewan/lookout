@@ -27,7 +27,8 @@ const usage = `usage:
   lookout adopt [--setting <name>] [--new] <input>:<id> <workstream>
   lookout dismiss [--setting <name>] <input>:<id>
   lookout order [--setting <name>] <workstream>...
-  lookout complete [--setting <name>] <workstream>`
+  lookout complete [--setting <name>] <workstream>
+  lookout snapshot [--setting <name>]`
 
 // environment is what an invocation reads from the process beyond its
 // arguments, passed in so specs can fix the clock and the variables.
@@ -67,6 +68,7 @@ func run(ctx context.Context, args []string, env environment, stdout, stderr io.
 		"dismiss":  dismiss,
 		"order":    order,
 		"complete": complete,
+		"snapshot": snapshot,
 	}
 	if cmd, ok := commands[args[0]]; ok {
 		return cmd(ctx, args[1:], env, stdout, diag)

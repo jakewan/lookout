@@ -60,16 +60,29 @@ func currentReadout(ctx context.Context, env environment, setting string) (reado
 // starts over holding the lock. A gesture creates the state before it changes
 // anything, so a read that finds none afterward saw no gesture at all.
 func readOnce(ctx context.Context, env environment, setting string) (readout.Readout, bool, error) {
+	r, again, err := readSetting(ctx, env, setting)
+	return r.out, again, err
+}
+
+// reading is one readout together with what it was built from.
+type reading struct {
+	cfg       *config.Config
+	dismissed map[string]time.Time
+	now       time.Time
+	out       readout.Readout
+}
+
+func readSetting(ctx context.Context, env environment, setting string) (reading, bool, error) {
 	cfg, dismissed, again, err := settingNow(env, setting)
 	if err != nil || again {
-		return readout.Readout{}, again, err
+		return reading{}, again, err
 	}
 	now := env.now()
 	readings, err := readInputs(ctx, env, cfg, now)
 	if err != nil {
-		return readout.Readout{}, false, err
+		return reading{}, false, err
 	}
-	return readout.Build(cfg, readings, dismissed, now), false, nil
+	return reading{cfg: cfg, dismissed: dismissed, now: now, out: readout.Build(cfg, readings, dismissed, now)}, false, nil
 }
 
 // settingNow loads the configuration and the dismissals together under the

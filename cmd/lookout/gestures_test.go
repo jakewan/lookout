@@ -510,7 +510,7 @@ func TestUsageListsEveryCommand(t *testing.T) {
 	if code != exitUsage {
 		t.Errorf("exit code = %d", code)
 	}
-	for _, cmd := range []string{"read", "unplaced", "adopt", "dismiss", "order", "complete"} {
+	for _, cmd := range []string{"read", "unplaced", "adopt", "dismiss", "order", "complete", "snapshot"} {
 		if !strings.Contains(stderr, "lookout "+cmd) {
 			t.Errorf("usage = %q, want it to list %q", stderr, cmd)
 		}
