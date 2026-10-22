@@ -69,7 +69,7 @@ func complete(_ context.Context, args []string, env environment, _ io.Writer, di
 		return exitUsage
 	}
 	date := env.now().Format("2006-01-02")
-	g := state.Gesture{Gesture: "complete", Workstream: pos[0]}
+	g := state.Gesture{Gesture: "complete", Workstream: pos[0], Date: date}
 	return record(env, diag, *setting, g, func(path string, _ *state.Gesture) error {
 		return edit(path, func(d *config.Document) error { return d.Complete(pos[0], date) })
 	})

@@ -32,8 +32,10 @@ type Record struct {
 	// shows without a marker of its own.
 	PreviousDate string    `json:"previous_date,omitempty"`
 	At           time.Time `json:"at"`
-	// Backlog, on the first record only, is what was already unplaced when
-	// recording began; none of it ever counts as an arrival.
+	// Backlog is what an input showed before it had a healthy record to measure
+	// arrivals against: everything unplaced on the first record, and on a later
+	// one, what an input failing until then, or newly configured, showed. None
+	// of it ever counts as an arrival.
 	Backlog                []string  `json:"backlog,omitempty"`
 	ActiveWorkstreams      int       `json:"active_workstreams"`
 	Staleness              Staleness `json:"staleness"`
@@ -140,7 +142,7 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 			since = append(since, g)
 		}
 	}
-	replayed := replay(previous.Workstreams, since, now.Location())
+	replayed := replay(previous.Workstreams, since)
 	r.UnloggedEdit = !slices.EqualFunc(workstreams(replayed), r.Workstreams, equalWorkstream)
 	r.HandPlaced = handPlaced(replayed, cfg.Workstreams)
 
@@ -150,7 +152,7 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 			candidates = append(candidates, g.Item)
 		}
 	}
-	r.Arrivals = arrivals(history, candidates)
+	r.Arrivals, r.Backlog = arrivals(history, candidates)
 	return r, nil
 }
 
@@ -164,15 +166,15 @@ func completedIn(rec *Record, name string) bool {
 	return false
 }
 
-// arrivals is each candidate its input had not shown before. An item handled
+// arrivals is each candidate its input had not shown before, and backlog each
+// candidate of an input with no healthy record before now, failing since the
+// first or newly configured, which is taken as already there. An item handled
 // the day it appeared never reaches a snapshot's unplaced, so the candidates
 // include what was adopted, dismissed or placed by hand since the previous
 // record. What an input had shown is everything unplaced from its last healthy
 // record on, since a failed or partial reading hides items rather than
-// removing them, and the first record's backlog. An input with no healthy
-// record before now, failing since the first or newly configured, has
-// everything it shows taken as its own backlog.
-func arrivals(history []Record, candidates []string) []string {
+// removing them, and every record's backlog.
+func arrivals(history []Record, candidates []string) (arrived, backlog []string) {
 	seen := map[string]map[string]bool{}
 	seenBy := func(input string) map[string]bool {
 		if s, ok := seen[input]; ok {
@@ -189,42 +191,57 @@ func arrivals(history []Record, candidates []string) []string {
 					s[t] = true
 				}
 			}
-			for _, t := range history[0].Backlog {
-				s[t] = true
+			for _, rec := range history {
+				for _, t := range rec.Backlog {
+					s[t] = true
+				}
 			}
 			break
 		}
 		seen[input] = s
 		return s
 	}
-	out := make([]string, 0)
+	arrived = make([]string, 0)
 	for _, t := range candidates {
 		s := seenBy(member(t).Input)
-		if s == nil || s[t] {
-			continue
+		switch {
+		case s == nil:
+			if !slices.Contains(backlog, t) {
+				backlog = append(backlog, t)
+			}
+		case !s[t]:
+			s[t] = true
+			arrived = append(arrived, t)
 		}
-		s[t] = true
-		out = append(out, t)
 	}
-	slices.Sort(out)
-	return out
+	slices.Sort(arrived)
+	slices.Sort(backlog)
+	return arrived, backlog
 }
 
 func healthy(rec Record, input string) bool {
 	return slices.Contains(rec.Health, Health{Input: input, Status: health.OK})
 }
 
-// handPlaced is each member the configuration holds that the logged gestures
-// did not put there.
+// handPlaced is each member a live workstream holds that the logged gestures
+// did not put in one. Moving an item out of a completed workstream places it
+// as adopting it would, while moving one between live workstreams places
+// nothing new.
 func handPlaced(replayed, current []config.Workstream) []string {
 	logged := map[config.Member]bool{}
 	for _, w := range replayed {
+		if w.Completed != "" {
+			continue
+		}
 		for _, m := range w.Members {
 			logged[m] = true
 		}
 	}
 	out := make([]string, 0)
 	for _, w := range current {
+		if w.Completed != "" {
+			continue
+		}
 		for _, m := range w.Members {
 			if !logged[m] {
 				out = append(out, m.Input+":"+m.ID)
@@ -253,8 +270,9 @@ func discoveryDigest(cfg *config.Config) (string, error) {
 
 // replay applies each logged configuration gesture to the workstreams a record
 // held, giving what the configuration would hold had nothing else changed it.
-// A complete gesture's date is the day it ran on, as complete itself writes.
-func replay(held []Workstream, gestures []state.Gesture, loc *time.Location) []config.Workstream {
+// A complete gesture is replayed on the date it wrote, which its time alone
+// cannot give once the zone has changed.
+func replay(held []Workstream, gestures []state.Gesture) []config.Workstream {
 	ws := make([]config.Workstream, 0, len(held))
 	for _, w := range held {
 		cw := config.Workstream{Name: w.Name, Completed: w.Completed}
@@ -270,7 +288,7 @@ func replay(held []Workstream, gestures []state.Gesture, loc *time.Location) []c
 		case "order":
 			ws = config.Ordered(ws, g.Workstreams)
 		case "complete":
-			ws = config.CompletedOn(ws, g.Workstream, g.At.In(loc).Format(DateLayout))
+			ws = config.CompletedOn(ws, g.Workstream, g.Date)
 		}
 	}
 	return ws

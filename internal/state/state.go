@@ -41,6 +41,9 @@ type Gesture struct {
 	New         bool      `json:"new,omitempty"`
 	// From names the completed workstreams an adopted item was moved out of.
 	From []string `json:"from,omitempty"`
+	// Date is the local date a complete wrote, which its UTC time alone cannot
+	// recover once the zone has changed.
+	Date string `json:"date,omitempty"`
 }
 
 const (

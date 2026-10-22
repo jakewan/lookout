@@ -749,3 +749,62 @@ func TestSnapshotCountsACompletionDatedAheadOnceItsDateArrives(t *testing.T) {
 		t.Errorf("on its date: completed_since_previous = %d, want 1", b.CompletedSincePrevious)
 	}
 }
+
+func TestSnapshotCountsAnItemMovedByHandOutOfACompletedWorkstream(t *testing.T) {
+	f := newFixture(t)
+	withDone := strings.Replace(handWritten, "workstreams:\n", "workstreams:\n  - name: done\n    completed: 2030-06-01\n    members:\n      - tracker:ABC-7\n", 1)
+	f.write("personal.yml", withDone)
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	f.snapshot()
+
+	f.nextDay()
+	moved := strings.Replace(withDone, "    members:\n      - tracker:ABC-7\n", "", 1)
+	moved = strings.Replace(moved, "      - tracker:ABC-9\n", "      - tracker:ABC-9\n      - tracker:ABC-7\n", 1)
+	f.write("personal.yml", moved)
+	f.tracker(map[string]time.Time{"ABC-1": now, "ABC-7": f.clock})
+
+	b := f.snapshot()
+	if !slices.Equal(b.HandPlaced, []string{"tracker:ABC-7"}) || !slices.Equal(b.Arrivals, []string{"tracker:ABC-7"}) {
+		t.Errorf("hand_placed = %v, arrivals = %v, want the item moved into a live workstream counted as an adopt would be", b.HandPlaced, b.Arrivals)
+	}
+}
+
+func TestSnapshotKeepsTheBacklogOfAnInputFirstHealthyLater(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.snapshot()
+
+	f.nextDay()
+	f.tracker(map[string]time.Time{"ABC-1": now, "ABC-3": now})
+	f.snapshot()
+
+	f.nextDay()
+	f.mustRun("dismiss", "tracker:ABC-3")
+	f.tracker(map[string]time.Time{"ABC-1": now, "ABC-3": now})
+	f.snapshot()
+
+	f.nextDay()
+	f.mustRun("adopt", "tracker:ABC-3", "billing")
+	f.tracker(map[string]time.Time{"ABC-1": now, "ABC-3": now})
+	if b := f.snapshot(); len(b.Arrivals) != 0 {
+		t.Errorf("arrivals = %v, want working through an input's first healthy reading never counted", b.Arrivals)
+	}
+}
+
+func TestSnapshotReplaysACompletionOnTheDateItWrote(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	f.snapshot()
+
+	// Completed late in the evening west of UTC, where it is already the next
+	// day in UTC.
+	f.clock = time.Date(2030, 6, 15, 23, 30, 0, 0, time.FixedZone("west", -7*60*60))
+	f.mustRun("complete", "billing")
+
+	f.clock = now.AddDate(0, 0, 1)
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	if b := f.snapshot(); b.UnloggedEdit {
+		t.Error("unlogged_edit = true, want a logged completion replayed on the date it wrote")
+	}
+}
