@@ -231,50 +231,43 @@ func (s *Store) Append(g Gesture) error {
 	if err != nil {
 		return fmt.Errorf("encoding a gesture: %w", err)
 	}
-	if err := appendLine(filepath.Join(s.dir, logName), line); err != nil {
-		return fmt.Errorf("writing the gesture log: %w", err)
+	if err := appendLine(filepath.Join(s.dir, logName), "gesture log", line); err != nil {
+		return err
 	}
 	s.gestures = append(s.gestures, g)
 	return nil
 }
 
-func appendLine(path string, line []byte) error {
+// appendLine adds line to the file at path, durably, naming the file as what
+// in any error.
+func appendLine(path, what string, line []byte) error {
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		return err
+		return fmt.Errorf("opening the %s: %w", what, err)
 	}
 	if _, err := f.Write(append(line, '\n')); err != nil {
-		return errors.Join(err, f.Close())
+		return errors.Join(fmt.Errorf("writing the %s: %w", what, err), f.Close())
 	}
-	return errors.Join(f.Sync(), f.Close())
+	if err := errors.Join(f.Sync(), f.Close()); err != nil {
+		return fmt.Errorf("writing the %s: %w", what, err)
+	}
+	return nil
 }
 
 // Gestures is the gesture log, oldest first.
 func (s *Store) Gestures() []Gesture { return slices.Clone(s.gestures) }
 
-// Baseline is the baseline's records, oldest first, each as the JSON line it
-// was written as. A line that is not JSON fails the read rather than being
-// skipped, since a lost record would read as a gap.
-func (s *Store) Baseline() ([]json.RawMessage, error) {
-	path := filepath.Join(s.dir, baselineName)
-	data, err := os.ReadFile(path)
+// Baseline is the baseline's records, oldest first, one line each as it was
+// written. Reading what a line holds is the caller's, which knows its shape.
+func (s *Store) Baseline() ([][]byte, error) {
+	data, err := os.ReadFile(s.BaselinePath())
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading the baseline: %w", err)
 	}
-	var out []json.RawMessage
-	for n, line := range bytes.SplitAfter(data, []byte("\n")) {
-		if len(line) == 0 {
-			continue
-		}
-		if !json.Valid(line) {
-			return nil, fmt.Errorf("%s line %d cannot be read: lookout writes this file itself, so restore it from a backup or remove the line", path, n+1)
-		}
-		out = append(out, json.RawMessage(bytes.TrimSpace(line)))
-	}
-	return out, nil
+	return bytes.SplitAfter(bytes.TrimSuffix(data, []byte("\n")), []byte("\n")), nil
 }
 
 // AppendBaseline adds one record to the baseline of a directory this
@@ -283,11 +276,11 @@ func (s *Store) AppendBaseline(record json.RawMessage) error {
 	if err := s.Claim(); err != nil {
 		return err
 	}
-	if err := appendLine(filepath.Join(s.dir, baselineName), record); err != nil {
-		return fmt.Errorf("writing the baseline: %w", err)
-	}
-	return nil
+	return appendLine(s.BaselinePath(), "baseline", record)
 }
+
+// BaselinePath is where the baseline is kept.
+func (s *Store) BaselinePath() string { return filepath.Join(s.dir, baselineName) }
 
 // Dismissals maps each dismissed item, as <input>:<id>, to when it was last
 // dismissed.

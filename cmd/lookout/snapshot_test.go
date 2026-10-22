@@ -27,7 +27,9 @@ type baselineDoc struct {
 	CompletedSincePrevious int      `json:"completed_since_previous"`
 	Unplaced               []string `json:"unplaced"`
 	Arrivals               []string `json:"arrivals"`
+	HandPlaced             []string `json:"hand_placed"`
 	UnloggedEdit           bool     `json:"unlogged_edit"`
+	DiscoveryChanged       bool     `json:"discovery_changed"`
 	Workstreams            []struct {
 		Name      string   `json:"name"`
 		Members   []string `json:"members"`
@@ -553,5 +555,197 @@ func TestSnapshotUsage(t *testing.T) {
 	}
 	if _, err := os.Stat(f.stateDir("personal")); !os.IsNotExist(err) {
 		t.Errorf("state directory exists after a usage error: %v", err)
+	}
+}
+
+func TestSnapshotCountsACompletionMadeAfterTheDaysSnapshot(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	f.snapshot()
+
+	f.clock = now.Add(5 * time.Hour)
+	f.mustRun("complete", "billing")
+
+	f.nextDay()
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	if b := f.snapshot(); b.CompletedSincePrevious != 1 {
+		t.Errorf("completed_since_previous = %d, want the completion made after the previous snapshot that same day", b.CompletedSincePrevious)
+	}
+
+	// A date written by hand after the fact is still a completion not yet counted.
+	f.write("personal.yml", strings.Replace(f.config("personal.yml"), "  - name: onboarding\n", "  - name: onboarding\n    completed: 2030-06-01\n", 1))
+	f.nextDay()
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	if b := f.snapshot(); b.CompletedSincePrevious != 1 {
+		t.Errorf("completed_since_previous = %d, want a back-dated completion counted once", b.CompletedSincePrevious)
+	}
+	f.nextDay()
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	if b := f.snapshot(); b.CompletedSincePrevious != 0 {
+		t.Errorf("completed_since_previous = %d, want nothing counted twice", b.CompletedSincePrevious)
+	}
+}
+
+func TestSnapshotDoesNotCountWhatAnUnhealthyDayHid(t *testing.T) {
+	t.Run("a failed day between healthy ones", func(t *testing.T) {
+		f := newFixture(t)
+		f.write("personal.yml", handWritten)
+		day1 := f.clock
+		f.tracker(map[string]time.Time{"ABC-1": day1, "ABC-3": day1, "ABC-4": day1})
+		f.snapshot()
+		f.nextDay()
+		f.mustRun("dismiss", "tracker:ABC-4")
+		f.tracker(map[string]time.Time{"ABC-1": day1, "ABC-3": day1, "ABC-4": day1, "ABC-5": f.clock})
+		f.snapshot()
+
+		f.nextDay()
+		if err := os.Remove(filepath.Join(f.dir, "tracker.json")); err != nil {
+			t.Fatal(err)
+		}
+		if b := f.snapshot(); !b.Incomplete || len(b.Arrivals) != 0 {
+			t.Fatalf("failed day: incomplete = %v, arrivals = %v", b.Incomplete, b.Arrivals)
+		}
+
+		f.nextDay()
+		f.tracker(map[string]time.Time{"ABC-1": day1, "ABC-3": day1, "ABC-4": day1, "ABC-5": day1, "ABC-6": f.clock})
+		if b := f.snapshot(); !slices.Equal(b.Arrivals, []string{"tracker:ABC-6"}) {
+			t.Errorf("arrivals = %v, want only the item new since the input last read healthy", b.Arrivals)
+		}
+	})
+	t.Run("an input failing on the first day", func(t *testing.T) {
+		f := newFixture(t)
+		f.write("personal.yml", handWritten)
+		f.snapshot()
+
+		f.nextDay()
+		f.tracker(map[string]time.Time{"ABC-1": now, "ABC-3": now})
+		if b := f.snapshot(); len(b.Arrivals) != 0 {
+			t.Errorf("arrivals = %v, want an input's first healthy reading taken as its backlog", b.Arrivals)
+		}
+
+		f.nextDay()
+		f.tracker(map[string]time.Time{"ABC-1": now, "ABC-3": now, "ABC-4": f.clock})
+		if b := f.snapshot(); !slices.Equal(b.Arrivals, []string{"tracker:ABC-4"}) {
+			t.Errorf("arrivals = %v", b.Arrivals)
+		}
+	})
+}
+
+func TestSnapshotCountsAnItemPlacedByHand(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.tracker(map[string]time.Time{"ABC-1": now, "ABC-3": now})
+	f.snapshot()
+
+	f.nextDay()
+	// ABC-5 appears and is placed by hand before any snapshot sees it, and the
+	// backlog's ABC-3 is placed by hand too.
+	f.write("personal.yml", strings.Replace(handWritten, "      - tracker:ABC-9\n", "      - tracker:ABC-9\n      - tracker:ABC-5\n      - tracker:ABC-3\n", 1))
+	f.tracker(map[string]time.Time{"ABC-1": now, "ABC-3": now, "ABC-5": f.clock})
+
+	b := f.snapshot()
+	if !slices.Equal(b.HandPlaced, []string{"tracker:ABC-3", "tracker:ABC-5"}) {
+		t.Errorf("hand_placed = %v, want both members no gesture added", b.HandPlaced)
+	}
+	if !slices.Equal(b.Arrivals, []string{"tracker:ABC-5"}) {
+		t.Errorf("arrivals = %v, want the new item placed by hand, never the backlog's", b.Arrivals)
+	}
+	if !b.UnloggedEdit {
+		t.Error("unlogged_edit = false")
+	}
+
+	f.nextDay()
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	if b := f.snapshot(); b.HandPlaced == nil || len(b.HandPlaced) != 0 {
+		t.Errorf("hand_placed = %#v, want an empty list once nothing new was placed", b.HandPlaced)
+	}
+}
+
+func TestSnapshotFlagsAChangeToWhatIsDiscovered(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	if b := f.snapshot(); b.DiscoveryChanged {
+		t.Error("first record: discovery_changed = true")
+	}
+
+	f.nextDay()
+	f.write("personal.yml", strings.Replace(handWritten, "\nworkstreams:\n", `  - name: calendar
+    kind: supplied
+    supplied: calendar.json
+    max_age: 24h
+
+workstreams:
+`, 1))
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	fetched := f.clock.Add(-time.Minute).Format(time.RFC3339)
+	f.supplied("calendar.json", suppliedDoc("calendar", []any{item("EV-1", time.Hour, nil)}, map[string]any{"fetched_at": fetched, "attempted_at": fetched}))
+	b := f.snapshot()
+	if !b.DiscoveryChanged || len(b.Arrivals) != 0 || b.UnloggedEdit {
+		t.Errorf("discovery_changed = %v, arrivals = %v, unlogged_edit = %v, want a flagged change whose items are the new input's backlog", b.DiscoveryChanged, b.Arrivals, b.UnloggedEdit)
+	}
+
+	f.nextDay()
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	f.supplied("calendar.json", suppliedDoc("calendar", []any{item("EV-1", time.Hour, nil)}, map[string]any{"fetched_at": f.clock.Add(-time.Minute).Format(time.RFC3339), "attempted_at": f.clock.Add(-time.Minute).Format(time.RFC3339)}))
+	if b := f.snapshot(); b.DiscoveryChanged {
+		t.Error("discovery_changed = true with nothing changed")
+	}
+}
+
+func TestSnapshotRecordsNothingForADateBeforeTheLast(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.supplied("tracker.json", trackerItems())
+	f.nextDay()
+	f.snapshot()
+
+	f.clock = now
+	beforeSnapshotLock = func() { t.Error("an earlier date read its inputs") }
+	t.Cleanup(func() { beforeSnapshotLock = func() {} })
+	code, stdout, stderr := f.run("snapshot")
+	if code != 0 || stdout != "" || !strings.Contains(stderr, "2030-06-15") || !strings.Contains(stderr, "2030-06-16") {
+		t.Errorf("exit code = %d, stdout = %q, stderr = %q, want a note naming both dates", code, stdout, stderr)
+	}
+	if records := f.baseline("personal"); len(records) != 1 {
+		t.Errorf("baseline has %d records", len(records))
+	}
+}
+
+func TestABaselineLineOfTheWrongShapeFailsLoudly(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.supplied("tracker.json", trackerItems())
+	f.snapshot()
+	file, err := os.OpenFile(f.baselinePath("personal"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, writeErr := file.WriteString("[]\n"); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	if closeErr := file.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+
+	f.nextDay()
+	code, _, stderr := f.run("snapshot")
+	if code != exitFailure || !strings.Contains(stderr, "line 2") || !strings.Contains(stderr, f.baselinePath("personal")) {
+		t.Errorf("exit code = %d, stderr = %q, want a failure naming the file and the line", code, stderr)
+	}
+}
+
+func TestSnapshotCountsACompletionDatedAheadOnceItsDateArrives(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", strings.Replace(handWritten, "  - name: onboarding\n", "  - name: onboarding\n    completed: 2030-06-16\n", 1))
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	if b := f.snapshot(); b.CompletedSincePrevious != 0 {
+		t.Errorf("before its date: completed_since_previous = %d", b.CompletedSincePrevious)
+	}
+	f.nextDay()
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	if b := f.snapshot(); b.CompletedSincePrevious != 1 {
+		t.Errorf("on its date: completed_since_previous = %d, want 1", b.CompletedSincePrevious)
 	}
 }

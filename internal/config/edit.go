@@ -301,8 +301,11 @@ func cloneWorkstreams(ws []Workstream) []Workstream {
 
 // The functions below are what an accepted edit does to the workstreams, kept
 // apart from the text splicing so that replaying a logged gesture reaches the
-// same result the edit itself checked the file against. Each assumes the edit
-// is one its Document method accepts, and leaves ws untouched.
+// same result the edit itself checked the file against. Each leaves ws
+// untouched. Each assumes the edit is one its Document method would accept on
+// ws; a replay onto workstreams a hand edit has since changed can break that,
+// and then hides the hand edit a later gesture overwrote rather than reporting
+// one that never happened.
 
 // Adopted is ws with member added to the named workstream, or to a new one at
 // the end when none has that name, and moved out of any completed workstream

@@ -5,6 +5,8 @@
 package baseline
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -32,16 +34,24 @@ type Record struct {
 	At           time.Time `json:"at"`
 	// Backlog, on the first record only, is what was already unplaced when
 	// recording began; none of it ever counts as an arrival.
-	Backlog                []string     `json:"backlog,omitempty"`
-	ActiveWorkstreams      int          `json:"active_workstreams"`
-	Staleness              Staleness    `json:"staleness"`
-	CompletedSincePrevious int          `json:"completed_since_previous"`
-	Unplaced               []string     `json:"unplaced"`
-	Arrivals               []string     `json:"arrivals"`
-	UnloggedEdit           bool         `json:"unlogged_edit"`
-	Workstreams            []Workstream `json:"workstreams"`
-	Health                 []Health     `json:"health"`
-	Incomplete             bool         `json:"incomplete"`
+	Backlog                []string  `json:"backlog,omitempty"`
+	ActiveWorkstreams      int       `json:"active_workstreams"`
+	Staleness              Staleness `json:"staleness"`
+	CompletedSincePrevious int       `json:"completed_since_previous"`
+	Unplaced               []string  `json:"unplaced"`
+	Arrivals               []string  `json:"arrivals"`
+	// HandPlaced is the members added since the previous record that no logged
+	// gesture added.
+	HandPlaced   []string `json:"hand_placed"`
+	UnloggedEdit bool     `json:"unlogged_edit"`
+	// DiscoveryDigest stands for the configuration that decides what inputs
+	// offer, and DiscoveryChanged reports that it differs from the previous
+	// record's, so a change in what is unplaced can be told from activity.
+	DiscoveryDigest  string       `json:"discovery_digest"`
+	DiscoveryChanged bool         `json:"discovery_changed"`
+	Workstreams      []Workstream `json:"workstreams"`
+	Health           []Health     `json:"health"`
+	Incomplete       bool         `json:"incomplete"`
 }
 
 // Staleness is time since last touched across the live workstreams with an
@@ -69,16 +79,22 @@ type Health struct {
 }
 
 // Derive builds the record for now from the readout and the configuration it
-// was built from. first and previous are the baseline's first and latest
-// records, both nil when there are none yet; gestures is the whole gesture log.
-func Derive(first, previous *Record, cfg *config.Config, out readout.Readout, gestures []state.Gesture, now time.Time) (Record, error) {
+// was built from. history is the baseline's records, oldest first, and
+// gestures the whole gesture log.
+func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures []state.Gesture, now time.Time) (Record, error) {
 	r := Record{
 		Date:        now.Format(DateLayout),
 		At:          now.UTC(),
 		Arrivals:    make([]string, 0),
+		HandPlaced:  make([]string, 0),
 		Workstreams: workstreams(cfg.Workstreams),
 		Health:      make([]Health, 0, len(out.Health)),
 	}
+	digest, err := discoveryDigest(cfg)
+	if err != nil {
+		return Record{}, err
+	}
+	r.DiscoveryDigest = digest
 	unplaced, err := tokens(out.Unplaced)
 	if err != nil {
 		return Record{}, err
@@ -96,62 +112,143 @@ func Derive(first, previous *Record, cfg *config.Config, out readout.Readout, ge
 		r.Incomplete = r.Incomplete || h.Status == health.Error || h.Status == health.Degraded
 	}
 
-	// With no record before it, a completion counts only on its own date.
-	after := now.AddDate(0, 0, -1).Format(DateLayout)
-	if previous != nil {
-		after = previous.Date
-		r.PreviousDate = previous.Date
+	if len(history) == 0 {
+		// With no record before it, a completion counts only on its own date.
+		for _, w := range cfg.Workstreams {
+			if w.Completed == r.Date {
+				r.CompletedSincePrevious++
+			}
+		}
+		r.Backlog = slices.Clone(unplaced)
+		return r, nil
 	}
+	previous := &history[len(history)-1]
+	r.PreviousDate = previous.Date
+	r.DiscoveryChanged = previous.DiscoveryDigest != r.DiscoveryDigest
+	// A completion counts on the first record that finds it in effect, so one
+	// made after the day's snapshot, or dated back by hand, is counted once and
+	// never lost.
 	for _, w := range cfg.Workstreams {
-		if w.Completed > after && w.Completed <= r.Date {
+		if w.Completed != "" && w.Completed <= r.Date && !completedIn(previous, w.Name) {
 			r.CompletedSincePrevious++
 		}
 	}
 
-	if previous == nil {
-		r.Backlog = slices.Clone(unplaced)
-		return r, nil
-	}
 	var since []state.Gesture
 	for _, g := range gestures {
 		if g.Outcome == state.OK && g.At.After(previous.At) {
 			since = append(since, g)
 		}
 	}
-	r.Arrivals = arrivals(first, previous, unplaced, since)
-	r.UnloggedEdit = !slices.EqualFunc(workstreams(replay(previous.Workstreams, since, now.Location())), r.Workstreams, equalWorkstream)
-	return r, nil
-}
+	replayed := replay(previous.Workstreams, since, now.Location())
+	r.UnloggedEdit = !slices.EqualFunc(workstreams(replayed), r.Workstreams, equalWorkstream)
+	r.HandPlaced = handPlaced(replayed, cfg.Workstreams)
 
-// arrivals is what is unplaced now, or was adopted or dismissed since the
-// previous record, and was neither unplaced then nor in the first record's
-// backlog. An item handled the day it appeared never reaches a snapshot's
-// unplaced, so without the gestures the promptest upkeep would go uncounted.
-func arrivals(first, previous *Record, unplaced []string, since []state.Gesture) []string {
-	seen := map[string]bool{}
-	for _, t := range previous.Unplaced {
-		seen[t] = true
-	}
-	if first != nil {
-		for _, t := range first.Backlog {
-			seen[t] = true
-		}
-	}
-	candidates := slices.Clone(unplaced)
+	candidates := slices.Concat(unplaced, r.HandPlaced)
 	for _, g := range since {
 		if g.Gesture == "adopt" || g.Gesture == "dismiss" {
 			candidates = append(candidates, g.Item)
 		}
 	}
+	r.Arrivals = arrivals(history, candidates)
+	return r, nil
+}
+
+// completedIn reports whether rec counted the named workstream as completed.
+func completedIn(rec *Record, name string) bool {
+	for _, w := range rec.Workstreams {
+		if w.Name == name {
+			return w.Completed != "" && w.Completed <= rec.Date
+		}
+	}
+	return false
+}
+
+// arrivals is each candidate its input had not shown before. An item handled
+// the day it appeared never reaches a snapshot's unplaced, so the candidates
+// include what was adopted, dismissed or placed by hand since the previous
+// record. What an input had shown is everything unplaced from its last healthy
+// record on, since a failed or partial reading hides items rather than
+// removing them, and the first record's backlog. An input with no healthy
+// record before now, failing since the first or newly configured, has
+// everything it shows taken as its own backlog.
+func arrivals(history []Record, candidates []string) []string {
+	seen := map[string]map[string]bool{}
+	seenBy := func(input string) map[string]bool {
+		if s, ok := seen[input]; ok {
+			return s
+		}
+		var s map[string]bool
+		for i := len(history) - 1; i >= 0; i-- {
+			if !healthy(history[i], input) {
+				continue
+			}
+			s = map[string]bool{}
+			for _, rec := range history[i:] {
+				for _, t := range rec.Unplaced {
+					s[t] = true
+				}
+			}
+			for _, t := range history[0].Backlog {
+				s[t] = true
+			}
+			break
+		}
+		seen[input] = s
+		return s
+	}
 	out := make([]string, 0)
 	for _, t := range candidates {
-		if !seen[t] {
-			seen[t] = true
-			out = append(out, t)
+		s := seenBy(member(t).Input)
+		if s == nil || s[t] {
+			continue
+		}
+		s[t] = true
+		out = append(out, t)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func healthy(rec Record, input string) bool {
+	return slices.Contains(rec.Health, Health{Input: input, Status: health.OK})
+}
+
+// handPlaced is each member the configuration holds that the logged gestures
+// did not put there.
+func handPlaced(replayed, current []config.Workstream) []string {
+	logged := map[config.Member]bool{}
+	for _, w := range replayed {
+		for _, m := range w.Members {
+			logged[m] = true
+		}
+	}
+	out := make([]string, 0)
+	for _, w := range current {
+		for _, m := range w.Members {
+			if !logged[m] {
+				out = append(out, m.Input+":"+m.ID)
+			}
 		}
 	}
 	slices.Sort(out)
 	return out
+}
+
+// discoveryDigest stands for the configuration that decides what inputs offer:
+// the inputs themselves, the discovery window and the owner fence. A change to
+// any of them changes what is unplaced with no item having moved.
+func discoveryDigest(cfg *config.Config) (string, error) {
+	data, err := json.Marshal(struct {
+		Inputs          []config.Input
+		DiscoveryWindow time.Duration
+		ForgeOwners     []config.Owner
+	}{cfg.Inputs, cfg.DiscoveryWindow, cfg.ForgeOwners})
+	if err != nil {
+		return "", fmt.Errorf("encoding the discovery configuration: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // replay applies each logged configuration gesture to the workstreams a record

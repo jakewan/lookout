@@ -81,19 +81,14 @@ func snapshotOnce(ctx context.Context, env environment, setting string, diag *lo
 	if !reflect.DeepEqual(cfg, r.cfg) || !maps.EqualFunc(loc.store.Dismissals(), r.dismissed, time.Time.Equal) {
 		return false, nil
 	}
-	records, err := records(loc.store)
+	history, err := records(loc.store)
 	if err != nil {
 		return false, err
 	}
-	var first, previous *baseline.Record
-	if len(records) > 0 {
-		first, previous = &records[0], &records[len(records)-1]
-		if previous.Date == r.now.Format(baseline.DateLayout) {
-			diag.Printf("lookout snapshot: %s is already recorded; the first snapshot of a date is kept", previous.Date)
-			return true, nil
-		}
+	if recordedThrough(history, r.now, diag) {
+		return true, nil
 	}
-	rec, err := baseline.Derive(first, previous, r.cfg, r.out, loc.store.Gestures(), r.now)
+	rec, err := baseline.Derive(history, r.cfg, r.out, loc.store.Gestures(), r.now)
 	if err != nil {
 		return false, err
 	}
@@ -108,35 +103,53 @@ func snapshotOnce(ctx context.Context, env environment, setting string, diag *lo
 	return true, nil
 }
 
-// alreadyRecorded reports whether the baseline already holds a record for
-// now's date, saying so when it does.
+// alreadyRecorded reports whether the baseline needs no record for now's
+// date, saying why when it does not.
 func alreadyRecorded(env environment, setting string, now time.Time, diag *log.Logger) (done bool, err error) {
 	loc, err := locate(env, setting, state.Read)
 	if err != nil {
 		return false, err
 	}
 	defer func() { err = errors.Join(err, loc.store.Close()) }()
-	records, err := records(loc.store)
-	if err != nil || len(records) == 0 {
+	history, err := records(loc.store)
+	if err != nil {
 		return false, err
 	}
-	if last := records[len(records)-1].Date; last == now.Format(baseline.DateLayout) {
-		diag.Printf("lookout snapshot: %s is already recorded; the first snapshot of a date is kept", last)
-		return true, nil
-	}
-	return false, nil
+	return recordedThrough(history, now, diag), nil
 }
 
+// recordedThrough reports whether the baseline already reaches now's date,
+// saying so when it does. A clock reading a date before the last record's,
+// after a change of zone or a clock set back, records nothing, since a record
+// out of order would be counted against the wrong interval.
+func recordedThrough(history []baseline.Record, now time.Time, diag *log.Logger) bool {
+	if len(history) == 0 {
+		return false
+	}
+	today, last := now.Format(baseline.DateLayout), history[len(history)-1].Date
+	switch {
+	case today == last:
+		diag.Printf("lookout snapshot: %s is already recorded; the first snapshot of a date is kept", last)
+	case today < last:
+		diag.Printf("lookout snapshot: today is %s, before the last record's %s, so nothing was recorded", today, last)
+	default:
+		return false
+	}
+	return true
+}
+
+// records reads the baseline. A line that cannot be read fails the read rather
+// than being skipped, since a lost record would read as a gap.
 func records(store *state.Store) ([]baseline.Record, error) {
 	lines, err := store.Baseline()
-	if err != nil {
+	if err != nil || len(lines) == 1 && len(lines[0]) == 0 {
 		return nil, err
 	}
 	out := make([]baseline.Record, 0, len(lines))
 	for i, line := range lines {
 		var rec baseline.Record
 		if err := json.Unmarshal(line, &rec); err != nil {
-			return nil, fmt.Errorf("baseline record %d cannot be read: %w", i+1, err)
+			return nil, fmt.Errorf("%s line %d cannot be read: lookout writes this file itself, so restore it from a backup or remove the line: %w", store.BaselinePath(), i+1, err)
 		}
 		out = append(out, rec)
 	}

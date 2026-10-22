@@ -54,11 +54,7 @@ func currentReadout(ctx context.Context, env environment, setting string) (reado
 	return readout.Readout{}, errors.New("the state directory kept appearing while lookout read it: run the command again")
 }
 
-// readOnce builds the readout, or reports that it must be built again. A read
-// of a setting with no state yet holds no lock, so where state appeared before
-// the configuration was loaded, a gesture may have changed both, and the read
-// starts over holding the lock. A gesture creates the state before it changes
-// anything, so a read that finds none afterward saw no gesture at all.
+// readOnce builds the readout, or reports that it must be built again.
 func readOnce(ctx context.Context, env environment, setting string) (readout.Readout, bool, error) {
 	r, again, err := readSetting(ctx, env, setting)
 	return r.out, again, err
@@ -72,6 +68,11 @@ type reading struct {
 	out       readout.Readout
 }
 
+// readSetting builds the readout, or reports that it must be built again. A
+// read of a setting with no state yet holds no lock, so where state appeared
+// before the configuration was loaded, a gesture may have changed both, and the
+// read starts over holding the lock. A gesture creates the state before it
+// changes anything, so a read that finds none afterward saw no gesture at all.
 func readSetting(ctx context.Context, env environment, setting string) (reading, bool, error) {
 	cfg, dismissed, again, err := settingNow(env, setting)
 	if err != nil || again {
