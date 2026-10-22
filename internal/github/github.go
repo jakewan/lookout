@@ -187,7 +187,7 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 		if stopped {
 			break
 		}
-		nodes, read, short, f := r.search(ctx, token, s.q, s.label)
+		nodes, read, short, f := searchAll[node](ctx, r, token, openSearch, s.q, s.label)
 		if f != nil {
 			failures = append(failures, *f)
 			stopped = f.stops()
@@ -499,19 +499,24 @@ func (r *Reader) lookup(ctx context.Context, token string, refs []ref) ([]answer
 	return answers, nil
 }
 
-var searchQuery = `query($q: String!, $after: String) {
+// searchQuery is a search selecting fields on each node.
+func searchQuery(fields string) string {
+	return `query($q: String!, $after: String) {
 search(type: ISSUE, query: $q, first: ` + strconv.Itoa(pageSize) + `, after: $after) {
 issueCount
 pageInfo { hasNextPage endCursor }
-nodes { ` + nodeFields + ` }
+nodes { ` + fields + ` }
 }
 }`
+}
 
-// search pages through one search. short, when not empty, says why the
-// results stop before the matches do, opening with label. A page that fails
-// ends the search with the pages before it kept, and read says whether any
-// page was.
-func (r *Reader) search(ctx context.Context, token, q, label string) (nodes []node, read bool, short string, f *failure) {
+var openSearch = searchQuery(nodeFields)
+
+// searchAll pages through one search, decoding each node as a T. short, when not
+// empty, says why the results stop before the matches do, opening with label.
+// A page that fails ends the search with the pages before it kept, and read
+// says whether any page was.
+func searchAll[T any](ctx context.Context, r *Reader, token, query, q, label string) (nodes []T, read bool, short string, f *failure) {
 	var after any
 	// searchCap/pageSize pages reach the cap; the two beyond let the last
 	// page say there is no next one.
@@ -523,10 +528,10 @@ func (r *Reader) search(ctx context.Context, token, q, label string) (nodes []no
 					HasNextPage bool   `json:"hasNextPage"`
 					EndCursor   string `json:"endCursor"`
 				} `json:"pageInfo"`
-				Nodes []node `json:"nodes"`
+				Nodes []T `json:"nodes"`
 			} `json:"search"`
 		}
-		errs, qf := r.query(ctx, token, searchQuery, map[string]any{"q": q, "after": after}, &data)
+		errs, qf := r.query(ctx, token, query, map[string]any{"q": q, "after": after}, &data)
 		if qf != nil {
 			return nodes, read, short, qf
 		}

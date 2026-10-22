@@ -66,6 +66,9 @@ type reading struct {
 	dismissed map[string]time.Time
 	now       time.Time
 	out       readout.Readout
+	// hub is the GitHub reader the inputs were read through, holding the
+	// token it asked gh for, so a later GitHub read sends the same one.
+	hub *github.Reader
 }
 
 // readSetting builds the readout, or reports that it must be built again. A
@@ -79,11 +82,12 @@ func readSetting(ctx context.Context, env environment, setting string) (reading,
 		return reading{}, again, err
 	}
 	now := env.now()
-	readings, err := readInputs(ctx, env, cfg, now)
+	hub := github.NewReader(env.getenv, env.github)
+	readings, err := readInputs(ctx, env, cfg, now, hub)
 	if err != nil {
 		return reading{}, false, err
 	}
-	return reading{cfg: cfg, dismissed: dismissed, now: now, out: readout.Build(cfg, readings, dismissed, now)}, false, nil
+	return reading{cfg: cfg, dismissed: dismissed, now: now, out: readout.Build(cfg, readings, dismissed, now), hub: hub}, false, nil
 }
 
 // settingNow loads the configuration and the dismissals together under the
@@ -108,13 +112,12 @@ func settingNow(env environment, setting string) (_ *config.Config, _ map[string
 
 // readInputs reads every input the configuration expects. A run interrupted
 // part way fails, since the inputs it cut short would read as broken.
-func readInputs(ctx context.Context, env environment, cfg *config.Config, now time.Time) (map[string]readout.Reading, error) {
+func readInputs(ctx context.Context, env environment, cfg *config.Config, now time.Time, hub *github.Reader) (map[string]readout.Reading, error) {
 	files, err := supplied.NewReader()
 	if err != nil {
 		return nil, err
 	}
 	repos := git.NewReader(env.getenv)
-	hub := github.NewReader(env.getenv, env.github)
 	sessions := claudecode.NewReader(env.getenv)
 	readings := make(map[string]readout.Reading, len(cfg.Inputs))
 	for _, in := range cfg.Inputs {

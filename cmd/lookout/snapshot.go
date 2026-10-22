@@ -56,7 +56,7 @@ func snapshot(ctx context.Context, args []string, env environment, _ io.Writer, 
 func snapshotOnce(ctx context.Context, env environment, setting string, diag *log.Logger) (bool, error) {
 	// A date already recorded is answered before the inputs, which are the slow
 	// part, are read.
-	if done, err := alreadyRecorded(env, setting, env.now(), diag); err != nil || done {
+	if _, done, err := alreadyRecorded(env, setting, env.now(), diag); err != nil || done {
 		return done, err
 	}
 	r, again, err := readSetting(ctx, env, setting)
@@ -103,19 +103,19 @@ func snapshotOnce(ctx context.Context, env environment, setting string, diag *lo
 	return true, nil
 }
 
-// alreadyRecorded reports whether the baseline needs no record for now's
-// date, saying why when it does not.
-func alreadyRecorded(env environment, setting string, now time.Time, diag *log.Logger) (done bool, err error) {
+// alreadyRecorded reads the baseline and reports whether it needs no record
+// for now's date, saying why when it does not.
+func alreadyRecorded(env environment, setting string, now time.Time, diag *log.Logger) (history []baseline.Record, done bool, err error) {
 	loc, err := locate(env, setting, state.Read)
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
 	defer func() { err = errors.Join(err, loc.store.Close()) }()
-	history, err := records(loc.store)
+	history, err = records(loc.store)
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
-	return recordedThrough(history, now, diag), nil
+	return history, recordedThrough(history, now, diag), nil
 }
 
 // recordedThrough reports whether the baseline already reaches now's date,
