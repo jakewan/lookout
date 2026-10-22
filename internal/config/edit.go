@@ -102,19 +102,11 @@ func (d *Document) Adopt(member Member, workstream string, create bool) ([]strin
 		return nil, err
 	}
 
-	text := string(d.data)
 	want := d.cfg.clone()
 	want.Workstreams = Adopted(d.cfg.Workstreams, member, workstream)
-	var names []string
-	for _, i := range from {
-		l, layoutErr := parseLayout([]byte(text))
-		if layoutErr != nil {
-			return nil, layoutErr
-		}
-		if text, err = l.removeMember(i, member.Input+":"+member.ID); err != nil {
-			return nil, err
-		}
-		names = append(names, d.cfg.Workstreams[i].Name)
+	text, names, err := d.removed(member, from)
+	if err != nil {
+		return nil, err
 	}
 	l, err := parseLayout([]byte(text))
 	if err != nil {
