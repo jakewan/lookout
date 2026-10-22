@@ -37,6 +37,18 @@ type ghNode struct {
 	// forbidden makes a lookup of it fail as an organization refusing the
 	// token does.
 	forbidden bool
+	// merged is when a merged pull request merged, on the absolute clock the
+	// snapshot specs move forward.
+	merged time.Time
+	// nodeID is GitHub's global id, which a rename or transfer keeps; empty
+	// gives one derived from the repository and number.
+	nodeID string
+	// base is the branch the pull request targets; empty is the default
+	// branch, main.
+	base string
+	// heldBack is how many merged searches leave it out before one finds it,
+	// as GitHub's search index trails a merge.
+	heldBack int
 }
 
 // ghRequest is one request the fake received.
@@ -60,8 +72,11 @@ type githubFake struct {
 	// stuckCursor makes every search page claim another page under the same
 	// cursor.
 	stuckCursor bool
-	// ignoreSince returns search matches whatever their updated date.
+	// ignoreSince returns search matches whatever their updated or merged
+	// date.
 	ignoreSince bool
+	// mergedSearches counts the first pages of merged searches received.
+	mergedSearches int
 	// respond, when set, answers a request in place of the dataset; it
 	// returns false to let the dataset answer.
 	respond  func(w http.ResponseWriter, r ghRequest) bool
@@ -143,6 +158,11 @@ func (g *githubFake) serve(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *githubFake) search(w http.ResponseWriter, q string, after any) {
+	if after == nil && strings.Contains(q, "is:merged") {
+		g.mu.Lock()
+		g.mergedSearches++
+		g.mu.Unlock()
+	}
 	var matches []ghNode
 	for _, n := range g.nodes {
 		if g.matches(n, q) {
@@ -203,6 +223,13 @@ func (g *githubFake) matches(n ghNode, q string) bool {
 				if n.state != "OPEN" {
 					return false
 				}
+			case "merged":
+				g.mu.Lock()
+				held := n.heldBack >= g.mergedSearches
+				g.mu.Unlock()
+				if n.state != "MERGED" || held {
+					return false
+				}
 			default:
 				g.t.Errorf("search %q: unexpected is:%s", q, value)
 			}
@@ -225,6 +252,14 @@ func (g *githubFake) matches(n ghNode, q string) bool {
 				g.t.Errorf("search %q: updated:%s does not parse: %v", q, value, err)
 			}
 			if !g.ignoreSince && now.Add(-n.updated).Before(since) {
+				return false
+			}
+		case "merged":
+			since, err := time.Parse(time.RFC3339, strings.TrimPrefix(value, ">="))
+			if err != nil {
+				g.t.Errorf("search %q: merged:%s does not parse: %v", q, value, err)
+			}
+			if !g.ignoreSince && n.merged.Before(since) {
 				return false
 			}
 		default:
@@ -296,11 +331,27 @@ func (n ghNode) json() map[string]any {
 		"state":      n.state,
 		"createdAt":  stamp(n.created),
 		"updatedAt":  stamp(n.updated),
-		"repository": map[string]any{"nameWithOwner": n.repo, "owner": map[string]any{"login": owner}},
+		"repository": map[string]any{
+			"nameWithOwner":    n.repo,
+			"owner":            map[string]any{"login": owner},
+			"defaultBranchRef": map[string]any{"name": "main"},
+		},
 	}
 	if n.pr {
+		id, base := n.nodeID, n.base
+		if id == "" {
+			id = fmt.Sprintf("PR_%s_%d", n.repo, n.number)
+		}
+		if base == "" {
+			base = "main"
+		}
+		doc["id"], doc["baseRefName"] = id, base
 		doc["isDraft"] = n.draft
 		doc["headRefName"] = n.branch
+		doc["mergedAt"] = nil
+		if !n.merged.IsZero() {
+			doc["mergedAt"] = n.merged.UTC().Format(time.RFC3339)
+		}
 	}
 	return doc
 }

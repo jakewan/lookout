@@ -360,8 +360,11 @@ type node struct {
 	} `json:"repository"`
 }
 
-func (n node) id() string {
-	return strings.ToLower(n.Repository.NameWithOwner) + "#" + strconv.Itoa(n.Number)
+func (n node) id() string { return itemID(n.Repository.NameWithOwner, n.Number) }
+
+// itemID is the id of number in the repository GitHub names nameWithOwner.
+func itemID(nameWithOwner string, number int) string {
+	return strings.ToLower(nameWithOwner) + "#" + strconv.Itoa(number)
 }
 
 // updated is the node's last update, or the zero time where it does not

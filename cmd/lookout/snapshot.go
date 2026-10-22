@@ -9,6 +9,7 @@ import (
 	"log"
 	"maps"
 	"reflect"
+	"slices"
 	"time"
 
 	"github.com/jakewan/lookout/internal/baseline"
@@ -56,11 +57,16 @@ func snapshot(ctx context.Context, args []string, env environment, _ io.Writer, 
 func snapshotOnce(ctx context.Context, env environment, setting string, diag *log.Logger) (bool, error) {
 	// A date already recorded is answered before the inputs, which are the slow
 	// part, are read.
-	if _, done, err := alreadyRecorded(env, setting, env.now(), diag); err != nil || done {
+	before, done, err := alreadyRecorded(env, setting, env.now(), diag)
+	if err != nil || done {
 		return done, err
 	}
 	r, again, err := readSetting(ctx, env, setting)
 	if err != nil || again {
+		return false, err
+	}
+	mergedRead, err := readMerged(ctx, r, before)
+	if err != nil {
 		return false, err
 	}
 	beforeSnapshotLock()
@@ -88,7 +94,12 @@ func snapshotOnce(ctx context.Context, env environment, setting string, diag *lo
 	if recordedThrough(history, r.now, diag) {
 		return true, nil
 	}
-	rec, err := baseline.Derive(history, r.cfg, r.out, loc.store.Gestures(), r.now)
+	// The merged window was opened from the baseline as it was before the
+	// inputs were read; a record added since would move it.
+	if len(history) != len(before) {
+		return false, nil
+	}
+	rec, err := baseline.Derive(history, r.cfg, r.out, loc.store.Gestures(), mergedRead, r.now)
 	if err != nil {
 		return false, err
 	}
@@ -101,6 +112,26 @@ func snapshotOnce(ctx context.Context, env environment, setting string, diag *lo
 	}
 	diag.Printf("lookout snapshot: recorded %s: %d unplaced, %d arrived", rec.Date, len(rec.Unplaced), len(rec.Arrivals))
 	return true, nil
+}
+
+// readMerged searches for the pull requests merged since the baseline last
+// read them, where the setting reads GitHub at all: a setting with no github
+// input has not asked lookout to call GitHub. An interrupted search fails the
+// snapshot rather than being recorded as a failed read.
+func readMerged(ctx context.Context, r reading, history []baseline.Record) (*baseline.MergedRead, error) {
+	if !slices.ContainsFunc(r.cfg.Inputs, func(in config.Input) bool { return in.Kind == config.KindGitHub }) {
+		return nil, nil
+	}
+	since, from := baseline.MergedWindow(history, r.now)
+	found, failed := r.hub.Merged(ctx, r.cfg.ForgeOwners, from)
+	if ctx.Err() != nil {
+		return nil, errors.New("reading merged pull requests: interrupted")
+	}
+	read := &baseline.MergedRead{Since: since, Failed: failed, Found: make([]baseline.MergedPR, 0, len(found))}
+	for _, m := range found {
+		read.Found = append(read.Found, baseline.MergedPR{ID: m.ID, NodeID: m.NodeID, MergedAt: m.MergedAt, IntoDefault: m.IntoDefault})
+	}
+	return read, nil
 }
 
 // alreadyRecorded reads the baseline and reports whether it needs no record
