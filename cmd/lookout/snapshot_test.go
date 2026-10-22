@@ -826,3 +826,19 @@ func TestSnapshotCountsAnItemPlacedByHandInAWorkstreamCompletedSince(t *testing.
 		t.Errorf("hand_placed = %v, arrivals = %v, want the item placed by hand before its workstream was completed, and never the completed workstream's untouched member", b.HandPlaced, b.Arrivals)
 	}
 }
+
+func TestSnapshotListsAnItemPlacedByHandInTwoWorkstreamsOnce(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	f.snapshot()
+
+	f.nextDay()
+	twice := strings.Replace(handWritten, "      - tracker:ABC-2\n", "      - tracker:ABC-2\n      - tracker:ABC-5\n", 1)
+	f.write("personal.yml", strings.Replace(twice, "      - tracker:ABC-9\n", "      - tracker:ABC-9\n      - tracker:ABC-5\n", 1))
+	f.tracker(map[string]time.Time{"ABC-1": now, "ABC-5": f.clock})
+
+	if b := f.snapshot(); !slices.Equal(b.HandPlaced, []string{"tracker:ABC-5"}) {
+		t.Errorf("hand_placed = %v, want the item once however many workstreams hold it", b.HandPlaced)
+	}
+}

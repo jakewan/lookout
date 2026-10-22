@@ -223,26 +223,35 @@ func healthy(rec Record, input string) bool {
 	return slices.Contains(rec.Health, Health{Input: input, Status: health.OK})
 }
 
-// handPlaced is each member the logged gestures do not account for having
-// been placed: one no live workstream held after replay, that either no
-// workstream held at all or a live one holds now. Moving an item out of a
-// completed workstream places it as adopting it would, and so does adding one
-// to a workstream completed since; moving one between live workstreams, or
-// leaving a completed workstream's members as they were, places nothing new.
-func handPlaced(replayed, current []config.Workstream) []string {
-	live, held := map[config.Member]bool{}, map[config.Member]bool{}
-	for _, w := range replayed {
+// holding is where an item sits across the workstreams, since the
+// configuration lets more than one list it.
+type holding struct{ held, live bool }
+
+func holdings(ws []config.Workstream) map[config.Member]holding {
+	out := map[config.Member]holding{}
+	for _, w := range ws {
 		for _, m := range w.Members {
-			held[m] = true
-			live[m] = live[m] || w.Completed == ""
+			h := out[m]
+			h.held, h.live = true, h.live || w.Completed == ""
+			out[m] = h
 		}
 	}
+	return out
+}
+
+// handPlaced is each item the configuration holds whose placement the logged
+// gestures do not account for: one no live workstream held after replay, that
+// a live workstream holds now or no workstream held at all. Moving an item out
+// of a completed workstream places it as adopting it would, and so does adding
+// one to a workstream completed since; moving one between live workstreams,
+// or leaving a completed workstream's members as they were, places nothing
+// new. Each item is decided once, from all its holdings on either side.
+func handPlaced(replayed, current []config.Workstream) []string {
+	before := holdings(replayed)
 	out := make([]string, 0)
-	for _, w := range current {
-		for _, m := range w.Members {
-			if !live[m] && (!held[m] || w.Completed == "") {
-				out = append(out, m.Input+":"+m.ID)
-			}
+	for m, now := range holdings(current) {
+		if was := before[m]; !was.live && (now.live || !was.held) {
+			out = append(out, m.Input+":"+m.ID)
 		}
 	}
 	slices.Sort(out)
