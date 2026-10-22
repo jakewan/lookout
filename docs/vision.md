@@ -46,7 +46,7 @@ Where several settings are configured, one is selected explicitly, and two setti
 
 The configuration file owns the stated order; any planning page refers to it rather than holding a second copy. Discovery proposes changes to the file and never makes them: activity matching no workstream appears in its own group, with a one-step adopt-or-dismiss, so the configuration's own staleness is visible on the dashboard and its upkeep is a decision at the moment something new appears, not a separate chore. The configuration describes the user's own systems, so it lives on the user's machine, never in lookout's repository.
 
-**Every forge-backed input is fenced by configured owners.** A setting names the owners whose repositories, pull requests and sessions it admits, and nothing else enters its readout. One account's credentials often reach several contexts' work, and the fence keeps them from pulling one context's work into another's view.
+**Every forge-backed input is fenced by configured owners.** A setting names the owners whose repositories, pull requests and sessions it admits, and nothing else enters its readout. One account's credentials often reach several contexts' work, and the fence keeps owners that belong to one context from pulling their work into another's view. An owner shared by two contexts, such as one account holding both personal and work repositories, sits inside both fences, so the fence cannot separate its work.
 
 **Genericity by configuration.** lookout serves users whose repositories, trackers and ways of grouping work its authors never see. Whatever one user or one organization does differently — which owners count, which inputs a setting expects, what a tracker calls a sprint — is configuration, never code.
 
@@ -121,7 +121,7 @@ The candidates differ on lanes without chart code, on the absent-versus-degraded
 
 ### How are work sources read?
 
-A setting may let a standalone tool hold its own token for its tracker and chat, or allow access only through an interactive AI session whose connector holds the credentials. Supplied files accept either route: a supplier can run with its own credentials, or inside such a session. What stays open is where the credentials sit with respect to the account that owns the data, and which accounts the readout may then reach — a renderer hosted under a different account, for one.
+A setting's tracker and chat can be reachable in several shapes: a personal API token a standalone tool holds, an OAuth application the organization approves, a scheduled export, or a connector inside an interactive AI session that holds the credentials itself. Supplied files accept any of them, since a supplier can run wherever the access lives. What stays open is where the credentials sit with respect to the account that owns the data, and which accounts the readout may then reach — a renderer hosted under a different account, for one.
 
 **What would settle it:** the setting's own rules on which accounts may hold its data, applied to this case deliberately, not inherited from whichever renderer is easiest.
 
