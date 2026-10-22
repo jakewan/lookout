@@ -10,7 +10,7 @@ It is the data layer only. It emits a readout for a renderer to consume and does
 
 ## Status and layout
 
-Early. `lookout read --json` and `lookout unplaced` report on supplied files, local git repositories, GitHub and Claude Code sessions; `adopt`, `order` and `complete` edit the configuration file, and `dismiss` writes state, each recording a gesture. The baseline snapshot is not built yet.
+Early. `lookout read --json` and `lookout unplaced` report on supplied files, local git repositories, GitHub and Claude Code sessions; `adopt`, `order` and `complete` edit the configuration file, and `dismiss` writes state, each recording a gesture; `snapshot` records a daily baseline in state.
 
 ```
 cmd/lookout/              # binary entry point and its behavior specs
@@ -24,7 +24,8 @@ internal/fsx/             # the one rule filesystem errors are sorted by
 internal/supplied/        # reading a supplied file and judging its input's health
 internal/health/          # the health record every input reports
 internal/readout/         # assembling the readout
-internal/state/           # one setting's tool history: the gesture log and the dismissals replayed from it
+internal/state/           # one setting's tool history: the gesture log, the dismissals replayed from it, and the baseline
+internal/baseline/        # deriving each day's baseline record from a readout, the configuration and the gesture log
 internal/devtools/sweep/  # disclosure sweep run before every push; not part of the binary
 ```
 
