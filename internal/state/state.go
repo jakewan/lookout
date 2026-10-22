@@ -1,6 +1,7 @@
 // Package state keeps one setting's tool history: the gesture log, which
-// records every command that shapes the setting, and the dismissals replayed
-// from it. Nothing here is meant to be edited by hand.
+// records every command that shapes the setting, the dismissals replayed from
+// it, and the baseline of daily snapshots. Nothing here is meant to be edited
+// by hand.
 package state
 
 import (
@@ -12,6 +13,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -39,10 +41,14 @@ type Gesture struct {
 	New         bool      `json:"new,omitempty"`
 	// From names the completed workstreams an adopted item was moved out of.
 	From []string `json:"from,omitempty"`
+	// Date is the local date a complete wrote, which its UTC time alone cannot
+	// recover once the zone has changed.
+	Date string `json:"date,omitempty"`
 }
 
 const (
-	logName = "gestures.jsonl"
+	logName      = "gestures.jsonl"
+	baselineName = "baseline.jsonl"
 	// ownerName records which configuration file the directory belongs to, since
 	// two files with the same name in different places would otherwise share it.
 	ownerName = "config"
@@ -228,19 +234,56 @@ func (s *Store) Append(g Gesture) error {
 	if err != nil {
 		return fmt.Errorf("encoding a gesture: %w", err)
 	}
-	f, err := os.OpenFile(filepath.Join(s.dir, logName), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return fmt.Errorf("opening the gesture log: %w", err)
-	}
-	if _, err := f.Write(append(line, '\n')); err != nil {
-		return errors.Join(fmt.Errorf("writing the gesture log: %w", err), f.Close())
-	}
-	if err := errors.Join(f.Sync(), f.Close()); err != nil {
-		return fmt.Errorf("writing the gesture log: %w", err)
+	if err := appendLine(filepath.Join(s.dir, logName), "gesture log", line); err != nil {
+		return err
 	}
 	s.gestures = append(s.gestures, g)
 	return nil
 }
+
+// appendLine adds line to the file at path, durably, naming the file as what
+// in any error.
+func appendLine(path, what string, line []byte) error {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("opening the %s: %w", what, err)
+	}
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		return errors.Join(fmt.Errorf("writing the %s: %w", what, err), f.Close())
+	}
+	if err := errors.Join(f.Sync(), f.Close()); err != nil {
+		return fmt.Errorf("writing the %s: %w", what, err)
+	}
+	return nil
+}
+
+// Gestures is the gesture log, oldest first.
+func (s *Store) Gestures() []Gesture { return slices.Clone(s.gestures) }
+
+// Baseline is the baseline's records, oldest first, one line each as it was
+// written. Reading what a line holds is the caller's, which knows its shape.
+func (s *Store) Baseline() ([][]byte, error) {
+	data, err := os.ReadFile(s.BaselinePath())
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading the baseline: %w", err)
+	}
+	return bytes.SplitAfter(bytes.TrimSuffix(data, []byte("\n")), []byte("\n")), nil
+}
+
+// AppendBaseline adds one record to the baseline of a directory this
+// configuration owns, claiming it first if no configuration does yet.
+func (s *Store) AppendBaseline(record json.RawMessage) error {
+	if err := s.Claim(); err != nil {
+		return err
+	}
+	return appendLine(s.BaselinePath(), "baseline", record)
+}
+
+// BaselinePath is where the baseline is kept.
+func (s *Store) BaselinePath() string { return filepath.Join(s.dir, baselineName) }
 
 // Dismissals maps each dismissed item, as <input>:<id>, to when it was last
 // dismissed.

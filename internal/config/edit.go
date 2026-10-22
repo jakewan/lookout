@@ -104,6 +104,7 @@ func (d *Document) Adopt(member Member, workstream string, create bool) ([]strin
 
 	text := string(d.data)
 	want := d.cfg.clone()
+	want.Workstreams = Adopted(d.cfg.Workstreams, member, workstream)
 	var names []string
 	for _, i := range from {
 		l, layoutErr := parseLayout([]byte(text))
@@ -113,11 +114,7 @@ func (d *Document) Adopt(member Member, workstream string, create bool) ([]strin
 		if text, err = l.removeMember(i, member.Input+":"+member.ID); err != nil {
 			return nil, err
 		}
-		want.Workstreams[i].Members = slices.DeleteFunc(want.Workstreams[i].Members, func(m Member) bool { return m == member })
-		if len(want.Workstreams[i].Members) == 0 {
-			want.Workstreams[i].Members = nil
-		}
-		names = append(names, want.Workstreams[i].Name)
+		names = append(names, d.cfg.Workstreams[i].Name)
 	}
 	l, err := parseLayout([]byte(text))
 	if err != nil {
@@ -129,14 +126,12 @@ func (d *Document) Adopt(member Member, workstream string, create bool) ([]strin
 		in.ExpectRecords = true
 	}
 	if idx >= 0 {
-		want.Workstreams[idx].Members = append(want.Workstreams[idx].Members, member)
 		text, err = l.addMember(idx, scalar)
 	} else {
 		name, nameErr := scalarText(workstream)
 		if nameErr != nil {
 			return nil, nameErr
 		}
-		want.Workstreams = append(want.Workstreams, Workstream{Name: workstream, Members: []Member{member}})
 		text, err = l.addWorkstream(name, scalar)
 	}
 	if err != nil {
@@ -170,10 +165,8 @@ func (d *Document) Order(names []string) error {
 	if err != nil {
 		return err
 	}
-	want, src := d.cfg.clone(), d.cfg.clone()
-	for i, j := range perm {
-		want.Workstreams[i] = src.Workstreams[j]
-	}
+	want := d.cfg.clone()
+	want.Workstreams = Ordered(d.cfg.Workstreams, names)
 	return d.apply([]byte(l.reorder(perm)), want)
 }
 
@@ -195,7 +188,7 @@ func (d *Document) Complete(workstream, date string) error {
 		return Refuse("workstream %q has an empty completed key: delete it, or give it a date such as %s", workstream, date)
 	}
 	want := d.cfg.clone()
-	want.Workstreams[idx].Completed = date
+	want.Workstreams = CompletedOn(d.cfg.Workstreams, workstream, date)
 	return d.apply([]byte(l.addKey(idx, "completed: "+date)), want)
 }
 
@@ -290,15 +283,77 @@ func syncDir(dir string) error {
 func (c *Config) clone() *Config {
 	out := *c
 	out.Inputs = slices.Clone(c.Inputs)
-	out.Workstreams = make([]Workstream, len(c.Workstreams))
-	for i, w := range c.Workstreams {
-		out.Workstreams[i] = w
-		out.Workstreams[i].Members = slices.Clone(w.Members)
-	}
-	if c.Workstreams == nil {
-		out.Workstreams = nil
-	}
+	out.Workstreams = cloneWorkstreams(c.Workstreams)
 	return &out
+}
+
+func cloneWorkstreams(ws []Workstream) []Workstream {
+	if ws == nil {
+		return nil
+	}
+	out := make([]Workstream, len(ws))
+	for i, w := range ws {
+		out[i] = w
+		out[i].Members = slices.Clone(w.Members)
+	}
+	return out
+}
+
+// The functions below are what an accepted edit does to the workstreams, kept
+// apart from the text splicing so that replaying a logged gesture reaches the
+// same result the edit itself checked the file against. Each leaves ws
+// untouched. Each assumes the edit is one its Document method would accept on
+// ws; a replay onto workstreams a hand edit has since changed can break that,
+// and then hides the hand edit a later gesture overwrote rather than reporting
+// one that never happened.
+
+// Adopted is ws with member added to the named workstream, or to a new one at
+// the end when none has that name, and moved out of any completed workstream
+// that held it.
+func Adopted(ws []Workstream, member Member, workstream string) []Workstream {
+	out := cloneWorkstreams(ws)
+	for i := range out {
+		if out[i].Completed == "" || out[i].Name == workstream {
+			continue
+		}
+		out[i].Members = slices.DeleteFunc(out[i].Members, func(m Member) bool { return m == member })
+		if len(out[i].Members) == 0 {
+			out[i].Members = nil
+		}
+	}
+	if idx := slices.IndexFunc(out, func(w Workstream) bool { return w.Name == workstream }); idx >= 0 {
+		out[idx].Members = append(out[idx].Members, member)
+		return out
+	}
+	return append(out, Workstream{Name: workstream, Members: []Member{member}})
+}
+
+// Ordered is ws with the named workstreams moved to the front, in the order
+// given, and the rest behind them in their own order.
+func Ordered(ws []Workstream, names []string) []Workstream {
+	out := make([]Workstream, 0, len(ws))
+	for _, n := range names {
+		if i := slices.IndexFunc(ws, func(w Workstream) bool { return w.Name == n }); i >= 0 {
+			out = append(out, ws[i])
+		}
+	}
+	for _, w := range ws {
+		if !slices.Contains(names, w.Name) {
+			out = append(out, w)
+		}
+	}
+	return cloneWorkstreams(out)
+}
+
+// CompletedOn is ws with the named workstream marked finished on date.
+func CompletedOn(ws []Workstream, workstream, date string) []Workstream {
+	out := cloneWorkstreams(ws)
+	for i := range out {
+		if out[i].Name == workstream {
+			out[i].Completed = date
+		}
+	}
+	return out
 }
 
 // scalarText is s as one line of YAML, quoted only when it needs to be.
