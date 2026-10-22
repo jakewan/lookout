@@ -75,6 +75,74 @@ func complete(_ context.Context, args []string, env environment, _ io.Writer, di
 	})
 }
 
+// move takes an item out of its workstream and into another.
+func move(_ context.Context, args []string, env environment, _ io.Writer, diag *log.Logger) int {
+	fs, setting := newFlags("move")
+	create := fs.Bool("new", false, "")
+	pos, ok := parseFlags(fs, setting, args, diag)
+	if !ok {
+		return exitUsage
+	}
+	if len(pos) != 2 {
+		diag.Printf("lookout move: want an item and a workstream\n%s", usage)
+		return exitUsage
+	}
+	m, ok := memberArg("move", pos[0], diag)
+	if !ok {
+		return exitUsage
+	}
+	g := state.Gesture{Gesture: "move", Item: m.Input + ":" + m.ID, Workstream: pos[1], New: *create}
+	return record(env, diag, *setting, g, func(path string, g *state.Gesture) error {
+		return edit(path, func(d *config.Document) error {
+			from, err := d.Move(m, pos[1], *create)
+			g.From = from
+			return err
+		})
+	})
+}
+
+// remove takes an item out of every workstream that lists it.
+func remove(_ context.Context, args []string, env environment, _ io.Writer, diag *log.Logger) int {
+	fs, setting := newFlags("remove")
+	pos, ok := parseFlags(fs, setting, args, diag)
+	if !ok {
+		return exitUsage
+	}
+	if len(pos) != 1 {
+		diag.Printf("lookout remove: name one item\n%s", usage)
+		return exitUsage
+	}
+	m, ok := memberArg("remove", pos[0], diag)
+	if !ok {
+		return exitUsage
+	}
+	g := state.Gesture{Gesture: "remove", Item: m.Input + ":" + m.ID}
+	return record(env, diag, *setting, g, func(path string, g *state.Gesture) error {
+		return edit(path, func(d *config.Document) error {
+			from, err := d.Remove(m)
+			g.From = from
+			return err
+		})
+	})
+}
+
+// rename gives a workstream a new name.
+func rename(_ context.Context, args []string, env environment, _ io.Writer, diag *log.Logger) int {
+	fs, setting := newFlags("rename")
+	pos, ok := parseFlags(fs, setting, args, diag)
+	if !ok {
+		return exitUsage
+	}
+	if len(pos) != 2 {
+		diag.Printf("lookout rename: want a workstream and its new name\n%s", usage)
+		return exitUsage
+	}
+	g := state.Gesture{Gesture: "rename", Workstream: pos[0], To: pos[1]}
+	return record(env, diag, *setting, g, func(path string, _ *state.Gesture) error {
+		return edit(path, func(d *config.Document) error { return d.Rename(pos[0], pos[1]) })
+	})
+}
+
 // dismiss hides an unplaced item until it is touched again. It writes only to
 // state; the dismissal is the gesture itself.
 func dismiss(_ context.Context, args []string, env environment, _ io.Writer, diag *log.Logger) int {

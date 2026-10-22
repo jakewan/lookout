@@ -28,6 +28,9 @@ const usage = `usage:
   lookout dismiss [--setting <name>] <input>:<id>
   lookout order [--setting <name>] <workstream>...
   lookout complete [--setting <name>] <workstream>
+  lookout move [--setting <name>] [--new] <input>:<id> <workstream>
+  lookout remove [--setting <name>] <input>:<id>
+  lookout rename [--setting <name>] <workstream> <new-name>
   lookout snapshot [--setting <name>]`
 
 // environment is what an invocation reads from the process beyond its
@@ -68,6 +71,9 @@ func run(ctx context.Context, args []string, env environment, stdout, stderr io.
 		"dismiss":  dismiss,
 		"order":    order,
 		"complete": complete,
+		"move":     move,
+		"remove":   remove,
+		"rename":   rename,
 		"snapshot": snapshot,
 	}
 	if cmd, ok := commands[args[0]]; ok {

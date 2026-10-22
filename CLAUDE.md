@@ -10,7 +10,7 @@ It is the data layer only. It emits a readout for a renderer to consume and does
 
 ## Status and layout
 
-Early. `lookout read --json` and `lookout unplaced` report on supplied files, local git repositories, GitHub and Claude Code sessions; `adopt`, `order` and `complete` edit the configuration file, and `dismiss` writes state, each recording a gesture; `snapshot` records a daily baseline in state.
+Early. `lookout read --json` and `lookout unplaced` report on supplied files, local git repositories, GitHub and Claude Code sessions; `adopt`, `move`, `remove`, `rename`, `order` and `complete` edit the configuration file, and `dismiss` writes state, each recording a gesture; `snapshot` records a daily baseline in state.
 
 ```
 cmd/lookout/              # binary entry point and its behavior specs

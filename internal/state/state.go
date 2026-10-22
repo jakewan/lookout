@@ -39,8 +39,11 @@ type Gesture struct {
 	Workstream  string    `json:"workstream,omitempty"`
 	Workstreams []string  `json:"workstreams,omitempty"`
 	New         bool      `json:"new,omitempty"`
-	// From names the completed workstreams an adopted item was moved out of.
+	// From names the workstreams an item was taken out of: the completed ones
+	// an adopt moved it from, or every one a move or remove took it from.
 	From []string `json:"from,omitempty"`
+	// To is the name a rename gave the workstream it names.
+	To string `json:"to,omitempty"`
 	// Date is the local date a complete wrote, which its UTC time alone cannot
 	// recover once the zone has changed.
 	Date string `json:"date,omitempty"`

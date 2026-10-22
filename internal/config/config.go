@@ -80,6 +80,10 @@ type Input struct {
 	IgnoreBranches []string
 	ConfigDirs     []string
 	Dir            string
+	// expectWritten is expect_records as the file writes it, apart from what
+	// membership adds, so an edit that removes the last member can tell
+	// whether the expectation stays.
+	expectWritten bool
 }
 
 // Workstream is one user-defined line of work and the items that belong to it.
@@ -386,7 +390,7 @@ func parse(data []byte, path string) (*Config, error) {
 		if !filepath.IsAbs(supplied) {
 			supplied = filepath.Join(base, supplied)
 		}
-		cfg.Inputs = append(cfg.Inputs, Input{Name: in.Name, Kind: in.Kind, Supplied: supplied, MaxAge: maxAge, ExpectRecords: in.ExpectRecords})
+		cfg.Inputs = append(cfg.Inputs, Input{Name: in.Name, Kind: in.Kind, Supplied: supplied, MaxAge: maxAge, ExpectRecords: in.ExpectRecords, expectWritten: in.ExpectRecords})
 	}
 
 	for _, ws := range shape.Workstreams {
@@ -419,21 +423,25 @@ func parse(data []byte, path string) (*Config, error) {
 		cfg.Workstreams = append(cfg.Workstreams, w)
 	}
 
-	// Naming an item of a supplied input states that the input should have
-	// records, whether or not expect_records says so. An input lookout reads
-	// itself is asked for its members by name, so one that has gone, such as
-	// a deleted branch, already shows in members_unread.
-	for i := range cfg.Inputs {
-		if cfg.Inputs[i].Kind != KindSupplied {
+	cfg.implyExpectations()
+	return cfg, nil
+}
+
+// implyExpectations sets each supplied input's ExpectRecords from what the file
+// writes and from its membership: naming an item of a supplied input states
+// that the input should have records, whether or not expect_records says so.
+// An input lookout reads itself is asked for its members by name, so one that
+// has gone, such as a deleted branch, already shows in members_unread.
+func (c *Config) implyExpectations() {
+	for i := range c.Inputs {
+		in := &c.Inputs[i]
+		if in.Kind != KindSupplied {
 			continue
 		}
-		for _, w := range cfg.Workstreams {
-			if slices.ContainsFunc(w.Members, func(m Member) bool { return m.Input == cfg.Inputs[i].Name }) {
-				cfg.Inputs[i].ExpectRecords = true
-			}
-		}
+		in.ExpectRecords = in.expectWritten || slices.ContainsFunc(c.Workstreams, func(w Workstream) bool {
+			return slices.ContainsFunc(w.Members, func(m Member) bool { return m.Input == in.Name })
+		})
 	}
-	return cfg, nil
 }
 
 // gitInput checks a git input's keys. A relative repos entry is read from the

@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -72,6 +73,9 @@ func (d *Document) Config() *Config { return d.cfg }
 // Adopt returns the workstreams it was moved from.
 func (d *Document) Adopt(member Member, workstream string, create bool) ([]string, error) {
 	token := member.Input + ":" + member.ID
+	if workstream == "" {
+		return nil, Refuse("a workstream name cannot be empty")
+	}
 	if !slices.ContainsFunc(d.cfg.Inputs, func(i Input) bool { return i.Name == member.Input }) {
 		return nil, Refuse("input %q is not in this configuration: add it under inputs first", member.Input)
 	}
@@ -84,7 +88,7 @@ func (d *Document) Adopt(member Member, workstream string, create bool) ([]strin
 		case w.Name == workstream:
 			return nil, Refuse("%s is already a member of workstream %q", token, w.Name)
 		case w.Completed == "":
-			return nil, Refuse("%s already belongs to workstream %q: remove it there first", token, w.Name)
+			return nil, Refuse("%s already belongs to workstream %q: use lookout move to move it", token, w.Name)
 		}
 		from = append(from, i)
 	}
@@ -102,29 +106,17 @@ func (d *Document) Adopt(member Member, workstream string, create bool) ([]strin
 		return nil, err
 	}
 
-	text := string(d.data)
 	want := d.cfg.clone()
 	want.Workstreams = Adopted(d.cfg.Workstreams, member, workstream)
-	var names []string
-	for _, i := range from {
-		l, layoutErr := parseLayout([]byte(text))
-		if layoutErr != nil {
-			return nil, layoutErr
-		}
-		if text, err = l.removeMember(i, member.Input+":"+member.ID); err != nil {
-			return nil, err
-		}
-		names = append(names, d.cfg.Workstreams[i].Name)
+	text, names, err := d.removed(member, from)
+	if err != nil {
+		return nil, err
 	}
 	l, err := parseLayout([]byte(text))
 	if err != nil {
 		return nil, err
 	}
-	// Naming an item of a supplied input states that the input should have
-	// records; Parse applies the same rule, and the two must agree.
-	if in := &want.Inputs[slices.IndexFunc(want.Inputs, func(i Input) bool { return i.Name == member.Input })]; in.Kind == KindSupplied {
-		in.ExpectRecords = true
-	}
+	want.implyExpectations()
 	if idx >= 0 {
 		text, err = l.addMember(idx, scalar)
 	} else {
@@ -138,6 +130,146 @@ func (d *Document) Adopt(member Member, workstream string, create bool) ([]strin
 		return nil, err
 	}
 	return names, d.apply([]byte(text), want)
+}
+
+// Move takes member out of every workstream that holds it and into the named
+// one, created at the end of the order with create. The item must already be in
+// a live workstream; one that is not is placed with Adopt. Move returns the
+// workstreams it was taken out of.
+func (d *Document) Move(member Member, workstream string, create bool) ([]string, error) {
+	token := member.Input + ":" + member.ID
+	if workstream == "" {
+		return nil, Refuse("a workstream name cannot be empty")
+	}
+	idx := slices.IndexFunc(d.cfg.Workstreams, func(w Workstream) bool { return w.Name == workstream })
+	var from []int
+	live, inTarget := false, false
+	for i, w := range d.cfg.Workstreams {
+		if !slices.Contains(w.Members, member) {
+			continue
+		}
+		live = live || w.Completed == ""
+		if i == idx {
+			inTarget = true
+			continue
+		}
+		from = append(from, i)
+	}
+	switch {
+	case !live:
+		return nil, Refuse("%s is not in a live workstream: use lookout adopt to place it", token)
+	case inTarget && len(from) == 0:
+		return nil, Refuse("%s is already a member of workstream %q", token, workstream)
+	case idx < 0 && !create:
+		return nil, Refuse("no workstream %q: pass --new to add it at the end of the order", workstream)
+	case idx >= 0 && create:
+		return nil, Refuse("workstream %q already exists: drop --new to move to it", workstream)
+	case idx >= 0 && d.cfg.Workstreams[idx].Completed != "":
+		return nil, Refuse("workstream %q is complete, since %s: delete its completed line to reopen it first", workstream, d.cfg.Workstreams[idx].Completed)
+	}
+	scalar, err := scalarText(token)
+	if err != nil {
+		return nil, err
+	}
+
+	text, names, err := d.removed(member, from)
+	if err != nil {
+		return nil, err
+	}
+	l, err := parseLayout([]byte(text))
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case inTarget:
+	case idx >= 0:
+		text, err = l.addMember(idx, scalar)
+	default:
+		name, nameErr := scalarText(workstream)
+		if nameErr != nil {
+			return nil, nameErr
+		}
+		text, err = l.addWorkstream(name, scalar)
+	}
+	if err != nil {
+		return nil, err
+	}
+	want := d.cfg.clone()
+	want.Workstreams = Moved(d.cfg.Workstreams, member, workstream)
+	want.implyExpectations()
+	return names, d.apply([]byte(text), want)
+}
+
+// Remove takes member out of every workstream that holds it, live or
+// completed, and returns their names. Once no workstream names an item of a
+// supplied input, the input expects records only where the file says so.
+func (d *Document) Remove(member Member) ([]string, error) {
+	var from []int
+	for i, w := range d.cfg.Workstreams {
+		if slices.Contains(w.Members, member) {
+			from = append(from, i)
+		}
+	}
+	if len(from) == 0 {
+		return nil, Refuse("%s:%s is not in any workstream", member.Input, member.ID)
+	}
+	text, names, err := d.removed(member, from)
+	if err != nil {
+		return nil, err
+	}
+	want := d.cfg.clone()
+	want.Workstreams = Removed(d.cfg.Workstreams, member)
+	want.implyExpectations()
+	return names, d.apply([]byte(text), want)
+}
+
+// removed is the file's text with member's line deleted from each of the
+// workstreams at the given positions, and their names.
+func (d *Document) removed(member Member, from []int) (string, []string, error) {
+	text := string(d.data)
+	var names []string
+	for _, i := range from {
+		l, err := parseLayout([]byte(text))
+		if err != nil {
+			return "", nil, err
+		}
+		if text, err = l.removeMember(i, member.Input+":"+member.ID); err != nil {
+			return "", nil, err
+		}
+		names = append(names, d.cfg.Workstreams[i].Name)
+	}
+	return text, names, nil
+}
+
+// Rename gives the named workstream, live or completed, a new name, changing
+// only the text of its name.
+func (d *Document) Rename(workstream, name string) error {
+	idx := slices.IndexFunc(d.cfg.Workstreams, func(w Workstream) bool { return w.Name == workstream })
+	switch {
+	case idx < 0:
+		return Refuse("no workstream %q", workstream)
+	case name == "":
+		return Refuse("a workstream name cannot be empty")
+	case name == workstream:
+		return Refuse("workstream %q already has that name", workstream)
+	case slices.ContainsFunc(d.cfg.Workstreams, func(w Workstream) bool { return w.Name == name }):
+		return Refuse("workstream %q already exists: choose another name", name)
+	}
+	scalar, err := scalarText(name)
+	if err != nil {
+		return err
+	}
+	l, err := parseLayout(d.data)
+	if err != nil {
+		return err
+	}
+	text, err := l.rename(idx, scalar)
+	if err != nil {
+		return err
+	}
+	want := d.cfg.clone()
+	want.Workstreams = Renamed(d.cfg.Workstreams, workstream, name)
+	return d.apply([]byte(text), want)
 }
 
 // Order moves the named workstreams to the front, in the order given; the rest
@@ -305,7 +437,8 @@ func cloneWorkstreams(ws []Workstream) []Workstream {
 // untouched. Each assumes the edit is one its Document method would accept on
 // ws; a replay onto workstreams a hand edit has since changed can break that,
 // and then hides the hand edit a later gesture overwrote rather than reporting
-// one that never happened.
+// one that never happened. An item placed by hand and then moved by command is
+// hidden that way, and is not counted as arriving either.
 
 // Adopted is ws with member added to the named workstream, or to a new one at
 // the end when none has that name, and moved out of any completed workstream
@@ -316,10 +449,7 @@ func Adopted(ws []Workstream, member Member, workstream string) []Workstream {
 		if out[i].Completed == "" || out[i].Name == workstream {
 			continue
 		}
-		out[i].Members = slices.DeleteFunc(out[i].Members, func(m Member) bool { return m == member })
-		if len(out[i].Members) == 0 {
-			out[i].Members = nil
-		}
+		out[i].Members = without(out[i].Members, member)
 	}
 	if idx := slices.IndexFunc(out, func(w Workstream) bool { return w.Name == workstream }); idx >= 0 {
 		out[idx].Members = append(out[idx].Members, member)
@@ -356,10 +486,64 @@ func CompletedOn(ws []Workstream, workstream, date string) []Workstream {
 	return out
 }
 
+// Moved is ws with member taken out of every workstream but the named one, and
+// added to that one, or to a new one at the end when none has that name.
+func Moved(ws []Workstream, member Member, workstream string) []Workstream {
+	out := cloneWorkstreams(ws)
+	for i := range out {
+		if out[i].Name != workstream {
+			out[i].Members = without(out[i].Members, member)
+		}
+	}
+	idx := slices.IndexFunc(out, func(w Workstream) bool { return w.Name == workstream })
+	switch {
+	case idx < 0:
+		return append(out, Workstream{Name: workstream, Members: []Member{member}})
+	case !slices.Contains(out[idx].Members, member):
+		out[idx].Members = append(out[idx].Members, member)
+	}
+	return out
+}
+
+// Removed is ws with member taken out of every workstream.
+func Removed(ws []Workstream, member Member) []Workstream {
+	out := cloneWorkstreams(ws)
+	for i := range out {
+		out[i].Members = without(out[i].Members, member)
+	}
+	return out
+}
+
+// Renamed is ws with the named workstream given a new name.
+func Renamed(ws []Workstream, workstream, name string) []Workstream {
+	out := cloneWorkstreams(ws)
+	for i := range out {
+		if out[i].Name == workstream {
+			out[i].Name = name
+		}
+	}
+	return out
+}
+
+// without is members less member; an emptied list is nil, as Parse reads a
+// members key with nothing under it.
+func without(members []Member, member Member) []Member {
+	members = slices.DeleteFunc(members, func(m Member) bool { return m == member })
+	if len(members) == 0 {
+		return nil
+	}
+	return members
+}
+
 // scalarText is s as one line of YAML, quoted only when it needs to be.
 func scalarText(s string) (string, error) {
 	if strings.ContainsAny(s, "\r\n") {
 		return "", Refuse("%q contains a line break, which a configuration value cannot hold on one line", s)
+	}
+	// yaml.Marshal writes text that is not UTF-8 as a !!binary tag, which
+	// parseLayout then refuses, so every later edit would be refused too.
+	if !utf8.ValidString(s) {
+		return "", Refuse("%q is not valid UTF-8 text", s)
 	}
 	out, err := yaml.Marshal(s)
 	if err != nil {
@@ -670,6 +854,31 @@ func (l *layout) removeMember(idx int, token string) (string, error) {
 		return l.join(l.lines[:at], l.lines[at+1:]), nil
 	}
 	return "", fmt.Errorf("workstream %q does not list %s", it.nameValue.Value, token)
+}
+
+// rename replaces the text of the workstream's name, keeping whatever follows
+// it on the line, such as a comment, as written. The value's end is the first
+// point at which the text before it reads alone as the name and only a comment
+// or nothing follows; the name is on one line, as parseLayout checks.
+func (l *layout) rename(idx int, scalar string) (string, error) {
+	v := l.items[idx].nameValue
+	at := v.Line - 1
+	line := l.lines[at]
+	body := strings.TrimRight(line, "\r\n")
+	start := v.Column - 1
+	for end := start + 1; end <= len(body); end++ {
+		rest := body[end:]
+		if t := strings.TrimSpace(rest); t != "" && (!strings.HasPrefix(t, "#") || !strings.HasPrefix(rest, " ") && !strings.HasPrefix(rest, "\t")) {
+			continue
+		}
+		var alone map[string]string
+		if err := yaml.Unmarshal([]byte("k: "+body[start:end]), &alone); err != nil || len(alone) != 1 || alone["k"] != v.Value {
+			continue
+		}
+		renamed := body[:start] + scalar + rest + line[len(body):]
+		return l.join(l.lines[:at], []string{renamed}, l.lines[at+1:]), nil
+	}
+	return "", Refuse("the workstream name at line %d could not be told apart from what follows it on the line", v.Line)
 }
 
 func (l *layout) addWorkstream(name, scalar string) (string, error) {
