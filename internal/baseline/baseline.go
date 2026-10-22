@@ -223,36 +223,37 @@ func healthy(rec Record, input string) bool {
 	return slices.Contains(rec.Health, Health{Input: input, Status: health.OK})
 }
 
-// holding is where an item sits across the workstreams, since the
-// configuration lets more than one list it.
-type holding struct{ held, live bool }
-
-func holdings(ws []config.Workstream) map[config.Member]holding {
-	out := map[config.Member]holding{}
-	for _, w := range ws {
+// handPlaced is each item the configuration holds in a workstream that replay
+// does not, where no live workstream held it after replay: a membership the
+// logged gestures do not account for, of an item not already claimed. That
+// counts moving an item out of a completed workstream, into a live one or one
+// completed since, and adding one anywhere, as adopting it would; moving one
+// between live workstreams, or leaving a completed workstream's members as
+// they were, places nothing new. Renaming a completed workstream by hand reads
+// as placing its members.
+func handPlaced(replayed, current []config.Workstream) []string {
+	type membership struct {
+		workstream string
+		member     config.Member
+	}
+	logged, live := map[membership]bool{}, map[config.Member]bool{}
+	for _, w := range replayed {
 		for _, m := range w.Members {
-			h := out[m]
-			h.held, h.live = true, h.live || w.Completed == ""
-			out[m] = h
+			logged[membership{w.Name, m}] = true
+			live[m] = live[m] || w.Completed == ""
 		}
 	}
-	return out
-}
-
-// handPlaced is each item the configuration holds whose placement the logged
-// gestures do not account for: one no live workstream held after replay, that
-// a live workstream holds now or no workstream held at all. Moving an item out
-// of a completed workstream places it as adopting it would, and so does adding
-// one to a workstream completed since; moving one between live workstreams,
-// or leaving a completed workstream's members as they were, places nothing
-// new. Each item is decided once, from all its holdings on either side.
-func handPlaced(replayed, current []config.Workstream) []string {
-	before := holdings(replayed)
-	out := make([]string, 0)
-	for m, now := range holdings(current) {
-		if was := before[m]; !was.live && (now.live || !was.held) {
-			out = append(out, m.Input+":"+m.ID)
+	placed := map[config.Member]bool{}
+	for _, w := range current {
+		for _, m := range w.Members {
+			if !logged[membership{w.Name, m}] && !live[m] {
+				placed[m] = true
+			}
 		}
+	}
+	out := make([]string, 0, len(placed))
+	for m := range placed {
+		out = append(out, m.Input+":"+m.ID)
 	}
 	slices.Sort(out)
 	return out

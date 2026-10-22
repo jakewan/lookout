@@ -842,3 +842,22 @@ func TestSnapshotListsAnItemPlacedByHandInTwoWorkstreamsOnce(t *testing.T) {
 		t.Errorf("hand_placed = %v, want the item once however many workstreams hold it", b.HandPlaced)
 	}
 }
+
+func TestSnapshotCountsAnItemMovedByHandBetweenCompletedWorkstreams(t *testing.T) {
+	f := newFixture(t)
+	withDone := strings.Replace(handWritten, "workstreams:\n", "workstreams:\n  - name: done\n    completed: 2030-06-01\n    members:\n      - tracker:ABC-7\n      - tracker:ABC-8\n", 1)
+	f.write("personal.yml", withDone)
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	f.snapshot()
+
+	f.nextDay()
+	moved := strings.Replace(withDone, "      - tracker:ABC-7\n", "", 1)
+	f.write("personal.yml", strings.Replace(moved, "      - tracker:ABC-9\n", "      - tracker:ABC-9\n      - tracker:ABC-7\n", 1))
+	f.mustRun("complete", "onboarding")
+	f.tracker(map[string]time.Time{"ABC-1": now, "ABC-7": f.clock.Add(-time.Hour)})
+
+	b := f.snapshot()
+	if !slices.Equal(b.HandPlaced, []string{"tracker:ABC-7"}) || !slices.Equal(b.Arrivals, []string{"tracker:ABC-7"}) {
+		t.Errorf("hand_placed = %v, arrivals = %v, want the item moved into a workstream completed since counted as an adopt would be", b.HandPlaced, b.Arrivals)
+	}
+}
