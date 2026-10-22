@@ -281,3 +281,19 @@ func TestRenameRefusals(t *testing.T) {
 		})
 	}
 }
+
+func TestNamesAndTokensAreRefusedWhenNotUTF8OrEmpty(t *testing.T) {
+	for name, args := range map[string][]string{
+		"rename to bytes that are not UTF-8":    {"rename", "billing", "bill\xffing"},
+		"move to a new unnamed workstream":      {"move", "--new", "tracker:ABC-1", ""},
+		"adopt into a new unnamed workstream":   {"adopt", "--new", "tracker:ABC-3", ""},
+		"adopt into a new non-UTF-8 workstream": {"adopt", "--new", "tracker:ABC-3", "\xff"},
+		"adopt a non-UTF-8 id":                  {"adopt", "tracker:ABC-\xff", "billing"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.write("personal.yml", handWritten)
+			f.refusedUnchanged(handWritten, args[0], "", args[1:]...)
+		})
+	}
+}

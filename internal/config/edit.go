@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -72,6 +73,9 @@ func (d *Document) Config() *Config { return d.cfg }
 // Adopt returns the workstreams it was moved from.
 func (d *Document) Adopt(member Member, workstream string, create bool) ([]string, error) {
 	token := member.Input + ":" + member.ID
+	if workstream == "" {
+		return nil, Refuse("a workstream name cannot be empty")
+	}
 	if !slices.ContainsFunc(d.cfg.Inputs, func(i Input) bool { return i.Name == member.Input }) {
 		return nil, Refuse("input %q is not in this configuration: add it under inputs first", member.Input)
 	}
@@ -134,6 +138,9 @@ func (d *Document) Adopt(member Member, workstream string, create bool) ([]strin
 // workstreams it was taken out of.
 func (d *Document) Move(member Member, workstream string, create bool) ([]string, error) {
 	token := member.Input + ":" + member.ID
+	if workstream == "" {
+		return nil, Refuse("a workstream name cannot be empty")
+	}
 	idx := slices.IndexFunc(d.cfg.Workstreams, func(w Workstream) bool { return w.Name == workstream })
 	var from []int
 	live, inTarget := false, false
@@ -430,7 +437,8 @@ func cloneWorkstreams(ws []Workstream) []Workstream {
 // untouched. Each assumes the edit is one its Document method would accept on
 // ws; a replay onto workstreams a hand edit has since changed can break that,
 // and then hides the hand edit a later gesture overwrote rather than reporting
-// one that never happened.
+// one that never happened. An item placed by hand and then moved by command is
+// hidden that way, and is not counted as arriving either.
 
 // Adopted is ws with member added to the named workstream, or to a new one at
 // the end when none has that name, and moved out of any completed workstream
@@ -531,6 +539,11 @@ func without(members []Member, member Member) []Member {
 func scalarText(s string) (string, error) {
 	if strings.ContainsAny(s, "\r\n") {
 		return "", Refuse("%q contains a line break, which a configuration value cannot hold on one line", s)
+	}
+	// yaml.Marshal writes text that is not UTF-8 as a !!binary tag, which
+	// parseLayout then refuses, so every later edit would be refused too.
+	if !utf8.ValidString(s) {
+		return "", Refuse("%q is not valid UTF-8 text", s)
 	}
 	out, err := yaml.Marshal(s)
 	if err != nil {

@@ -406,13 +406,19 @@ func handPlaced(replayed, current []config.Workstream) []string {
 
 // discoveryDigest stands for the configuration that decides what inputs offer:
 // the inputs themselves, the discovery window and the owner fence. A change to
-// any of them changes what is unplaced with no item having moved.
+// any of them changes what is unplaced with no item having moved. Whether an
+// input expects records is left out: it decides only the input's health, and
+// adopting or removing a supplied input's member changes it.
 func discoveryDigest(cfg *config.Config) (string, error) {
+	inputs := slices.Clone(cfg.Inputs)
+	for i := range inputs {
+		inputs[i].ExpectRecords = false
+	}
 	data, err := json.Marshal(struct {
 		Inputs          []config.Input
 		DiscoveryWindow time.Duration
 		ForgeOwners     []config.Owner
-	}{cfg.Inputs, cfg.DiscoveryWindow, cfg.ForgeOwners})
+	}{inputs, cfg.DiscoveryWindow, cfg.ForgeOwners})
 	if err != nil {
 		return "", fmt.Errorf("encoding the discovery configuration: %w", err)
 	}

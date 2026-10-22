@@ -394,6 +394,10 @@ func TestSnapshotFindsEditsNoGestureExplains(t *testing.T) {
 		"a rename by hand": {handWritten, func(f *fixture) {
 			f.write("personal.yml", strings.Replace(handWritten, "  - name: billing\n", "  - name: ledger\n", 1))
 		}, true},
+		"a move by hand": {handWritten, func(f *fixture) {
+			moved := strings.Replace(handWritten, "      - tracker:ABC-2\n", "", 1)
+			f.write("personal.yml", strings.Replace(moved, "      - tracker:ABC-9\n", "      - tracker:ABC-9\n      - tracker:ABC-2\n", 1))
+		}, true},
 		"a removal by hand": {handWritten, func(f *fixture) {
 			f.write("personal.yml", strings.Replace(handWritten, "      - tracker:ABC-2\n", "", 1))
 		}, true},
@@ -942,5 +946,27 @@ func TestSnapshotCountsACompletionUnderANameARenameFreed(t *testing.T) {
 
 	if b := f.snapshot(); b.CompletedSincePrevious != 1 {
 		t.Errorf("completed_since_previous = %d, want the new workstream under the freed name counted", b.CompletedSincePrevious)
+	}
+}
+
+func TestSnapshotDoesNotTakeAMembershipChangeForADiscoveryChange(t *testing.T) {
+	lone := "inputs:\n  - name: tracker\n    kind: supplied\n    supplied: tracker.json\n    max_age: 24h\nworkstreams:\n  - name: billing\n    members:\n      - tracker:ABC-1\n"
+	f := newFixture(t)
+	f.write("personal.yml", lone)
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	f.snapshot()
+
+	f.nextDay()
+	f.mustRun("remove", "tracker:ABC-1")
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	if b := f.snapshot(); b.DiscoveryChanged {
+		t.Errorf("after removing the last member: discovery_changed = true, want a logged membership change kept apart from what inputs offer")
+	}
+
+	f.nextDay()
+	f.mustRun("adopt", "tracker:ABC-1", "billing")
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	if b := f.snapshot(); b.DiscoveryChanged {
+		t.Errorf("after adopting the first member: discovery_changed = true, want a logged membership change kept apart from what inputs offer")
 	}
 }
