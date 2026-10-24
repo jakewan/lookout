@@ -197,9 +197,11 @@ func Locate(getenv func(string) string, setting string) (string, error) {
 	return "", fmt.Errorf("several settings are configured in %s (%s): choose one with --setting <name> or LOOKOUT_CONFIG", dir, strings.Join(names, ", "))
 }
 
-// explicitOnlyLine finds explicit_only written as a top-level key, for a file
-// too broken to parse: one that may be marked is not chosen by default either.
-var explicitOnlyLine = regexp.MustCompile(`(?m)^explicit_only[ \t]*:`)
+// explicitOnlyLine finds a line that looks like it sets explicit_only, however
+// indented, quoted, cased or spelled with - or no separator. chosenByDefault
+// falls back to it wherever the parsed file holds no top-level explicit_only,
+// so a file whose user may have meant to mark it is not chosen by default.
+var explicitOnlyLine = regexp.MustCompile(`(?mi)^[ \t\x{FEFF}]*["']?explicit[-_]?only["']?[ \t]*:`)
 
 // chosenByDefault refuses the only file in the configuration directory when it
 // is, or may be, explicit_only. It reads the key as parse does, but nothing
@@ -221,16 +223,18 @@ func chosenByDefault(path string) error {
 	}
 	var explicit bool
 	readErr = yaml.Unmarshal(data, &shape)
-	if readErr != nil && !explicitOnlyLine.Match(data) {
-		return nil
-	}
-	if readErr == nil {
+	switch {
+	case readErr == nil && shape.ExplicitOnly.Kind != 0:
 		explicit, readErr = explicitOnly(shape.ExplicitOnly)
+	case !explicitOnlyLine.Match(data):
+		return nil
+	default:
+		readErr = errors.New("explicit_only is not set as lookout reads it")
 	}
 	routes := "--setting " + name + " or LOOKOUT_CONFIG=" + path
 	switch {
 	case readErr != nil:
-		return fmt.Errorf("%s may be explicit_only, but its explicit_only cannot be read as a boolean, so it is never chosen by default: name it with %s", path, routes)
+		return fmt.Errorf("%s looks like it sets explicit_only, but lookout cannot read it as a top-level key set to a boolean, so it is never chosen by default: check its spelling and value, then name it with %s", path, routes)
 	case explicit:
 		return fmt.Errorf("%s sets explicit_only, so it is never chosen by default: name it with %s", path, routes)
 	}

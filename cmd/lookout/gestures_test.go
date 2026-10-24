@@ -1042,8 +1042,9 @@ func TestANamedRouteSelectsAnExplicitOnlySetting(t *testing.T) {
 
 func TestASettingThatIsNotExplicitOnlyIsStillChosenByDefault(t *testing.T) {
 	for name, config := range map[string]string{
-		"no key":         handWritten,
-		"the key, false": "explicit_only: false\n" + handWritten,
+		"no key":                 handWritten,
+		"the key, false":         "explicit_only: false\n" + handWritten,
+		"the key, commented out": "# explicit_only: true\n" + handWritten,
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
@@ -1058,10 +1059,16 @@ func TestASettingThatIsNotExplicitOnlyIsStillChosenByDefault(t *testing.T) {
 
 func TestAnExplicitOnlyKeyThatCannotBeReadIsNeverChosenByDefault(t *testing.T) {
 	for name, config := range map[string]string{
-		"quoted":          `explicit_only: "true"` + "\n" + handWritten,
-		"not a bool":      "explicit_only: maybe\n" + handWritten,
-		"empty":           "explicit_only:\n" + handWritten,
-		"file is invalid": "explicit_only: true\ninputs: [\n",
+		"quoted":                          `explicit_only: "true"` + "\n" + handWritten,
+		"not a bool":                      "explicit_only: maybe\n" + handWritten,
+		"empty":                           "explicit_only:\n" + handWritten,
+		"file is invalid":                 "explicit_only: true\ninputs: [\n",
+		"misspelled with a dash":          "explicit-only: true\n" + handWritten,
+		"misspelled in another case":      "ExplicitOnly: true\n" + handWritten,
+		"quoted key":                      `"explicit_only": true` + "\n" + handWritten,
+		"indented, in an invalid file":    "inputs: [\n  explicit_only: true\n",
+		"indented under another key":      strings.Replace(handWritten, "event_window: 336h\n", "event_window: 336h\n  explicit_only: true\n", 1),
+		"after a byte-order mark, broken": "\xef\xbb\xbfexplicit_only: true\ninputs: [\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
