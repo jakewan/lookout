@@ -214,18 +214,20 @@ func chosenByDefault(path string) error {
 	var shape struct {
 		ExplicitOnly yaml.Node `yaml:"explicit_only"`
 	}
-	explicit, err := false, yaml.Unmarshal(data, &shape)
-	if err == nil {
-		explicit, err = explicitOnly(shape.ExplicitOnly)
-	} else if !explicitOnlyLine.Match(data) {
+	var explicit bool
+	readErr := yaml.Unmarshal(data, &shape)
+	if readErr != nil && !explicitOnlyLine.Match(data) {
 		return nil
+	}
+	if readErr == nil {
+		explicit, readErr = explicitOnly(shape.ExplicitOnly)
 	}
 	routes := "LOOKOUT_CONFIG=" + path
 	if name, nameErr := settingName(path); nameErr == nil {
 		routes = "--setting " + name + " or " + routes
 	}
 	switch {
-	case err != nil:
+	case readErr != nil:
 		return fmt.Errorf("%s may be explicit_only, but its explicit_only cannot be read as true or false, so it is never chosen by default: name it with %s", path, routes)
 	case explicit:
 		return fmt.Errorf("%s sets explicit_only, so it is never chosen by default: name it with %s", path, routes)
