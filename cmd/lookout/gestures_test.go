@@ -945,3 +945,171 @@ func TestAFirstReadNeverMixesOldStateWithANewConfiguration(t *testing.T) {
 		t.Errorf("unplaced = %v: the readout shows the new order with the dismissal undone", ids)
 	}
 }
+
+// explicitOnly is handWritten marked so that only a named route selects it.
+const explicitOnly = "explicit_only: true\n" + handWritten
+
+// requireUntouched fails unless the configuration still reads want and the
+// setting has no state at all.
+func (f *fixture) requireUntouched(name, want string) {
+	f.t.Helper()
+	if got := f.config(name); got != want {
+		f.t.Errorf("configuration = %q, want it unchanged", got)
+	}
+	if _, err := os.Stat(f.stateDir(strings.TrimSuffix(name, ".yml"))); !os.IsNotExist(err) {
+		f.t.Errorf("state directory exists, written by a refused selection: %v", err)
+	}
+}
+
+func TestAnExplicitOnlySettingIsNeverChosenByDefault(t *testing.T) {
+	for _, args := range [][]string{
+		{"adopt", "tracker:ABC-3", "billing"},
+		{"move", "tracker:ABC-1", "onboarding"},
+		{"remove", "tracker:ABC-1"},
+		{"rename", "billing", "payments"},
+		{"order", "onboarding"},
+		{"complete", "billing"},
+		{"dismiss", "tracker:ABC-3"},
+		{"read", "--json"},
+		{"unplaced"},
+		{"snapshot"},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			f := newFixture(t)
+			path := f.write("personal.yml", explicitOnly)
+			code, stdout, stderr := f.run(args...)
+			if code != exitFailure {
+				t.Errorf("exit code = %d, want %d", code, exitFailure)
+			}
+			if stdout != "" {
+				t.Errorf("stdout = %q, want nothing", stdout)
+			}
+			for _, want := range []string{"explicit_only", "--setting personal", "LOOKOUT_CONFIG=" + path} {
+				if !strings.Contains(stderr, want) {
+					t.Errorf("stderr = %q, want it to say %q", stderr, want)
+				}
+			}
+			f.requireUntouched("personal.yml", explicitOnly)
+		})
+	}
+}
+
+func TestARefusedSelectionLeavesTheGestureLogAlone(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", explicitOnly)
+	f.mustRun("dismiss", "tracker:ABC-7", "--setting", "personal")
+	logPath := filepath.Join(f.stateDir("personal"), "gestures.jsonl")
+	before, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _, _ := f.run("adopt", "tracker:ABC-3", "billing"); code != exitFailure {
+		t.Errorf("exit code = %d, want a refusal", code)
+	}
+	after, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("gesture log = %q, want it byte-identical to %q", after, before)
+	}
+	if got := f.config("personal.yml"); got != explicitOnly {
+		t.Errorf("configuration = %q, want it unchanged", got)
+	}
+}
+
+func TestANamedRouteSelectsAnExplicitOnlySetting(t *testing.T) {
+	for name, route := range map[string]func(f *fixture) []string{
+		"--setting": func(*fixture) []string { return []string{"--setting", "personal"} },
+		"LOOKOUT_CONFIG": func(f *fixture) []string {
+			f.env["LOOKOUT_CONFIG"] = filepath.Join(f.dir, "personal.yml")
+			return nil
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.write("personal.yml", explicitOnly)
+			f.mustRun(append([]string{"adopt", "tracker:ABC-3", "billing"}, route(f)...)...)
+			if !strings.Contains(f.config("personal.yml"), "tracker:ABC-3") {
+				t.Errorf("the adopt did not land")
+			}
+			if gs := f.gestures("personal"); len(gs) != 1 || gs[0].Outcome != "ok" {
+				t.Errorf("gestures = %+v, want one ok adopt", gs)
+			}
+		})
+	}
+}
+
+func TestASettingThatIsNotExplicitOnlyIsStillChosenByDefault(t *testing.T) {
+	for name, config := range map[string]string{
+		"no key":         handWritten,
+		"the key, false": "explicit_only: false\n" + handWritten,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.write("personal.yml", config)
+			f.mustRun("adopt", "tracker:ABC-3", "billing")
+			if gs := f.gestures("personal"); len(gs) != 1 || gs[0].Outcome != "ok" {
+				t.Errorf("gestures = %+v, want one ok adopt", gs)
+			}
+		})
+	}
+}
+
+func TestAnExplicitOnlyKeyThatCannotBeReadIsNeverChosenByDefault(t *testing.T) {
+	for name, config := range map[string]string{
+		"quoted":          `explicit_only: "true"` + "\n" + handWritten,
+		"not a bool":      "explicit_only: maybe\n" + handWritten,
+		"empty":           "explicit_only:\n" + handWritten,
+		"file is invalid": "explicit_only: true\ninputs: [\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			path := f.write("personal.yml", config)
+			code, _, stderr := f.run("adopt", "tracker:ABC-3", "billing")
+			if code != exitFailure {
+				t.Errorf("exit code = %d, want a refusal", code)
+			}
+			for _, want := range []string{"explicit_only", "--setting personal", "LOOKOUT_CONFIG=" + path} {
+				if !strings.Contains(stderr, want) {
+					t.Errorf("stderr = %q, want it to say %q", stderr, want)
+				}
+			}
+			f.requireUntouched("personal.yml", config)
+		})
+	}
+}
+
+func TestAnInvalidFileWithoutTheKeyIsStillAFailedGesture(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", "inputs: [\n")
+	if code, _, _ := f.run("adopt", "tracker:ABC-3", "billing"); code != exitFailure {
+		t.Errorf("exit code = %d", code)
+	}
+	if gs := f.gestures("personal"); len(gs) != 1 || gs[0].Outcome != "failed" {
+		t.Errorf("gestures = %+v, want one failed gesture", gs)
+	}
+}
+
+func TestAnExplicitOnlyRefusalOffersOnlyARouteThatWorks(t *testing.T) {
+	f := newFixture(t)
+	path := f.write("Personal.yml", explicitOnly)
+	code, _, stderr := f.run("adopt", "tracker:ABC-3", "billing")
+	if code != exitFailure || !strings.Contains(stderr, "LOOKOUT_CONFIG="+path) {
+		t.Errorf("exit code = %d, stderr = %q, want a refusal naming LOOKOUT_CONFIG=%s", code, stderr, path)
+	}
+	if strings.Contains(stderr, "--setting") {
+		t.Errorf("stderr = %q, want no --setting, which cannot name Personal", stderr)
+	}
+}
+
+func TestSeveralSettingsWithOneExplicitOnlyAreStillRefused(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", explicitOnly)
+	f.write("work.yml", handWritten)
+	code, _, stderr := f.run("adopt", "tracker:ABC-3", "billing")
+	if code != exitFailure || !strings.Contains(stderr, "several settings") {
+		t.Errorf("exit code = %d, stderr = %q, want the several-settings refusal", code, stderr)
+	}
+	f.requireUntouched("work.yml", handWritten)
+}

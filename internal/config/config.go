@@ -29,9 +29,13 @@ var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 // Config is one setting.
 type Config struct {
-	Setting     string
-	Path        string
-	EventWindow time.Duration
+	Setting string
+	Path    string
+	// ExplicitOnly keeps the setting from being chosen as the only file in the
+	// configuration directory, so it is read only when named. Edits check it
+	// with everything else they must leave as it was.
+	ExplicitOnly bool
+	EventWindow  time.Duration
 	// DiscoveryWindow bounds how long ago an item a built-in input finds may
 	// have moved and still be offered as unplaced.
 	DiscoveryWindow time.Duration
@@ -138,7 +142,7 @@ type Member struct {
 // Locate finds the one configuration file this invocation reads. A setting
 // named by flag wins, then a path in LOOKOUT_CONFIG; otherwise the
 // configuration directory must hold exactly one file, since several settings
-// are never merged.
+// are never merged, and that file must not be explicit_only.
 func Locate(getenv func(string) string, setting string) (string, error) {
 	dir, err := dir(getenv)
 	if setting != "" {
@@ -179,6 +183,11 @@ func Locate(getenv func(string) string, setting string) (string, error) {
 	case 0:
 		return "", fmt.Errorf("no configuration found: create %s, or set LOOKOUT_CONFIG to a file's path", filepath.Join(dir, "<setting>.yml"))
 	case 1:
+		// The refusal comes before anything opens the setting's state, so a
+		// command meant for another setting leaves no trace in this one.
+		if err := chosenByDefault(found[0]); err != nil {
+			return "", err
+		}
 		return found[0], nil
 	}
 	names := make([]string, 0, len(found))
@@ -186,6 +195,56 @@ func Locate(getenv func(string) string, setting string) (string, error) {
 		names = append(names, strings.TrimSuffix(filepath.Base(p), filepath.Ext(p)))
 	}
 	return "", fmt.Errorf("several settings are configured in %s (%s): choose one with --setting <name> or LOOKOUT_CONFIG", dir, strings.Join(names, ", "))
+}
+
+// explicitOnlyLine finds explicit_only written as a top-level key, for a file
+// too broken to parse: one that may be marked is not chosen by default either.
+var explicitOnlyLine = regexp.MustCompile(`(?m)^explicit_only[ \t]*:`)
+
+// chosenByDefault refuses the only file in the configuration directory when it
+// is, or may be, explicit_only. It reads the key as parse does, but nothing
+// else, so a file that is wrong in any other way is still chosen and its error
+// reported, as it would be without the key. An unreadable file is chosen for
+// the same reason: whatever reads it next names the failure.
+func chosenByDefault(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var shape struct {
+		ExplicitOnly yaml.Node `yaml:"explicit_only"`
+	}
+	explicit, err := false, yaml.Unmarshal(data, &shape)
+	if err == nil {
+		explicit, err = explicitOnly(shape.ExplicitOnly)
+	} else if !explicitOnlyLine.Match(data) {
+		return nil
+	}
+	routes := "LOOKOUT_CONFIG=" + path
+	if name, nameErr := settingName(path); nameErr == nil {
+		routes = "--setting " + name + " or " + routes
+	}
+	switch {
+	case err != nil:
+		return fmt.Errorf("%s may be explicit_only, but its explicit_only cannot be read as true or false, so it is never chosen by default: name it with %s", path, routes)
+	case explicit:
+		return fmt.Errorf("%s sets explicit_only, so it is never chosen by default: name it with %s", path, routes)
+	}
+	return nil
+}
+
+// explicitOnly reads explicit_only as YAML reads a bool, refusing an empty
+// value, which would otherwise read as false and leave a setting its user meant
+// to mark open to being chosen by default.
+func explicitOnly(n yaml.Node) (bool, error) {
+	if n.Kind == 0 {
+		return false, nil
+	}
+	var explicit bool
+	if n.Tag == "!!null" || n.Decode(&explicit) != nil {
+		return false, fmt.Errorf("explicit_only %q is not true or false", n.Value)
+	}
+	return explicit, nil
 }
 
 // settingFiles lists the configuration files in dir: regular *.yml files whose
@@ -239,6 +298,7 @@ func settingName(path string) (string, error) {
 }
 
 type fileShape struct {
+	ExplicitOnly    yaml.Node   `yaml:"explicit_only"`
 	EventWindow     string      `yaml:"event_window"`
 	DiscoveryWindow string      `yaml:"discovery_window"`
 	ForgeOwners     []string    `yaml:"forge_owners"`
@@ -301,6 +361,9 @@ func parse(data []byte, path string) (*Config, error) {
 	}
 
 	cfg := &Config{Setting: setting, Path: path, EventWindow: defaultEventWindow}
+	if cfg.ExplicitOnly, err = explicitOnly(shape.ExplicitOnly); err != nil {
+		return nil, err
+	}
 	if shape.EventWindow != "" {
 		if cfg.EventWindow, err = duration("event_window", shape.EventWindow); err != nil {
 			return nil, err

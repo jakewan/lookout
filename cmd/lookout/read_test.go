@@ -704,6 +704,18 @@ func TestReadSelectsOneSetting(t *testing.T) {
 		}
 	})
 
+	t.Run("an explicit_only configuration is used once named", func(t *testing.T) {
+		f := newFixture(t)
+		path := f.write("personal.yml", "explicit_only: true\n"+minimal)
+		if doc := f.read("--setting", "personal"); doc.Setting != "personal" {
+			t.Errorf("--setting: setting = %q", doc.Setting)
+		}
+		f.env["LOOKOUT_CONFIG"] = path
+		if doc := f.read(); doc.Setting != "personal" {
+			t.Errorf("LOOKOUT_CONFIG: setting = %q", doc.Setting)
+		}
+	})
+
 	t.Run("an unknown setting is named", func(t *testing.T) {
 		f := newFixture(t)
 		f.write("personal.yml", minimal)
