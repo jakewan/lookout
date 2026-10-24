@@ -8,7 +8,7 @@ Run `lookout snapshot` once a day to keep a baseline of how often new work appea
 
 ## Configuration
 
-Each setting, such as `personal` or `work`, has one configuration file, `$XDG_CONFIG_HOME/lookout/<setting>.yml` (`~/.config/lookout/<setting>.yml` by default). A setting name uses lowercase letters, digits, `-` and `_`. lookout reads exactly one file per invocation: the one `--setting <name>` names, or else the path in `LOOKOUT_CONFIG`, or else the only file in that directory. With several files there and neither given, it refuses rather than combining settings.
+Each setting, such as `personal` or `work`, has one configuration file, `$XDG_CONFIG_HOME/lookout/<setting>.yml` (`~/.config/lookout/<setting>.yml` by default). A setting name uses lowercase letters, digits, `-` and `_`. lookout reads exactly one file per invocation: the one `--setting <name>` names, or else the path in `LOOKOUT_CONFIG`, or else the only file in that directory, unless that file sets `explicit_only`. With several files there and neither given, it refuses rather than combining settings, whichever of them set `explicit_only`.
 
 ```yaml
 event_window: 168h
@@ -39,6 +39,7 @@ workstreams:
     completed: 2030-06-15
 ```
 
+- **`explicit_only`**: `true` keeps this setting from being read as the only file in the directory, so every command, reads included, uses it only when `--setting` or `LOOKOUT_CONFIG` names it. Without that, a command typed for another setting would edit or record into this one. A command that names neither is refused, and the refusal writes nothing. `LOOKOUT_CONFIG` counts as naming the setting even when a shell profile exports it, so exporting it for good gives up the protection. A scheduled command that relied on the lone file, such as `lookout snapshot`, needs `--setting` once this is set. A value lookout cannot read as true or false is refused, and an unparseable file with an `explicit_only` line is not chosen by default either.
 - **`event_window`**: how far back a workstream's events reach, and the window within which it counts as active. A Go duration such as `24h` or `90m`, with no unit for days, in whole seconds. The default is two weeks.
 - **`discovery_window`**: how recently an item a git, GitHub or Claude Code input finds must have moved to be offered as unplaced. It defaults to `event_window`. A workstream's members are read at any age.
 - **`forge_owners`**: the owners whose repositories, pull requests, issues and sessions this setting admits. Nothing else is read into it. A bare name is an account or organization on github.com, and an owner on another host is written `host/owner`. It is required once a `git`, `github` or `claude_code` input is configured, and a `github` input needs at least one github.com owner.
