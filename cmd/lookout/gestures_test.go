@@ -1091,15 +1091,20 @@ func TestAnInvalidFileWithoutTheKeyIsStillAFailedGesture(t *testing.T) {
 	}
 }
 
-func TestAnExplicitOnlyRefusalOffersOnlyARouteThatWorks(t *testing.T) {
+// No route selects a file whose name is not a valid setting name, so its
+// refusal asks for the rename rather than offering a route that also fails.
+func TestAnExplicitOnlyFileWithAnInvalidNameAsksForARename(t *testing.T) {
 	f := newFixture(t)
-	path := f.write("Personal.yml", explicitOnly)
+	f.write("Personal.yml", explicitOnly)
 	code, _, stderr := f.run("adopt", "tracker:ABC-3", "billing")
-	if code != exitFailure || !strings.Contains(stderr, "LOOKOUT_CONFIG="+path) {
-		t.Errorf("exit code = %d, stderr = %q, want a refusal naming LOOKOUT_CONFIG=%s", code, stderr, path)
+	if code != exitFailure || !strings.Contains(stderr, "name the file with lowercase letters") {
+		t.Errorf("exit code = %d, stderr = %q, want a refusal asking for the file to be renamed", code, stderr)
 	}
-	if strings.Contains(stderr, "--setting") {
-		t.Errorf("stderr = %q, want no --setting, which cannot name Personal", stderr)
+	if strings.Contains(stderr, "--setting") || strings.Contains(stderr, "LOOKOUT_CONFIG=") {
+		t.Errorf("stderr = %q, want no route offered, since none can select Personal.yml", stderr)
+	}
+	if _, err := os.Stat(f.stateDir("Personal")); !os.IsNotExist(err) {
+		t.Errorf("state directory exists: %v", err)
 	}
 }
 
