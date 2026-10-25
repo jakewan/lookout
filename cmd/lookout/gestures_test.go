@@ -1069,6 +1069,7 @@ func TestAnExplicitOnlyKeyThatCannotBeReadIsNeverChosenByDefault(t *testing.T) {
 		"indented, in an invalid file":    "inputs: [\n  explicit_only: true\n",
 		"indented under another key":      strings.Replace(handWritten, "event_window: 336h\n", "event_window: 336h\n  explicit_only: true\n", 1),
 		"after a byte-order mark, broken": "\xef\xbb\xbfexplicit_only: true\ninputs: [\n",
+		"an alias to null":                "workstreams: &unset\nexplicit_only: *unset\ninputs: []\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)

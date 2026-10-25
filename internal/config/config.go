@@ -248,6 +248,11 @@ func explicitOnly(n yaml.Node) (bool, error) {
 	if n.Kind == 0 {
 		return false, nil
 	}
+	// An alias carries none of its target's tag, so an alias to null would
+	// otherwise decode as false without error.
+	for n.Kind == yaml.AliasNode && n.Alias != nil {
+		n = *n.Alias
+	}
 	var explicit bool
 	if n.Tag == "!!null" || n.Decode(&explicit) != nil {
 		return false, fmt.Errorf("explicit_only %q is not a boolean such as true or false", n.Value)
