@@ -8,4 +8,4 @@ Warnings
   input git: error (missing)
   input sessions: degraded (some_new_reason)
 
-0 unplaced
+! 0 unplaced

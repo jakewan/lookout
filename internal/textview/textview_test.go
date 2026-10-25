@@ -223,7 +223,7 @@ var cases = map[string]fixture{
 		window:  7 * day,
 		lanes: []lane{
 			{name: "the-quarterly-reconciliation-project", idle: hour, items: []string{"tracker:ABC-1"}},
-			{name: "the-quarterly-reconciliation-rerun", idle: 2 * hour, items: []string{"tracker:ABC-2"}},
+			{name: "the-quarterly-reconciling-rerun", idle: 2 * hour, items: []string{"tracker:ABC-2"}},
 			{
 				name: "wide",
 				idle: minute,
@@ -247,8 +247,16 @@ var cases = map[string]fixture{
 		lanes: []lane{
 			{name: "tab\there", idle: minute, items: []string{"tracker:ABC-1"}},
 			{name: "esc\x1b[31mred", idle: minute, items: []string{"tracker:ABC-2"}},
+			{name: "rtl\u202eabc", idle: minute, items: []string{"tracker:ABC-3"}},
 		},
 		health: ok("tracker"),
+	},
+	"warning-names": {
+		window: 7 * day,
+		lanes: []lane{
+			{name: "two  spaces", idle: unread, unread: []string{"tracker:ABC-1"}, incomplete: []string{"tracker"}},
+		},
+		health: []map[string]any{input("tracker", "error", "missing")},
 	},
 	"unknown-fields": {
 		window: 7 * day,
@@ -357,8 +365,9 @@ func requireFits(t *testing.T, name, view string) {
 }
 
 // encode marshals a fixture readout and holds it to readout.v1, and to two
-// facts the schema cannot state but every readout lookout writes keeps, so a
-// golden never pins a view of a readout lookout could not produce.
+// facts the schema cannot state but every readout lookout writes keeps. Some
+// fixtures still carry what lookout does not write yet, such as a reason or a
+// status only a later version would report, on purpose.
 func encode(t *testing.T, doc map[string]any) []byte {
 	t.Helper()
 	data, err := json.Marshal(doc)

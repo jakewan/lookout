@@ -1,7 +1,8 @@
 // Package textview renders a readout as plain text for a person at a terminal.
-// It reads the readout only as schema/readout.v1.json publishes it, as any
-// renderer outside lookout would, so the view can never lean on something the
-// contract does not promise.
+// It reads the readout only through its published JSON, as any renderer
+// outside lookout would. It leans on one fact readout.v1 does not state: an
+// input's name holds no colon, which the configuration requires of every input
+// and supplied.v1 of every supplied one.
 package textview
 
 import (
@@ -12,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 	"unicode/utf8"
 )
 
@@ -31,17 +31,17 @@ const (
 // view is the part of a readout the view shows. Fields readout.v1 may gain
 // are ignored, as the contract asks of a renderer.
 type view struct {
-	Setting            string      `json:"setting"`
-	GeneratedAt        time.Time   `json:"generated_at"`
-	EventWindowSeconds int64       `json:"event_window_seconds"`
-	Workstreams        []workspace `json:"workstreams"`
-	Unplaced           []struct{}  `json:"unplaced"`
-	Health             []health    `json:"health"`
-	DismissedCount     int         `json:"dismissed_count"`
-	CompletedCount     int         `json:"completed_count"`
+	Setting            string       `json:"setting"`
+	GeneratedAt        time.Time    `json:"generated_at"`
+	EventWindowSeconds int64        `json:"event_window_seconds"`
+	Workstreams        []workstream `json:"workstreams"`
+	Unplaced           []struct{}   `json:"unplaced"`
+	Health             []health     `json:"health"`
+	DismissedCount     int          `json:"dismissed_count"`
+	CompletedCount     int          `json:"completed_count"`
 }
 
-type workspace struct {
+type workstream struct {
 	Name             string   `json:"name"`
 	IdleSeconds      *int64   `json:"idle_seconds"`
 	InputsIncomplete []string `json:"inputs_incomplete"`
@@ -104,24 +104,31 @@ func writeWorkstreams(b *strings.Builder, v view) {
 	}
 }
 
+// unhealthy reports whether an input's health is worth a warning.
+// absent_by_design is a setting expecting the input to be absent, which the
+// vision shows as nothing at all rather than as a fault. Any other status but
+// ok, including one a later version adds, is worth a look.
+func unhealthy(h health) bool {
+	return h.Status != "ok" && h.Status != "absent_by_design"
+}
+
 func writeWarnings(b *strings.Builder, v view) {
-	var lines []string
+	// Each warning is a list of units to wrap. A name is one unit, so the
+	// spaces inside it survive and it reads as it does in its row.
+	var lines [][]string
 	for _, h := range v.Health {
-		// absent_by_design is a setting expecting the input to be absent, which
-		// the vision shows as nothing at all rather than as a fault. Any other
-		// status but ok, including one a later version adds, is worth a look.
-		if h.Status == "ok" || h.Status == "absent_by_design" {
+		if !unhealthy(h) {
 			continue
 		}
-		line := "input " + name(h.Input) + ": " + clean(h.Status)
+		units := []string{"input", name(h.Input) + ":", clean(h.Status)}
 		if len(h.Reasons) > 0 {
 			reasons := make([]string, 0, len(h.Reasons))
 			for _, r := range h.Reasons {
 				reasons = append(reasons, clean(r))
 			}
-			line += " (" + strings.Join(reasons, ", ") + ")"
+			units = append(units, strings.Fields("("+strings.Join(reasons, ", ")+")")...)
 		}
-		lines = append(lines, line)
+		lines = append(lines, units)
 	}
 	for _, ws := range v.Workstreams {
 		if len(ws.InputsIncomplete) == 0 {
@@ -131,28 +138,40 @@ func writeWarnings(b *strings.Builder, v view) {
 		for _, in := range ws.InputsIncomplete {
 			inputs = append(inputs, name(in))
 		}
-		lines = append(lines, "workstream "+name(ws.Name)+": "+strings.Join(inputs, ", ")+" may be incomplete")
+		units := []string{"workstream", name(ws.Name) + ":"}
+		units = append(units, strings.Fields(strings.Join(inputs, ", ")+" may be incomplete")...)
+		lines = append(lines, units)
 	}
 	if len(lines) == 0 {
 		return
 	}
 	b.WriteString("\nWarnings\n")
-	for _, l := range lines {
-		b.WriteString(wrap(strings.Fields(l), "  ", "    "))
+	for _, units := range lines {
+		b.WriteString(wrap(units, "  ", "    "))
 	}
 }
 
 func footer(v view) string {
+	// The counts are drawn from every input, so a failing one can leave them
+	// short; the line says so where it is read, as a row does.
+	flag := ""
+	if slices.ContainsFunc(v.Health, unhealthy) {
+		flag = "! "
+	}
 	parts := []string{fmt.Sprintf("%d unplaced", len(v.Unplaced))}
 	// An empty unplaced list beside items the user dismissed is not a quiet
 	// day, so the count of what was set aside rides along with it.
 	if v.DismissedCount > 0 {
 		parts = append(parts, fmt.Sprintf("%d dismissed", v.DismissedCount))
 	}
-	if v.CompletedCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d completed", v.CompletedCount))
+	// completed_count counts workstreams, not items like the counts before it.
+	switch {
+	case v.CompletedCount == 1:
+		parts = append(parts, "1 workstream completed")
+	case v.CompletedCount > 1:
+		parts = append(parts, fmt.Sprintf("%d workstreams completed", v.CompletedCount))
 	}
-	return strings.Join(parts, ", ")
+	return flag + strings.Join(parts, ", ")
 }
 
 // inputOrder ranks each input by its place in health, which readout.v1 keeps
@@ -167,7 +186,7 @@ func inputOrder(hs []health) map[string]int {
 
 // counts is a workstream's members per input, read and unread, as the units a
 // row wraps between.
-func counts(ws workspace, order map[string]int) []string {
+func counts(ws workstream, order map[string]int) []string {
 	type tally struct{ read, unread int }
 	tallies := map[string]*tally{}
 	var inputs []string
@@ -214,7 +233,7 @@ func counts(ws workspace, order map[string]int) []string {
 	return units
 }
 
-func marker(ws workspace, window int64) string {
+func marker(ws workstream, window int64) string {
 	switch {
 	case ws.IdleSeconds == nil:
 		// Nothing was read for it on this read; that says nothing of its past.
@@ -255,10 +274,12 @@ func name(s string) string {
 
 // clean keeps text from the readout from breaking its line or driving the
 // terminal. Tabs and line breaks become spaces, as unplaced prints them; any
-// other control character quotes the whole string so it is shown, not obeyed.
+// other rune Go does not count as printable, a control, a bidirectional
+// override or a zero-width character among them, quotes the whole string so
+// it is shown, not obeyed.
 func clean(s string) string {
 	s = strings.NewReplacer("\t", " ", "\r", " ", "\n", " ").Replace(s)
-	if strings.ContainsFunc(s, unicode.IsControl) {
+	if strings.ContainsFunc(s, func(r rune) bool { return !strconv.IsPrint(r) }) {
 		return strconv.Quote(s)
 	}
 	return s

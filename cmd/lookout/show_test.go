@@ -42,7 +42,7 @@ func TestShowSucceedsOverAnUnhealthyInputAndSaysSo(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
 	}
-	for _, want := range []string{"\n! billing ", "  input tracker: error (missing)\n", "  workstream billing: tracker may be incomplete\n"} {
+	for _, want := range []string{"\n! billing ", "  input tracker: error (missing)\n", "  workstream billing: tracker may be incomplete\n", "\n! 0 unplaced\n"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout =\n%s\nwant it to contain %q", stdout, want)
 		}
