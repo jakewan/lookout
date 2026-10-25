@@ -29,9 +29,13 @@ var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 // Config is one setting.
 type Config struct {
-	Setting     string
-	Path        string
-	EventWindow time.Duration
+	Setting string
+	Path    string
+	// ExplicitOnly is the file's explicit_only. Locate reads the key from the
+	// file itself, before the file is loaded; the field is here so that edits
+	// check it with everything else they must leave as it was.
+	ExplicitOnly bool
+	EventWindow  time.Duration
 	// DiscoveryWindow bounds how long ago an item a built-in input finds may
 	// have moved and still be offered as unplaced.
 	DiscoveryWindow time.Duration
@@ -138,7 +142,7 @@ type Member struct {
 // Locate finds the one configuration file this invocation reads. A setting
 // named by flag wins, then a path in LOOKOUT_CONFIG; otherwise the
 // configuration directory must hold exactly one file, since several settings
-// are never merged.
+// are never merged, and that file must not be explicit_only.
 func Locate(getenv func(string) string, setting string) (string, error) {
 	dir, err := dir(getenv)
 	if setting != "" {
@@ -179,6 +183,11 @@ func Locate(getenv func(string) string, setting string) (string, error) {
 	case 0:
 		return "", fmt.Errorf("no configuration found: create %s, or set LOOKOUT_CONFIG to a file's path", filepath.Join(dir, "<setting>.yml"))
 	case 1:
+		// The refusal comes before anything opens the setting's state, so a
+		// command meant for another setting leaves no trace in this one.
+		if refuseErr := chosenByDefault(found[0]); refuseErr != nil {
+			return "", refuseErr
+		}
 		return found[0], nil
 	}
 	names := make([]string, 0, len(found))
@@ -186,6 +195,69 @@ func Locate(getenv func(string) string, setting string) (string, error) {
 		names = append(names, strings.TrimSuffix(filepath.Base(p), filepath.Ext(p)))
 	}
 	return "", fmt.Errorf("several settings are configured in %s (%s): choose one with --setting <name> or LOOKOUT_CONFIG", dir, strings.Join(names, ", "))
+}
+
+// explicitOnlyLine finds a line that looks like it sets explicit_only, however
+// indented, quoted, cased or spelled with - or no separator. chosenByDefault
+// falls back to it wherever the parsed file holds no top-level explicit_only,
+// so a file whose user may have meant to mark it is not chosen by default.
+var explicitOnlyLine = regexp.MustCompile(`(?mi)^[ \t\x{FEFF}]*["']?explicit[-_]?only["']?[ \t]*:`)
+
+// chosenByDefault refuses the only file in the configuration directory when it
+// is, or may be, explicit_only. It reads the key as parse does, but nothing
+// else, so a file that parses but is wrong in any other way is still chosen and
+// its error reported, as it would be without the key. An unreadable file, and
+// one whose name no route accepts, are chosen for the same reason: whatever
+// reads it next names the failure, before any state is opened for it.
+func chosenByDefault(path string) error {
+	name, nameErr := settingName(path)
+	if nameErr != nil {
+		return nil
+	}
+	data, readErr := os.ReadFile(path)
+	if readErr != nil {
+		return nil
+	}
+	var shape struct {
+		ExplicitOnly yaml.Node `yaml:"explicit_only"`
+	}
+	var explicit bool
+	readErr = yaml.Unmarshal(data, &shape)
+	switch {
+	case readErr == nil && shape.ExplicitOnly.Kind != 0:
+		explicit, readErr = explicitOnly(shape.ExplicitOnly)
+	case !explicitOnlyLine.Match(data):
+		return nil
+	default:
+		readErr = errors.New("explicit_only is not set as lookout reads it")
+	}
+	routes := "--setting " + name + " or LOOKOUT_CONFIG=" + path
+	switch {
+	case readErr != nil:
+		return fmt.Errorf("%s looks like it sets explicit_only, but lookout cannot read it as a top-level key set to a boolean, so it is never chosen by default: check its spelling and value, then name it with %s", path, routes)
+	case explicit:
+		return fmt.Errorf("%s sets explicit_only, so it is never chosen by default: name it with %s", path, routes)
+	}
+	return nil
+}
+
+// explicitOnly reads explicit_only as yaml.v3 decodes a bool, refusing an empty
+// value, which would otherwise read as false and leave a setting its user meant
+// to mark open to being chosen by default.
+func explicitOnly(n yaml.Node) (bool, error) {
+	if n.Kind == 0 {
+		return false, nil
+	}
+	// An alias carries none of its target's tag, so an alias to null would
+	// otherwise decode as false without error.
+	for n.Kind == yaml.AliasNode && n.Alias != nil {
+		n = *n.Alias
+	}
+	var explicit bool
+	if n.Tag == "!!null" || n.Decode(&explicit) != nil {
+		return false, fmt.Errorf("explicit_only %q is not a boolean such as true or false", n.Value)
+	}
+	return explicit, nil
 }
 
 // settingFiles lists the configuration files in dir: regular *.yml files whose
@@ -239,6 +311,7 @@ func settingName(path string) (string, error) {
 }
 
 type fileShape struct {
+	ExplicitOnly    yaml.Node   `yaml:"explicit_only"`
 	EventWindow     string      `yaml:"event_window"`
 	DiscoveryWindow string      `yaml:"discovery_window"`
 	ForgeOwners     []string    `yaml:"forge_owners"`
@@ -301,6 +374,9 @@ func parse(data []byte, path string) (*Config, error) {
 	}
 
 	cfg := &Config{Setting: setting, Path: path, EventWindow: defaultEventWindow}
+	if cfg.ExplicitOnly, err = explicitOnly(shape.ExplicitOnly); err != nil {
+		return nil, err
+	}
 	if shape.EventWindow != "" {
 		if cfg.EventWindow, err = duration("event_window", shape.EventWindow); err != nil {
 			return nil, err

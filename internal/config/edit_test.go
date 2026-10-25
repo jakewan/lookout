@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -120,6 +121,81 @@ func TestSaveReplacesASymlinksTarget(t *testing.T) {
 	}
 	if got := contents(t, target); got == editable {
 		t.Errorf("target unchanged, want the edit written through the link")
+	}
+}
+
+func TestEveryEditKeepsExplicitOnly(t *testing.T) {
+	const workstreams = "workstreams:\n  - name: billing\n    members:\n      - tracker:ABC-1\n  - name: onboarding\n    members:\n      - tracker:ABC-9\n"
+	const inputs = "inputs:\n  - name: tracker\n    kind: supplied\n    supplied: tracker.json\n    max_age: 24h\n"
+	const key = "explicit_only: true\n"
+	edits := map[string]func(*Document) error{
+		"adopt": func(d *Document) error {
+			_, err := d.Adopt(Member{Input: "tracker", ID: "ABC-3"}, "billing", false)
+			return err
+		},
+		"adopt into a new workstream": func(d *Document) error {
+			_, err := d.Adopt(Member{Input: "tracker", ID: "ABC-3"}, "payments", true)
+			return err
+		},
+		"move": func(d *Document) error {
+			_, err := d.Move(Member{Input: "tracker", ID: "ABC-1"}, "onboarding", false)
+			return err
+		},
+		"remove": func(d *Document) error {
+			_, err := d.Remove(Member{Input: "tracker", ID: "ABC-9"})
+			return err
+		},
+		"rename":   func(d *Document) error { return d.Rename("billing", "payments") },
+		"order":    func(d *Document) error { return d.Order([]string{"onboarding"}) },
+		"complete": func(d *Document) error { return d.Complete("billing", "2030-06-15") },
+	}
+	for place, text := range map[string]string{
+		"before the workstreams": key + inputs + workstreams,
+		"after the workstreams":  inputs + workstreams + key,
+	} {
+		for name, change := range edits {
+			t.Run(place+"/"+name, func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), "personal.yml")
+				if err := os.WriteFile(path, []byte(text), 0o640); err != nil {
+					t.Fatal(err)
+				}
+				doc, err := Open(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if changeErr := change(doc); changeErr != nil {
+					t.Fatal(changeErr)
+				}
+				if saveErr := doc.Save(); saveErr != nil {
+					t.Fatal(saveErr)
+				}
+				got := contents(t, path)
+				if !strings.Contains(got, "\n"+key) && !strings.HasPrefix(got, key) {
+					t.Errorf("file = %q, want the explicit_only line kept", got)
+				}
+				cfg, err := Load(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !cfg.ExplicitOnly {
+					t.Errorf("ExplicitOnly = false after %s", name)
+				}
+			})
+		}
+	}
+}
+
+func TestApplyRejectsAnEditThatDropsExplicitOnly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "personal.yml")
+	if err := os.WriteFile(path, []byte("explicit_only: true\n"+editable), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.apply([]byte(editable), doc.cfg.clone()); err == nil {
+		t.Error("apply accepted an edit that dropped explicit_only")
 	}
 }
 
