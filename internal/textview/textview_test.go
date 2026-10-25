@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -250,6 +251,12 @@ var cases = map[string]fixture{
 			{name: "rtl\u202eabc", idle: minute, items: []string{"tracker:ABC-3"}},
 		},
 		health: ok("tracker"),
+	},
+	"huge-counts": {
+		window:    7 * day,
+		health:    []map[string]any{input("tracker", "error", "missing")},
+		dismissed: math.MaxInt64,
+		completed: math.MaxInt64,
 	},
 	"warning-names": {
 		window: 7 * day,

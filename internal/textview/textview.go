@@ -67,7 +67,8 @@ func Render(w io.Writer, readout []byte) error {
 	fmt.Fprintf(&b, "%s - %s UTC\n\n", name(v.Setting), v.GeneratedAt.UTC().Format("2006-01-02 15:04"))
 	writeWorkstreams(&b, v)
 	writeWarnings(&b, v)
-	b.WriteString("\n" + footer(v) + "\n")
+	b.WriteString("\n")
+	b.WriteString(footer(v))
 	if _, err := io.WriteString(w, b.String()); err != nil {
 		return fmt.Errorf("writing the view: %w", err)
 	}
@@ -171,7 +172,10 @@ func footer(v view) string {
 	case v.CompletedCount > 1:
 		parts = append(parts, fmt.Sprintf("%d workstreams completed", v.CompletedCount))
 	}
-	return flag + strings.Join(parts, ", ")
+	for i := range parts[:len(parts)-1] {
+		parts[i] += ","
+	}
+	return wrap(parts, flag, "  ")
 }
 
 // inputOrder ranks each input by its place in health, which readout.v1 keeps
