@@ -972,6 +972,7 @@ func TestAnExplicitOnlySettingIsNeverChosenByDefault(t *testing.T) {
 		{"dismiss", "tracker:ABC-3"},
 		{"read", "--json"},
 		{"unplaced"},
+		{"show"},
 		{"snapshot"},
 	} {
 		t.Run(args[0], func(t *testing.T) {

@@ -1,0 +1,16 @@
+a-very-long-setting-nam~ - 2030-06-15 12:00 UTC
+
+Workstreams
+  the-quarterly-reconcili~    1h          tracker 1
+  the-quarterly-reconcili~    2h          tracker 1
+! wide                        1m          tracker 3, github 2, git 1,
+                                          sessions 1, notes 1,
+                                          an-input-with-a-name-fa~ 1 (2 unread)
+
+Warnings
+  input an-input-with-a-name-fa~: degraded (stale, schema, supplier_degraded,
+    missing_fields, clock_skew, duplicate_id,
+    reason_named_at_length_to_need_a_line_of_its_own_in_the_view)
+  workstream wide: an-input-with-a-name-fa~ may be incomplete
+
+0 unplaced
