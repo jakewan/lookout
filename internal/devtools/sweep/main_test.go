@@ -135,6 +135,17 @@ func expectClean(t *testing.T, code int, out string) {
 }
 
 func TestHelperIgnoresInheritedRepositoryEnvironment(t *testing.T) {
+	// The pre-push hook runs this suite with GIT_DIR naming the repository
+	// being pushed, so the spec starts the same way.
+	pushed := t.TempDir()
+	if out, err := exec.Command("git", "init", "--quiet", pushed).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	t.Setenv("GIT_DIR", filepath.Join(pushed, ".git"))
+
+	// Inherited, GIT_DIR would make git init set up the pushed repository
+	// again rather than the decoy.
+	clearRepositoryEnvironment(t)
 	decoy := t.TempDir()
 	if out, err := exec.Command("git", "init", "--quiet", decoy).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)
