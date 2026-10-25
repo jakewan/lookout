@@ -3,6 +3,7 @@ package textview
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,9 +78,7 @@ func (f fixture) readout() map[string]any {
 			w["last_touched"] = generated.Add(-time.Duration(l.idle) * time.Second).Format(time.RFC3339)
 			w["idle_seconds"] = l.idle
 		}
-		for k, v := range l.extra {
-			w[k] = v
-		}
+		maps.Copy(w, l.extra)
 		lanes = append(lanes, w)
 	}
 	unplaced := make([]any, 0, f.unplaced)
@@ -101,9 +100,7 @@ func (f fixture) readout() map[string]any {
 		"dismissed_count":      f.dismissed,
 		"completed_count":      f.completed,
 	}
-	for k, v := range f.extra {
-		doc[k] = v
-	}
+	maps.Copy(doc, f.extra)
 	return doc
 }
 

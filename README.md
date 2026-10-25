@@ -4,6 +4,13 @@ A single vantage point over everything you have in flight. lookout gathers recen
 
 lookout is at an early stage, and has no releases yet. To build it from a clone, run `just install`, which installs it to `~/.local/bin` using the toolchain `mise.toml` pins. Reading git repositories needs git 2.36 or later, and reading GitHub needs the [GitHub CLI](https://cli.github.com/), logged in to github.com (`gh auth login`) or with `GH_TOKEN` set. Reading Claude Code sessions needs the configuration directories that hold them, listed as `config_dirs`, and git, which places each session in the repository at its working directory when lookout reads. [docs/vision.md](docs/vision.md) describes the dashboard it is the data layer for.
 
+Run `lookout show` to read a setting's workstreams in a terminal. It lists them in their stated order, one row each, in plain text that fits 80 columns. Each row shows:
+- how long since the workstream was last touched;
+- `stale` once that time is longer than `event_window`, or `unread` when no input supplied any of its members on this read;
+- its members per input, with how many no input supplied.
+
+A row starting with `!` draws on an input that is degraded or in error, so its figures may understate. Below the rows, a warning names each such input with its reasons, and each workstream that draws on one. The last line counts the unplaced items, then the dismissed and completed ones. A name longer than 24 characters is cut and ends in `~`. The width counts every character as one column, so wide characters, such as many in Chinese, Japanese or Korean, can push a line past 80. The view is drawn from the same readout `lookout read --json` writes. It is a stopgap for reading the data now, not the dashboard the vision describes.
+
 Run `lookout snapshot` once a day to keep a baseline of how often new work appears and how stale your workstreams are. Read beside the gesture log in the same directory, it shows how each new item was placed. With a `github` input configured, each record also lists the pull requests you authored within your github.com `forge_owners` that merged since the last record that read them. To count them, skip records whose `merged_prs.failed` is set, since a failed read lists nothing, and group by each entry's `merged_at`: a merge GitHub's search finds late is listed on a later record. The first snapshot of a date is kept, so running it again later that day changes nothing.
 
 ## Configuration
