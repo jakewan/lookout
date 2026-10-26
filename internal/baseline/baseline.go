@@ -299,8 +299,17 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 	r.HandPlaced = handPlaced(replayed, cfg.Workstreams)
 
 	candidates := slices.Concat(unplaced, r.HandPlaced)
+	// A key places an item without anyone deciding to, so one any earlier
+	// record lists as joined has arrived already, however it was held since:
+	// joining it again, after it was adopted and removed, asks nothing new.
+	joinedBefore := map[string]bool{}
+	for _, rec := range history {
+		for _, t := range rec.Joined {
+			joinedBefore[t] = true
+		}
+	}
 	for _, t := range r.Joined {
-		if !slices.Contains(older, t) {
+		if !slices.Contains(older, t) && !joinedBefore[t] {
 			candidates = append(candidates, t)
 		}
 	}
@@ -309,6 +318,7 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 			candidates = append(candidates, g.Item)
 		}
 	}
+	older = slices.DeleteFunc(older, func(t string) bool { return joinedBefore[t] })
 	r.Arrivals, r.Backlog = arrivals(history, candidates, older)
 	return r, nil
 }

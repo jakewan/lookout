@@ -1034,3 +1034,47 @@ func TestSnapshotTakesOldWorkAPatternJoinsAsBacklog(t *testing.T) {
 		t.Errorf("joined = %v, arrivals = %v, backlog = %v, want work older than the discovery window joined as backlog, never arriving", b.Joined, b.Arrivals, b.Backlog)
 	}
 }
+
+func TestSnapshotNeverCountsARejoinedItemAsArrivingAgain(t *testing.T) {
+	f := newFixture(t).withGit()
+	f.write("personal.yml", `
+discovery_window: 72h
+key_pattern: '([A-Z]+-[0-9]+)'
+forge_owners: [alice]
+inputs:
+  - name: tracker
+    kind: supplied
+    supplied: tracker.json
+    max_age: 24h
+  - name: code
+    kind: git
+    repos: ["~/code/*"]
+workstreams:
+  - name: billing
+    members:
+      - tracker:ABC-1
+`)
+	app := f.repo("code/app", "git@github.com:alice/app.git")
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	f.snapshot()
+
+	f.nextDay()
+	f.branch(app, "feature/ABC-1-export", -23*time.Hour)
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	if b := f.snapshot(); !slices.Equal(b.Arrivals, []string{"code:alice/app:feature/ABC-1-export"}) {
+		t.Fatalf("arrivals = %v, want the joined branch arriving", b.Arrivals)
+	}
+
+	f.nextDay()
+	f.mustRun("adopt", "code:alice/app:feature/ABC-1-export", "billing")
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	f.snapshot()
+
+	f.nextDay()
+	f.mustRun("remove", "code:alice/app:feature/ABC-1-export")
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	b := f.snapshot()
+	if !slices.Equal(b.Joined, []string{"code:alice/app:feature/ABC-1-export"}) || len(b.Arrivals) != 0 {
+		t.Errorf("joined = %v, arrivals = %v, want it joined again and not arriving: it joined before and has not moved", b.Joined, b.Arrivals)
+	}
+}
