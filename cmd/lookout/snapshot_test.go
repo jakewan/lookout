@@ -1070,7 +1070,11 @@ workstreams:
 	f.tracker(map[string]time.Time{"ABC-1": now})
 	f.snapshot()
 
+	// An adoption since the last record names the item as well, and must not
+	// count it as arriving where the join already did.
 	f.nextDay()
+	f.mustRun("remove", "code:alice/app:feature/ABC-1-export")
+	f.mustRun("adopt", "code:alice/app:feature/ABC-1-export", "billing")
 	f.mustRun("remove", "code:alice/app:feature/ABC-1-export")
 	f.tracker(map[string]time.Time{"ABC-1": now})
 	b := f.snapshot()

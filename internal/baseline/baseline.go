@@ -309,7 +309,7 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 		}
 	}
 	for _, t := range r.Joined {
-		if !slices.Contains(older, t) && !joinedBefore[t] {
+		if !slices.Contains(older, t) {
 			candidates = append(candidates, t)
 		}
 	}
@@ -318,6 +318,11 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 			candidates = append(candidates, g.Item)
 		}
 	}
+	// Whatever names it as a candidate, a gesture included, an item joined
+	// now that an earlier record lists as joined has arrived already.
+	candidates = slices.DeleteFunc(candidates, func(t string) bool {
+		return joinedBefore[t] && slices.Contains(r.Joined, t)
+	})
 	older = slices.DeleteFunc(older, func(t string) bool { return joinedBefore[t] })
 	r.Arrivals, r.Backlog = arrivals(history, candidates, older)
 	return r, nil
