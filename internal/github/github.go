@@ -183,9 +183,9 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 			search{"is:issue is:open assignee:@me user:" + o + " updated:>=" + since, "issue search of " + o})
 	}
 	stopped := slices.ContainsFunc(failures, func(f failure) bool { return f.stops() })
-	for _, s := range searches {
+	run := func(s search) []node {
 		if stopped {
-			break
+			return nil
 		}
 		nodes, read, short, f := searchAll[node](ctx, r, token, openSearch, s.q, s.label)
 		if f != nil {
@@ -197,11 +197,27 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 			out.Health.Lower(health.Degraded, health.Truncated)
 			detail(short)
 		}
-		for _, n := range nodes {
+		return nodes
+	}
+	for _, s := range searches {
+		for _, n := range run(s) {
 			if n.updated().Before(sc.Since) {
 				continue
 			}
 			admit(n)
+		}
+	}
+	// A key search finds the pull requests that name a ticket in any state, at
+	// any age and by any author the repository trusts, so merged work and a
+	// colleague's join the ticket's workstream. GitHub's search matches more
+	// than the key, so a hit whose own key differs is left out.
+	for _, key := range sc.Keys.Searchable() {
+		for _, o := range owners {
+			for _, n := range run(search{`is:pr in:title "` + key + `" user:` + o, "key search for " + key + " in " + o}) {
+				if n.Typename == "PullRequest" && trusted[n.AuthorAssociation] && strings.EqualFold(n.key(sc.Keys), key) {
+					admit(n)
+				}
+			}
 		}
 	}
 
@@ -243,6 +259,7 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 			out.Health.Lower(health.Degraded, health.ClockSkew)
 			detail(id + ": its last update is dated ahead of this machine's clock")
 		}
+		item.Key = n.key(sc.Keys)
 		out.Items = append(out.Items, item)
 	}
 	out.Health.RecordCount = len(out.Items)
@@ -335,24 +352,31 @@ func parseID(id string) (ref, bool) {
 	return ref{owner: strings.ToLower(owner), repo: strings.ToLower(name), number: n}, true
 }
 
+// trusted is each author association, as GitHub names how an author relates to
+// a repository, whose pull request a key search may join: the owner, a member
+// of the owning organization, or a collaborator. Anyone can open a pull
+// request on a public repository and title it with a key.
+var trusted = map[string]bool{"OWNER": true, "MEMBER": true, "COLLABORATOR": true}
+
 // nodeFields selects what an item is built from, for a pull request or an
 // issue alike.
 const nodeFields = `__typename
-... on PullRequest { number title url state isDraft createdAt updatedAt headRefName repository { nameWithOwner owner { login } } }
+... on PullRequest { number title url state isDraft createdAt updatedAt headRefName authorAssociation repository { nameWithOwner owner { login } } }
 ... on Issue { number title url state createdAt updatedAt repository { nameWithOwner owner { login } } }`
 
 // node is a pull request or issue as GitHub's GraphQL API returns it.
 type node struct {
-	Typename    string `json:"__typename"`
-	Number      int    `json:"number"`
-	Title       string `json:"title"`
-	URL         string `json:"url"`
-	State       string `json:"state"`
-	IsDraft     bool   `json:"isDraft"`
-	CreatedAt   string `json:"createdAt"`
-	UpdatedAt   string `json:"updatedAt"`
-	HeadRefName string `json:"headRefName"`
-	Repository  struct {
+	Typename          string `json:"__typename"`
+	Number            int    `json:"number"`
+	Title             string `json:"title"`
+	URL               string `json:"url"`
+	State             string `json:"state"`
+	IsDraft           bool   `json:"isDraft"`
+	CreatedAt         string `json:"createdAt"`
+	UpdatedAt         string `json:"updatedAt"`
+	HeadRefName       string `json:"headRefName"`
+	AuthorAssociation string `json:"authorAssociation"`
+	Repository        struct {
 		NameWithOwner string `json:"nameWithOwner"`
 		Owner         struct {
 			Login string `json:"login"`
@@ -361,6 +385,15 @@ type node struct {
 }
 
 func (n node) id() string { return itemID(n.Repository.NameWithOwner, n.Number) }
+
+// key is the key a pull request carries, in its title or else its branch; an
+// issue carries none.
+func (n node) key(keys *config.Keys) string {
+	if n.Typename != "PullRequest" {
+		return ""
+	}
+	return keys.Of(n.Title, n.HeadRefName)
+}
 
 // itemID is the id of number in the repository GitHub names nameWithOwner.
 func itemID(nameWithOwner string, number int) string {

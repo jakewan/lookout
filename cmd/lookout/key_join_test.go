@@ -274,14 +274,20 @@ inputs:
     repos: ["~/code/*"]
 workstreams:
   - name: billing
-    members: ["tracker:ABC-1", "code:alice/app:feature/ABC-1-removed"]
+    members:
+      - tracker:ABC-1
+      - code:alice/app:feature/ABC-1-removed
   - name: review
-    members: ["code:alice/app:feature/ABC-1-reviewed"]
+    members:
+      - code:alice/app:feature/ABC-1-reviewed
   - name: ops-work
-    members: ["ops:ABC-1"]
+    members:
+      - ops:ABC-1
   - name: done
     completed: 2030-06-01
-    members: ["code:alice/app:feature/ABC-1-old", "code:alice/app:feature/ABC-1-again"]
+    members:
+      - code:alice/app:feature/ABC-1-old
+      - code:alice/app:feature/ABC-1-again
 `)
 	f.withGit()
 	f.supplied("tracker.json", suppliedDoc("tracker", []any{item("ABC-1", time.Hour, nil)}, nil))

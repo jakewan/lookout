@@ -46,6 +46,9 @@ type Record struct {
 	// gesture added.
 	HandPlaced   []string `json:"hand_placed"`
 	UnloggedEdit bool     `json:"unlogged_edit"`
+	// Joined is every item a key places in a workstream on this record, which
+	// no gesture placed and no member names.
+	Joined []string `json:"joined"`
 	// DiscoveryDigest stands for the configuration that decides what inputs
 	// offer, and DiscoveryChanged reports that it differs from the previous
 	// record's, so a change in what is unplaced can be told from activity.
@@ -214,6 +217,34 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 		return Record{}, err
 	}
 	r.Unplaced = unplaced
+	// A joined item that last moved before the discovery window opened is work
+	// discovery would not have offered, so setting a pattern, or adopting a
+	// ticket, over old work does not read as that work arriving.
+	var joined []readout.Placed
+	for _, w := range out.Workstreams {
+		for _, p := range w.Items {
+			if p.Joined != nil {
+				joined = append(joined, p)
+			}
+		}
+	}
+	r.Joined, err = tokens(joined)
+	if err != nil {
+		return Record{}, err
+	}
+	var older []string
+	for _, p := range joined {
+		var it struct {
+			ID          string    `json:"id"`
+			LastTouched time.Time `json:"last_touched"`
+		}
+		if err := json.Unmarshal(p.Item, &it); err != nil {
+			return Record{}, fmt.Errorf("reading an item of %s: %w", p.Input, err)
+		}
+		if it.LastTouched.Before(now.Add(-cfg.DiscoveryWindow)) {
+			older = append(older, p.Input+":"+it.ID)
+		}
+	}
 
 	for _, w := range out.Workstreams {
 		if len(w.Events) > 0 {
@@ -236,7 +267,8 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 				r.CompletedSincePrevious++
 			}
 		}
-		r.Backlog = slices.Clone(unplaced)
+		r.Backlog = slices.Concat(unplaced, r.Joined)
+		slices.Sort(r.Backlog)
 		return r, nil
 	}
 	previous := &history[len(history)-1]
@@ -266,12 +298,17 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 	r.HandPlaced = handPlaced(replayed, cfg.Workstreams)
 
 	candidates := slices.Concat(unplaced, r.HandPlaced)
+	for _, t := range r.Joined {
+		if !slices.Contains(older, t) {
+			candidates = append(candidates, t)
+		}
+	}
 	for _, g := range since {
 		if g.Gesture == "adopt" || g.Gesture == "dismiss" {
 			candidates = append(candidates, g.Item)
 		}
 	}
-	r.Arrivals, r.Backlog = arrivals(history, candidates)
+	r.Arrivals, r.Backlog = arrivals(history, candidates, older)
 	return r, nil
 }
 
@@ -318,8 +355,10 @@ func completedIn(rec *Record, name string) bool {
 // include what was adopted, dismissed or placed by hand since the previous
 // record. What an input had shown is everything unplaced from its last healthy
 // record on, since a failed or partial reading hides items rather than
-// removing them, and every record's backlog.
-func arrivals(history []Record, candidates []string) (arrived, backlog []string) {
+// removing them, and every record's backlog. A joined item counts as shown
+// the same way an unplaced one does. Each of older not shown before is
+// backlog: it was there before it could arrive.
+func arrivals(history []Record, candidates, older []string) (arrived, backlog []string) {
 	seen := map[string]map[string]bool{}
 	seenBy := func(input string) map[string]bool {
 		if s, ok := seen[input]; ok {
@@ -332,7 +371,7 @@ func arrivals(history []Record, candidates []string) (arrived, backlog []string)
 			}
 			s = map[string]bool{}
 			for _, rec := range history[i:] {
-				for _, t := range rec.Unplaced {
+				for _, t := range slices.Concat(rec.Unplaced, rec.Joined) {
 					s[t] = true
 				}
 			}
@@ -357,6 +396,11 @@ func arrivals(history []Record, candidates []string) (arrived, backlog []string)
 		case !s[t]:
 			s[t] = true
 			arrived = append(arrived, t)
+		}
+	}
+	for _, t := range older {
+		if s := seenBy(member(t).Input); (s == nil || !s[t]) && !slices.Contains(backlog, t) {
+			backlog = append(backlog, t)
 		}
 	}
 	slices.Sort(arrived)
@@ -404,11 +448,12 @@ func handPlaced(replayed, current []config.Workstream) []string {
 	return out
 }
 
-// discoveryDigest stands for the configuration that decides what inputs offer:
-// the inputs themselves, the discovery window and the owner fence. A change to
-// any of them changes what is unplaced with no item having moved. Whether an
-// input expects records is left out: it decides only the input's health, and
-// adopting or removing a supplied input's member changes it.
+// discoveryDigest stands for the configuration that decides what inputs offer
+// and where a key places it: the inputs themselves, the discovery window, the
+// owner fence and the key pattern. A change to any of them changes what is
+// unplaced with no item having moved. Whether an input expects records is left
+// out: it decides only the input's health, and adopting or removing a supplied
+// input's member changes it.
 func discoveryDigest(cfg *config.Config) (string, error) {
 	inputs := slices.Clone(cfg.Inputs)
 	for i := range inputs {
@@ -418,7 +463,10 @@ func discoveryDigest(cfg *config.Config) (string, error) {
 		Inputs          []config.Input
 		DiscoveryWindow time.Duration
 		ForgeOwners     []config.Owner
-	}{inputs, cfg.DiscoveryWindow, cfg.ForgeOwners})
+		// KeyPattern is left out where none is set, so a setting that sets
+		// none keeps the digest it had before the key existed.
+		KeyPattern string `json:",omitempty"`
+	}{inputs, cfg.DiscoveryWindow, cfg.ForgeOwners, cfg.KeyPattern})
 	if err != nil {
 		return "", fmt.Errorf("encoding the discovery configuration: %w", err)
 	}

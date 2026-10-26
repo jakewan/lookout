@@ -120,8 +120,9 @@ func readInputs(ctx context.Context, env environment, cfg *config.Config, now ti
 	repos := git.NewReader(env.getenv)
 	sessions := claudecode.NewReader(env.getenv)
 	readings := make(map[string]readout.Reading, len(cfg.Inputs))
+	keys := cfg.Keys()
 	for _, in := range cfg.Inputs {
-		scope := readout.Scope{Owners: cfg.ForgeOwners, Since: now.Add(-cfg.DiscoveryWindow), Members: cfg.MemberIDs(in.Name)}
+		scope := readout.Scope{Owners: cfg.ForgeOwners, Since: now.Add(-cfg.DiscoveryWindow), Members: cfg.MemberIDs(in.Name), Keys: keys}
 		switch in.Kind {
 		case config.KindSupplied:
 			readings[in.Name] = files.Read(ctx, in, now)
