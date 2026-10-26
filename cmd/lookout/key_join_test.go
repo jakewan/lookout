@@ -424,3 +424,24 @@ func TestAGestureEditsASettingWithAKeyPattern(t *testing.T) {
 		t.Errorf("configuration = %q, want the adopted member", f.config("personal.yml"))
 	}
 }
+
+// TestTheDocumentedPatternFindsKeysAsItIsWritten pins what the README's example
+// key_pattern does: the pattern decides which spellings are keys, so under it
+// an upper-case key joins and a lower-case branch carries none.
+func TestTheDocumentedPatternFindsKeysAsItIsWritten(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", strings.Replace(keyed, "key_pattern: '([A-Za-z]+-[0-9]+)'", "key_pattern: '([A-Z][A-Z0-9]+-[0-9]+)'", 1))
+	f.withKeyedInputs()
+	app := f.repo("code/app", "git@github.com:alice/app.git")
+	f.branch(app, "feature/ABC-1-export", time.Hour)
+	f.branch(app, "feature/abc-1-tidy", time.Hour)
+
+	doc := f.read()
+
+	if got := placed(t, doc, "billing"); !equalMaps(got, map[string]string{"tracker:ABC-1": "", "code:alice/app:feature/ABC-1-export": "tracker:ABC-1"}) {
+		t.Errorf("billing = %v, want the upper-case key joined", got)
+	}
+	if ids := unplacedIDs(doc); !slices.Equal(ids, []string{"code:alice/app:feature/abc-1-tidy"}) {
+		t.Errorf("unplaced = %v, want the lower-case branch, which the pattern finds no key in", ids)
+	}
+}
