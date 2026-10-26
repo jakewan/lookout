@@ -64,11 +64,11 @@ func TestParseRefusesAnExplicitOnlyThatIsNotABool(t *testing.T) {
 	}
 }
 
-// TestKeysSearchesEveryIDAKeyCouldMatch pins which member ids a forge's search
-// is asked for: each one the pattern finds in some spelling of itself, since
-// keys compare without regard to case, and none holding text that would read
-// as search syntax rather than a key.
-func TestKeysSearchesEveryIDAKeyCouldMatch(t *testing.T) {
+// TestKeysSearchesEveryIDButSearchSyntax pins which member ids a forge's
+// search is asked for: every one, whatever the pattern would make of it, since
+// each hit is checked against the key it carries, except one holding text the
+// search would read as its own syntax rather than a key.
+func TestKeysSearchesEveryIDButSearchSyntax(t *testing.T) {
 	for name, tc := range map[string]struct {
 		pattern string
 		ids     []string
@@ -76,8 +76,9 @@ func TestKeysSearchesEveryIDAKeyCouldMatch(t *testing.T) {
 	}{
 		"upper-case pattern, lower-case id": {`([A-Z]+-[0-9]+)`, []string{"abc-1", "ABC-2"}, []string{"ABC-2", "abc-1"}},
 		"mixed-case pattern":                {`([A-Z][a-z]+-[0-9]+)`, []string{"ABC-1", "abc-2", "Abc-3"}, []string{"ABC-1", "Abc-3", "abc-2"}},
-		"an id the pattern cannot produce":  {`([A-Z]+-[0-9]+)`, []string{"ABC-1", "notes"}, []string{"ABC-1"}},
-		"search syntax in an id":            {`(\S+)`, []string{`ABC-1`, `a"b`, `x:y`}, []string{"ABC-1"}},
+		"competing alternatives":            {`([a-z]+|[A-Z]+-[0-9]+)`, []string{"ABC-1"}, []string{"ABC-1"}},
+		"an id the pattern cannot produce":  {`([A-Z]+-[0-9]+)`, []string{"ABC-1", "notes"}, []string{"ABC-1", "notes"}},
+		"search syntax in an id":            {`(\S+)`, []string{`ABC-1`, `a"b`, `x:y`, `a(b`, `a\b`, "a b"}, []string{"ABC-1"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			members := make([]string, 0, len(tc.ids))

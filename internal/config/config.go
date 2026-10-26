@@ -151,13 +151,10 @@ const keyExample = `key_pattern: '([A-Z][A-Z0-9]+-[0-9]+)'`
 // supplied member is that ticket.
 type Keys struct {
 	pattern *regexp.Regexp
-	// folded is pattern ignoring case, which finds the ids work in any case
-	// could carry.
-	folded *regexp.Regexp
 	// owners maps each key, lowercased, to the member it is the id of.
 	owners map[string]KeyOwner
-	// searchable is each owned key, as the configuration writes it, that the
-	// pattern finds in itself.
+	// searchable is each owned key, as the configuration writes it, that holds
+	// no search syntax.
 	searchable []string
 }
 
@@ -182,11 +179,7 @@ func (c *Config) Keys() *Keys {
 	if err != nil {
 		return nil
 	}
-	folded, err := regexp.Compile("(?i:" + c.KeyPattern + ")")
-	if err != nil {
-		return nil
-	}
-	k := &Keys{pattern: pattern, folded: folded, owners: map[string]KeyOwner{}}
+	k := &Keys{pattern: pattern, owners: map[string]KeyOwner{}}
 	for _, w := range c.Workstreams {
 		if w.Completed != "" {
 			continue
@@ -200,7 +193,7 @@ func (c *Config) Keys() *Keys {
 				continue
 			}
 			k.owners[key] = KeyOwner{Workstream: w.Name, Member: m}
-			if k.searches(m.ID) {
+			if !searchSyntax(m.ID) {
 				k.searchable = append(k.searchable, m.ID)
 			}
 		}
@@ -245,23 +238,16 @@ func (k *Keys) Places(workstream string) bool {
 	return false
 }
 
-// searches reports whether id is worth asking a forge's search for: the
-// pattern finds it in itself in some spelling, as keys compare without regard
-// to case, and it holds nothing a search would read as its own syntax, such as
-// a quote, a qualifier's colon or a space.
-func (k *Keys) searches(id string) bool {
-	if strings.ContainsAny(id, `"():\`) || strings.ContainsFunc(id, unicode.IsSpace) {
-		return false
-	}
-	// Go's regular expressions have no backreferences, so the pattern made
-	// case-insensitive matches a text exactly when the pattern matches some
-	// spelling of it in another case.
-	m := k.folded.FindStringSubmatch(id)
-	return m != nil && strings.EqualFold(m[1], id)
+// searchSyntax reports whether id holds text a forge's search would read as
+// its own syntax rather than as part of a key: a quote, a qualifier's colon, a
+// grouping parenthesis, a backslash or a space.
+func searchSyntax(id string) bool {
+	return strings.ContainsAny(id, `"():\`) || strings.ContainsFunc(id, unicode.IsSpace)
 }
 
-// Searchable is each key worth asking a forge's search for, so an id no work
-// could carry, and one holding search syntax, is never sent.
+// Searchable is each key a forge's search may be asked for: every owned one
+// but those holding search syntax. Whether the pattern would find the key is
+// not asked, since every hit is checked against the key it carries.
 func (k *Keys) Searchable() []string {
 	if k == nil {
 		return nil
