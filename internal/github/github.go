@@ -82,8 +82,8 @@ func (f *failure) stops() bool {
 }
 
 // Read reports in's pull requests and issues: each member asked for by
-// number, at any age and in any state, and the open work discovered within
-// the owner fence. A member outside the fence is never asked for, and a node
+// number, at any age and in any state, the open work discovered within the
+// owner fence, and the pull requests a search finds carrying a key. A member outside the fence is never asked for, and a node
 // the fence does not admit is counted, never named.
 func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, now time.Time) readout.Reading {
 	out := readout.Reading{Health: health.New(in.Name), Items: make([]readout.Item, 0)}
