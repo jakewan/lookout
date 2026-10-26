@@ -2,7 +2,7 @@
 
 What a graphical view of one person's concurrent workstreams has to show, why it has to be graphical, the design decisions already settled, and the questions they leave open.
 
-lookout is the data layer of this dashboard: it gathers the activity, groups it into workstreams, and reports the health of every input. The renderer that draws the view is not chosen, and this document is where its requirements are kept until it is.
+lookout is the data layer of this dashboard: it gathers the activity, groups it into workstreams, and reports the health of every input. The renderer that draws the view is not chosen, and this document is where its requirements are kept until it is. Until then, `lookout show` prints a plain-text view of the readout for reading the data now. It reads the readout as any renderer would, and it is a stopgap, not the graphical view this document describes.
 
 ## Purpose
 
@@ -95,7 +95,7 @@ Together these give **two levels of loudness**. Only stop-the-line items take fo
 
 ## Renderer candidates
 
-Not chosen. Each would read lookout's readout, never the sources behind it.
+Not chosen. Each would read lookout's readout, never the sources behind it. The plain-text view `lookout show` prints is not one of them: it draws no lanes and no history, so it does not settle the question below.
 
 - **Grafana OSS with the Infinity data source** (<https://grafana.com/docs/plugins/yesoreyeram-infinity-datasource/latest/>). The State timeline panel draws lanes, and dashboards and data sources are provisioned from files. A panel's "No data" stays quiet, so the health record would need generated alert rules or a health panel.
 - **Observable Framework.** Data loaders in any language, Plot or D3 charts, a static site. A cached loader result can be served stale without notice (<https://github.com/observablehq/framework/issues/1148>), so freshness is the data layer's to enforce.

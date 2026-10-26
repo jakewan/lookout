@@ -23,6 +23,7 @@ const (
 
 const usage = `usage:
   lookout read --json [--setting <name>]
+  lookout show [--setting <name>]
   lookout unplaced [--setting <name>]
   lookout adopt [--setting <name>] [--new] <input>:<id> <workstream>
   lookout dismiss [--setting <name>] <input>:<id>
@@ -66,6 +67,7 @@ func run(ctx context.Context, args []string, env environment, stdout, stderr io.
 	}
 	commands := map[string]func(context.Context, []string, environment, io.Writer, *log.Logger) int{
 		"read":     read,
+		"show":     show,
 		"unplaced": unplaced,
 		"adopt":    adopt,
 		"dismiss":  dismiss,

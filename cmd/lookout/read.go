@@ -24,7 +24,7 @@ func read(ctx context.Context, args []string, env environment, stdout io.Writer,
 		return exitUsage
 	}
 	if !*asJSON {
-		diag.Printf("lookout read: --json is required; JSON is the only output so far\n%s", usage)
+		diag.Printf("lookout read: --json is required; for a view to read, run lookout show\n%s", usage)
 		return exitUsage
 	}
 

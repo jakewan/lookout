@@ -6,11 +6,11 @@ This file orients an AI agent (or a new contributor) working in this repository.
 
 A command-line tool that gives one vantage point over everything you have in flight. It gathers recent activity — git branches and worktrees, GitHub pull requests and issues, AI coding sessions, and files supplied by other tools such as an issue-tracker exporter — groups it into workstreams you define, and reports how recently each one moved and whether every input it relies on is healthy.
 
-It is the data layer only. It emits a readout for a renderer to consume and does not draw one itself.
+It is the data layer: it emits a readout for a renderer to consume. `lookout show` is a plain-text view over that same readout, drawn only from what the readout publishes, and does not settle which renderer draws the dashboard.
 
 ## Status and layout
 
-Early. `lookout read --json` and `lookout unplaced` report on supplied files, local git repositories, GitHub and Claude Code sessions; `adopt`, `move`, `remove`, `rename`, `order` and `complete` edit the configuration file, and `dismiss` writes state, each recording a gesture; `snapshot` records a daily baseline in state.
+Early. `lookout read --json`, `lookout show` and `lookout unplaced` report on supplied files, local git repositories, GitHub and Claude Code sessions; `adopt`, `move`, `remove`, `rename`, `order` and `complete` edit the configuration file, and `dismiss` writes state, each recording a gesture; `snapshot` records a daily baseline in state.
 
 ```
 cmd/lookout/              # binary entry point and its behavior specs
@@ -24,6 +24,7 @@ internal/fsx/             # the one rule filesystem errors are sorted by
 internal/supplied/        # reading a supplied file and judging its input's health
 internal/health/          # the health record every input reports
 internal/readout/         # assembling the readout
+internal/textview/        # the plain-text view of a readout, read only through its published JSON
 internal/state/           # one setting's tool history: the gesture log, the dismissals replayed from it, and the baseline
 internal/baseline/        # deriving each day's baseline record from a readout, the configuration and the gesture log
 internal/devtools/sweep/  # disclosure sweep run before every push; not part of the binary
