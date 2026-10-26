@@ -33,9 +33,10 @@ type Record struct {
 	PreviousDate string    `json:"previous_date,omitempty"`
 	At           time.Time `json:"at"`
 	// Backlog is what an input showed before it had a healthy record to measure
-	// arrivals against: everything unplaced on the first record, and on a later
-	// one, what an input failing until then, or newly configured, showed. None
-	// of it ever counts as an arrival.
+	// arrivals against: everything unplaced or joined on the first record, and
+	// on a later one, what an input failing until then, or newly configured,
+	// showed, and each item joined for the first time that last moved before
+	// the discovery window opened. None of it ever counts as an arrival.
 	Backlog                []string  `json:"backlog,omitempty"`
 	ActiveWorkstreams      int       `json:"active_workstreams"`
 	Staleness              Staleness `json:"staleness"`

@@ -753,7 +753,7 @@ func keyPattern(source string) error {
 	}
 	pattern, err := regexp.Compile(source)
 	if err != nil {
-		return fmt.Errorf("key_pattern %q is not a regular expression lookout reads (%w): write it in single quotes, such as %s", source, err, keyExample)
+		return fmt.Errorf("key_pattern %q is not a regular expression in Go's syntax (%w): write one such as %s", source, err, keyExample)
 	}
 	if n := pattern.NumSubexp(); n != 1 {
 		return fmt.Errorf("key_pattern %q has %d capture groups: put exactly one around the key, and write any other group as (?:...), such as %s", source, n, keyExample)

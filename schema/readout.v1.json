@@ -146,7 +146,7 @@
           }
         },
         "inputs_incomplete": {
-          "description": "Inputs this workstream draws on whose health is error or degraded, so its figures may understate. A workstream a key joins work to draws on every input lookout reads itself, since a failed one may have kept a join from it.",
+          "description": "Inputs this workstream draws on whose health is error or degraded, so its figures may understate. A workstream a key belongs to, whether or not anything joined it on this read, draws on every input lookout reads itself, since a failed one may have kept a join from it.",
           "type": "array",
           "items": {
             "type": "string"
