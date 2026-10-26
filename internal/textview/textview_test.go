@@ -36,7 +36,9 @@ type lane struct {
 	items      []string
 	unread     []string
 	incomplete []string
-	extra      map[string]any
+	// joined are items, as <input>:<id>, that tracker:ABC-1's key joined.
+	joined []string
+	extra  map[string]any
 }
 
 // fixture is a readout built for one case. Only the fields the view reads are
@@ -63,6 +65,12 @@ func (f fixture) readout() map[string]any {
 		for _, m := range l.items {
 			input, id, _ := strings.Cut(m, ":")
 			items = append(items, placed(input, id))
+		}
+		for _, m := range l.joined {
+			input, id, _ := strings.Cut(m, ":")
+			p := placed(input, id)
+			p["joined"] = map[string]any{"by": "key", "member": "tracker:ABC-1"}
+			items = append(items, p)
 		}
 		w := map[string]any{
 			"name":              l.name,
@@ -205,6 +213,17 @@ var cases = map[string]fixture{
 			{name: "moved", idle: 5, items: []string{"tracker:ABC-2"}},
 		},
 		health: ok("tracker"),
+	},
+	"joined": {
+		window: 7 * day,
+		lanes: []lane{{
+			name:   "keyed-work",
+			idle:   minute,
+			items:  []string{"tracker:ABC-1", "github:owner/repo#3"},
+			unread: []string{"tracker:ABC-2"},
+			joined: []string{"github:owner/repo#1", "github:owner/repo#2", "git:owner/repo:feature/ABC-1-x"},
+		}},
+		health: ok("tracker", "github", "git"),
 	},
 	"counts": {
 		window: 7 * day,

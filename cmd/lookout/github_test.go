@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -49,6 +50,9 @@ type ghNode struct {
 	// heldBack is how many merged searches leave it out before one finds it,
 	// as GitHub's search index trails a merge.
 	heldBack int
+	// association is how GitHub relates a pull request's author to its
+	// repository; empty sends OWNER.
+	association string
 }
 
 // ghRequest is one request the fake received.
@@ -209,6 +213,18 @@ func (g *githubFake) search(w http.ResponseWriter, q string, after any) {
 // one would find nodes it should not.
 func (g *githubFake) matches(n ghNode, q string) bool {
 	for _, term := range strings.Fields(q) {
+		// A quoted term matches titles holding it in any case, as GitHub's
+		// search does; in:title says that is where to look.
+		if phrase, ok := strings.CutPrefix(term, `"`); ok {
+			phrase, ok = strings.CutSuffix(phrase, `"`)
+			if !ok || !strings.Contains(q, "in:title") {
+				g.t.Errorf("search %q: term %s is not a quoted phrase searched in titles", q, term)
+			}
+			if !strings.Contains(strings.ToLower(n.title), strings.ToLower(phrase)) {
+				return false
+			}
+			continue
+		}
 		key, value, _ := strings.Cut(term, ":")
 		switch key {
 		case "is":
@@ -234,6 +250,10 @@ func (g *githubFake) matches(n ghNode, q string) bool {
 				}
 			default:
 				g.t.Errorf("search %q: unexpected is:%s", q, value)
+			}
+		case "in":
+			if value != "title" {
+				g.t.Errorf("search %q: unexpected in:%s", q, value)
 			}
 		case "author":
 			if value != "@me" || !n.authored {
@@ -349,6 +369,7 @@ func (n ghNode) json() map[string]any {
 		}
 		doc["id"], doc["baseRefName"] = id, base
 		doc["isDraft"] = n.draft
+		doc["authorAssociation"] = cmp.Or(n.association, "OWNER")
 		doc["headRefName"] = n.branch
 		doc["mergedAt"] = nil
 		if !n.merged.IsZero() {
