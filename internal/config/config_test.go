@@ -75,6 +75,7 @@ func TestKeysSearchesEveryIDAKeyCouldMatch(t *testing.T) {
 		want    []string
 	}{
 		"upper-case pattern, lower-case id": {`([A-Z]+-[0-9]+)`, []string{"abc-1", "ABC-2"}, []string{"ABC-2", "abc-1"}},
+		"mixed-case pattern":                {`([A-Z][a-z]+-[0-9]+)`, []string{"ABC-1", "abc-2", "Abc-3"}, []string{"ABC-1", "Abc-3", "abc-2"}},
 		"an id the pattern cannot produce":  {`([A-Z]+-[0-9]+)`, []string{"ABC-1", "notes"}, []string{"ABC-1"}},
 		"search syntax in an id":            {`(\S+)`, []string{`ABC-1`, `a"b`, `x:y`}, []string{"ABC-1"}},
 	} {

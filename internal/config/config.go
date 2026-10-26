@@ -151,6 +151,9 @@ const keyExample = `key_pattern: '([A-Z][A-Z0-9]+-[0-9]+)'`
 // supplied member is that ticket.
 type Keys struct {
 	pattern *regexp.Regexp
+	// folded is pattern ignoring case, which finds the ids work in any case
+	// could carry.
+	folded *regexp.Regexp
 	// owners maps each key, lowercased, to the member it is the id of.
 	owners map[string]KeyOwner
 	// searchable is each owned key, as the configuration writes it, that the
@@ -179,7 +182,11 @@ func (c *Config) Keys() *Keys {
 	if err != nil {
 		return nil
 	}
-	k := &Keys{pattern: pattern, owners: map[string]KeyOwner{}}
+	folded, err := regexp.Compile("(?i:" + c.KeyPattern + ")")
+	if err != nil {
+		return nil
+	}
+	k := &Keys{pattern: pattern, folded: folded, owners: map[string]KeyOwner{}}
 	for _, w := range c.Workstreams {
 		if w.Completed != "" {
 			continue
@@ -246,12 +253,11 @@ func (k *Keys) searches(id string) bool {
 	if strings.ContainsAny(id, `"():\`) || strings.ContainsFunc(id, unicode.IsSpace) {
 		return false
 	}
-	for _, spelling := range []string{id, strings.ToUpper(id), strings.ToLower(id)} {
-		if strings.EqualFold(k.Of(spelling), id) {
-			return true
-		}
-	}
-	return false
+	// Go's regular expressions have no backreferences, so the pattern made
+	// case-insensitive matches a text exactly when the pattern matches some
+	// spelling of it in another case.
+	m := k.folded.FindStringSubmatch(id)
+	return m != nil && strings.EqualFold(m[1], id)
 }
 
 // Searchable is each key worth asking a forge's search for, so an id no work
