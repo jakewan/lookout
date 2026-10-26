@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -60,5 +61,36 @@ func TestParseRefusesAnExplicitOnlyThatIsNotABool(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "explicit_only") {
 			t.Errorf("%q: err = %v, want a refusal naming explicit_only", text, err)
 		}
+	}
+}
+
+// TestKeysSearchesEveryIDAKeyCouldMatch pins which member ids a forge's search
+// is asked for: each one the pattern finds in some spelling of itself, since
+// keys compare without regard to case, and none holding text that would read
+// as search syntax rather than a key.
+func TestKeysSearchesEveryIDAKeyCouldMatch(t *testing.T) {
+	for name, tc := range map[string]struct {
+		pattern string
+		ids     []string
+		want    []string
+	}{
+		"upper-case pattern, lower-case id": {`([A-Z]+-[0-9]+)`, []string{"abc-1", "ABC-2"}, []string{"ABC-2", "abc-1"}},
+		"an id the pattern cannot produce":  {`([A-Z]+-[0-9]+)`, []string{"ABC-1", "notes"}, []string{"ABC-1"}},
+		"search syntax in an id":            {`(\S+)`, []string{`ABC-1`, `a"b`, `x:y`}, []string{"ABC-1"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			members := make([]string, 0, len(tc.ids))
+			for _, id := range tc.ids {
+				members = append(members, "      - '"+strings.ReplaceAll("tracker:"+id, "'", "''")+"'")
+			}
+			text := "key_pattern: '" + tc.pattern + "'\ninputs:\n  - {name: tracker, kind: supplied, supplied: t.json, max_age: 1h}\nworkstreams:\n  - name: w\n    members:\n" + strings.Join(members, "\n") + "\n"
+			cfg, err := Parse([]byte(text), "personal.yml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cfg.Keys().Searchable(); !slices.Equal(got, tc.want) {
+				t.Errorf("Searchable = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

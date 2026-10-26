@@ -193,7 +193,7 @@ func (c *Config) Keys() *Keys {
 				continue
 			}
 			k.owners[key] = KeyOwner{Workstream: w.Name, Member: m}
-			if strings.EqualFold(k.Of(m.ID), m.ID) {
+			if k.searches(m.ID) {
 				k.searchable = append(k.searchable, m.ID)
 			}
 		}
@@ -238,9 +238,24 @@ func (k *Keys) Places(workstream string) bool {
 	return false
 }
 
-// Searchable is each key worth asking a forge's search for: one the pattern
-// finds in the key itself, so an id no work could carry, and any text it could
-// carry into a query, is never sent.
+// searches reports whether id is worth asking a forge's search for: the
+// pattern finds it in itself in some spelling, as keys compare without regard
+// to case, and it holds nothing a search would read as its own syntax, such as
+// a quote, a qualifier's colon or a space.
+func (k *Keys) searches(id string) bool {
+	if strings.ContainsAny(id, `"():\`) || strings.ContainsFunc(id, unicode.IsSpace) {
+		return false
+	}
+	for _, spelling := range []string{id, strings.ToUpper(id), strings.ToLower(id)} {
+		if strings.EqualFold(k.Of(spelling), id) {
+			return true
+		}
+	}
+	return false
+}
+
+// Searchable is each key worth asking a forge's search for, so an id no work
+// could carry, and one holding search syntax, is never sent.
 func (k *Keys) Searchable() []string {
 	if k == nil {
 		return nil

@@ -219,8 +219,16 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 	// colleague's join the ticket's workstream. GitHub's search finds the key
 	// anywhere in a title, in any case, so a hit whose own key differs, such as
 	// one whose title names another key first, is left out. Several keys go in
-	// one search, since each search is a round trip on every read.
-	for _, keys := range keyGroups(sc.Keys.Searchable()) {
+	// one search, since each search is a round trip on every read. That rests on
+	// GitHub applying is:pr, in:title and user: to every alternative OR joins,
+	// which read-only queries against github.com showed; were it to apply them
+	// to one alternative only, hits from elsewhere would be fetched, and the
+	// checks here and in admit would still keep them out.
+	groups, skipped := keyGroups(sc.Keys.Searchable())
+	for _, key := range skipped {
+		detail("key " + key + ": too long for GitHub's search, so it is not searched for")
+	}
+	for _, keys := range groups {
 		asked := strings.Join(keys, `" OR "`)
 		for _, o := range owners {
 			for _, n := range run(search{`is:pr in:title "` + asked + `" user:` + o, "key search for " + strings.Join(keys, ", ") + " in " + o}) {
@@ -365,14 +373,14 @@ func parseID(id string) (ref, bool) {
 
 // keyGroups splits keys into the groups one search each asks for, each within
 // keysPerSearch keys and keyText characters as the query quotes and joins
-// them. A key too long to fit a search alone is never asked for.
-func keyGroups(keys []string) [][]string {
-	var groups [][]string
+// them. A key too long to fit a search alone is skipped, never asked for.
+func keyGroups(keys []string) (groups [][]string, skipped []string) {
 	var group []string
 	text := 0
 	for _, k := range keys {
 		size := len(`""`) + len(k)
 		if size > keyText {
+			skipped = append(skipped, k)
 			continue
 		}
 		if len(group) > 0 {
@@ -388,7 +396,7 @@ func keyGroups(keys []string) [][]string {
 	if len(group) > 0 {
 		groups = append(groups, group)
 	}
-	return groups
+	return groups, skipped
 }
 
 // trusted is each author association, as GitHub names how an author relates to
