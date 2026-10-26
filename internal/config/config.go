@@ -41,6 +41,10 @@ type Config struct {
 	DiscoveryWindow time.Duration
 	// ForgeOwners are the forge owners whose work this setting admits.
 	ForgeOwners []Owner
+	// KeyPattern is the file's key_pattern, as written, or empty for none.
+	// Keys reads it; it is kept as text so edits compare it as they compare
+	// everything else.
+	KeyPattern  string
 	Inputs      []Input
 	Workstreams []Workstream
 }
@@ -137,6 +141,118 @@ func (c *Config) MemberIDs(input string) map[string]bool {
 type Member struct {
 	Input string
 	ID    string
+}
+
+// keyExample is a key_pattern refusals offer, single-quoted so YAML reads a
+// leading [ and a backslash as part of the pattern.
+const keyExample = `key_pattern: '([A-Z][A-Z0-9]+-[0-9]+)'`
+
+// Keys finds the key work names its ticket by, and the live workstream whose
+// supplied member is that ticket.
+type Keys struct {
+	pattern *regexp.Regexp
+	// owners maps each key, lowercased, to the member it is the id of.
+	owners map[string]KeyOwner
+	// searchable is each owned key, as the configuration writes it, that holds
+	// no search syntax.
+	searchable []string
+}
+
+// KeyOwner is the workstream a key places work in, and the member the key is
+// the id of.
+type KeyOwner struct {
+	Workstream string
+	Member     Member
+}
+
+// Keys is the setting's keys, or nil where it configures no key_pattern. A key
+// belongs to the first live workstream, in the order the configuration states
+// them, that names a supplied member with that id; ids are compared without
+// regard to case, as trackers compare keys.
+func (c *Config) Keys() *Keys {
+	if c.KeyPattern == "" {
+		return nil
+	}
+	// Parse refused a pattern that does not compile, so only a Config built by
+	// hand can fail here, and it then has no keys.
+	pattern, err := regexp.Compile(c.KeyPattern)
+	if err != nil {
+		return nil
+	}
+	k := &Keys{pattern: pattern, owners: map[string]KeyOwner{}}
+	for _, w := range c.Workstreams {
+		if w.Completed != "" {
+			continue
+		}
+		for _, m := range w.Members {
+			if !slices.ContainsFunc(c.Inputs, func(i Input) bool { return i.Name == m.Input && i.Kind == KindSupplied }) {
+				continue
+			}
+			key := strings.ToLower(m.ID)
+			if _, taken := k.owners[key]; taken {
+				continue
+			}
+			k.owners[key] = KeyOwner{Workstream: w.Name, Member: m}
+			if !searchSyntax(m.ID) {
+				k.searchable = append(k.searchable, m.ID)
+			}
+		}
+	}
+	slices.Sort(k.searchable)
+	return k
+}
+
+// Of is the key the first of texts to carry one carries: the pattern's capture
+// in its first match. It is empty where none does, and on nil Keys.
+func (k *Keys) Of(texts ...string) string {
+	if k == nil {
+		return ""
+	}
+	for _, t := range texts {
+		if m := k.pattern.FindStringSubmatch(t); m != nil && m[1] != "" {
+			return m[1]
+		}
+	}
+	return ""
+}
+
+// Owner is the workstream key places work in.
+func (k *Keys) Owner(key string) (KeyOwner, bool) {
+	if k == nil || key == "" {
+		return KeyOwner{}, false
+	}
+	o, ok := k.owners[strings.ToLower(key)]
+	return o, ok
+}
+
+// Places reports whether any key places work in the named workstream.
+func (k *Keys) Places(workstream string) bool {
+	if k == nil {
+		return false
+	}
+	for _, o := range k.owners {
+		if o.Workstream == workstream {
+			return true
+		}
+	}
+	return false
+}
+
+// searchSyntax reports whether id holds text a forge's search would read as
+// its own syntax rather than as part of a key: a quote, a qualifier's colon, a
+// grouping parenthesis, a backslash or a space.
+func searchSyntax(id string) bool {
+	return strings.ContainsAny(id, `"():\`) || strings.ContainsFunc(id, unicode.IsSpace)
+}
+
+// Searchable is each key a forge's search may be asked for: every owned one
+// but those holding search syntax. Whether the pattern would find the key is
+// not asked, since every hit is checked against the key it carries.
+func (k *Keys) Searchable() []string {
+	if k == nil {
+		return nil
+	}
+	return k.searchable
 }
 
 // Locate finds the one configuration file this invocation reads. A setting
@@ -315,6 +431,7 @@ type fileShape struct {
 	EventWindow     string      `yaml:"event_window"`
 	DiscoveryWindow string      `yaml:"discovery_window"`
 	ForgeOwners     []string    `yaml:"forge_owners"`
+	KeyPattern      string      `yaml:"key_pattern"`
 	Inputs          []inputFile `yaml:"inputs"`
 	Workstreams     []struct {
 		Name      string   `yaml:"name"`
@@ -401,6 +518,10 @@ func parse(data []byte, path string) (*Config, error) {
 	if cfg.ForgeOwners, err = owners(shape.ForgeOwners); err != nil {
 		return nil, err
 	}
+	if err = keyPattern(shape.KeyPattern); err != nil {
+		return nil, err
+	}
+	cfg.KeyPattern = shape.KeyPattern
 
 	for _, in := range shape.Inputs {
 		if !namePattern.MatchString(in.Name) {
@@ -614,6 +735,26 @@ func branchPatterns(in inputFile) error {
 // gitHubLogin is the shape of a github.com user or organization name, as
 // GitHub's sign-up form allows them.
 var gitHubLogin = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,38}$`)
+
+// keyPattern checks key_pattern, where one is written: the key is what its one
+// capture group captures, and a pattern that matches an empty text would find
+// a key in every text it is given.
+func keyPattern(source string) error {
+	if source == "" {
+		return nil
+	}
+	pattern, err := regexp.Compile(source)
+	if err != nil {
+		return fmt.Errorf("key_pattern %q is not a regular expression in Go's syntax (%w): write one such as %s", source, err, keyExample)
+	}
+	if n := pattern.NumSubexp(); n != 1 {
+		return fmt.Errorf("key_pattern %q has %d capture groups: put exactly one around the key, and write any other group as (?:...), such as %s", source, n, keyExample)
+	}
+	if pattern.MatchString("") {
+		return fmt.Errorf("key_pattern %q matches an empty text, so it would find a key in everything: make the key required, such as %s", source, keyExample)
+	}
+	return nil
+}
 
 // owners reads forge_owners. An entry is an owner on github.com, or
 // host/owner for any other host.

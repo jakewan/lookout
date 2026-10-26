@@ -40,7 +40,7 @@
       }
     },
     "unplaced": {
-      "description": "Items from readable inputs that no live workstream names. A completed workstream's member returns here once touched after the day it was completed, and an item the user dismissed returns once touched after the dismissal; until then dismissed_count counts it. An input lookout reads itself, such as git, GitHub or Claude Code, offers here only items touched within the setting's discovery window.",
+      "description": "Items from readable inputs that no live workstream names or joins. A completed workstream's member returns here once touched after the day it was completed, and an item the user dismissed returns once touched after the dismissal; until then dismissed_count counts it. An input lookout reads itself, such as git, GitHub or Claude Code, offers here only items touched within the setting's discovery window.",
       "type": "array",
       "items": {
         "$ref": "#/$defs/placed_item"
@@ -116,7 +116,7 @@
           "minimum": 0
         },
         "events": {
-          "description": "Each member item's latest touch, where it falls within the event window, newest first.",
+          "description": "The latest touch of each item in items, member or joined, where it falls within the event window, newest first.",
           "type": "array",
           "items": {
             "type": "object",
@@ -138,12 +138,15 @@
               "at": {
                 "type": "string",
                 "format": "date-time"
+              },
+              "joined": {
+                "$ref": "#/$defs/joined"
               }
             }
           }
         },
         "inputs_incomplete": {
-          "description": "Inputs this workstream draws on whose health is error or degraded, so its figures may understate.",
+          "description": "Inputs this workstream draws on whose health is error or degraded, so its figures may understate. A workstream a key belongs to, whether or not anything joined it on this read, draws on every input lookout reads itself, since a failed one may have kept a join from it.",
           "type": "array",
           "items": {
             "type": "string"
@@ -157,7 +160,7 @@
           }
         },
         "items": {
-          "description": "Each member item an input supplied, in the order the configuration lists the members, exactly as its input reported it.",
+          "description": "Each member item an input supplied, in the order the configuration lists the members, then each item the workstream joined, by input in the configuration's order and then by id, each exactly as its input reported it. A joined item carries joined, so an item without it is a member.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/placed_item"
@@ -177,6 +180,29 @@
         },
         "item": {
           "$ref": "https://raw.githubusercontent.com/jakewan/lookout/main/schema/supplied.v1.json#/$defs/item"
+        },
+        "joined": {
+          "$ref": "#/$defs/joined"
+        }
+      }
+    },
+    "joined": {
+      "description": "Present on an item a workstream holds without naming it, saying why the workstream holds it.",
+      "type": "object",
+      "required": [
+        "by",
+        "member"
+      ],
+      "properties": {
+        "by": {
+          "description": "How the item was matched to the member: key, where the key the item carries in a branch name or pull request title is the member's id. A renderer should show a value it does not know as a join rather than drop the item.",
+          "type": "string",
+          "minLength": 1
+        },
+        "member": {
+          "description": "The member the item was matched to, as <input>:<id>.",
+          "type": "string",
+          "minLength": 1
         }
       }
     }

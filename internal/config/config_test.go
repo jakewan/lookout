@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -60,5 +61,38 @@ func TestParseRefusesAnExplicitOnlyThatIsNotABool(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "explicit_only") {
 			t.Errorf("%q: err = %v, want a refusal naming explicit_only", text, err)
 		}
+	}
+}
+
+// TestKeysSearchesEveryIDButSearchSyntax pins which member ids a forge's
+// search is asked for: every one, whatever the pattern would make of it, since
+// each hit is checked against the key it carries, except one holding text the
+// search would read as its own syntax rather than a key.
+func TestKeysSearchesEveryIDButSearchSyntax(t *testing.T) {
+	for name, tc := range map[string]struct {
+		pattern string
+		ids     []string
+		want    []string
+	}{
+		"upper-case pattern, lower-case id": {`([A-Z]+-[0-9]+)`, []string{"abc-1", "ABC-2"}, []string{"ABC-2", "abc-1"}},
+		"mixed-case pattern":                {`([A-Z][a-z]+-[0-9]+)`, []string{"ABC-1", "abc-2", "Abc-3"}, []string{"ABC-1", "Abc-3", "abc-2"}},
+		"competing alternatives":            {`([a-z]+|[A-Z]+-[0-9]+)`, []string{"ABC-1"}, []string{"ABC-1"}},
+		"an id the pattern cannot produce":  {`([A-Z]+-[0-9]+)`, []string{"ABC-1", "notes"}, []string{"ABC-1", "notes"}},
+		"search syntax in an id":            {`(\S+)`, []string{`ABC-1`, `a"b`, `x:y`, `a(b`, `a\b`, "a b"}, []string{"ABC-1"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			members := make([]string, 0, len(tc.ids))
+			for _, id := range tc.ids {
+				members = append(members, "      - '"+strings.ReplaceAll("tracker:"+id, "'", "''")+"'")
+			}
+			text := "key_pattern: '" + tc.pattern + "'\ninputs:\n  - {name: tracker, kind: supplied, supplied: t.json, max_age: 1h}\nworkstreams:\n  - name: w\n    members:\n" + strings.Join(members, "\n") + "\n"
+			cfg, err := Parse([]byte(text), "personal.yml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cfg.Keys().Searchable(); !slices.Equal(got, tc.want) {
+				t.Errorf("Searchable = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

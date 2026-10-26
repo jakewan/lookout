@@ -118,22 +118,20 @@ type readoutDoc struct {
 	Setting            string `json:"setting"`
 	EventWindowSeconds int64  `json:"event_window_seconds"`
 	Workstreams        []struct {
-		Name             string   `json:"name"`
-		LastTouched      *string  `json:"last_touched"`
-		IdleSeconds      *int64   `json:"idle_seconds"`
-		StartedAt        *string  `json:"started_at"`
-		AgeSeconds       *int64   `json:"age_seconds"`
-		InputsIncomplete []string `json:"inputs_incomplete"`
-		MembersUnread    []string `json:"members_unread"`
-		Items            []struct {
-			Input string         `json:"input"`
-			Item  map[string]any `json:"item"`
-		} `json:"items"`
-		Events []struct {
-			Input string `json:"input"`
-			ID    string `json:"id"`
-			Title string `json:"title"`
-			At    string `json:"at"`
+		Name             string      `json:"name"`
+		LastTouched      *string     `json:"last_touched"`
+		IdleSeconds      *int64      `json:"idle_seconds"`
+		StartedAt        *string     `json:"started_at"`
+		AgeSeconds       *int64      `json:"age_seconds"`
+		InputsIncomplete []string    `json:"inputs_incomplete"`
+		MembersUnread    []string    `json:"members_unread"`
+		Items            []placedDoc `json:"items"`
+		Events           []struct {
+			Input  string     `json:"input"`
+			ID     string     `json:"id"`
+			Title  string     `json:"title"`
+			At     string     `json:"at"`
+			Joined *joinedDoc `json:"joined"`
 		} `json:"events"`
 	} `json:"workstreams"`
 	Unplaced []struct {
@@ -143,6 +141,14 @@ type readoutDoc struct {
 	Health         []healthDoc `json:"health"`
 	DismissedCount int         `json:"dismissed_count"`
 	CompletedCount int         `json:"completed_count"`
+}
+
+// placedDoc is one item of a workstream, with the provenance a joined one
+// carries.
+type placedDoc struct {
+	Input  string         `json:"input"`
+	Item   map[string]any `json:"item"`
+	Joined *joinedDoc     `json:"joined"`
 }
 
 type healthDoc struct {

@@ -37,8 +37,14 @@ const (
 	// memberChunk bounds how many members one lookup asks for, keeping each
 	// query well inside GitHub's per-query node limit.
 	memberChunk = 50
-	ghTimeout   = 10 * time.Second
-	httpTimeout = 30 * time.Second
+	// keysPerSearch and keyText bound one key search: GitHub's search
+	// documentation refuses a query with more than five AND, OR or NOT
+	// operators, or longer than 256 characters not counting its qualifiers.
+	// A query past either is refused, which would fail the search.
+	keysPerSearch = 6
+	keyText       = 256
+	ghTimeout     = 10 * time.Second
+	httpTimeout   = 30 * time.Second
 	// maxResponse bounds what lookout reads of one response.
 	maxResponse = 16 << 20
 )
@@ -82,9 +88,10 @@ func (f *failure) stops() bool {
 }
 
 // Read reports in's pull requests and issues: each member asked for by
-// number, at any age and in any state, and the open work discovered within
-// the owner fence. A member outside the fence is never asked for, and a node
-// the fence does not admit is counted, never named.
+// number, at any age and in any state, the open work discovered within the
+// owner fence, and the pull requests a search finds carrying a key. A member
+// outside the fence is never asked for, and a node the fence does not admit
+// is counted, never named.
 func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, now time.Time) readout.Reading {
 	out := readout.Reading{Health: health.New(in.Name), Items: make([]readout.Item, 0)}
 	detail := func(line string) {
@@ -183,9 +190,9 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 			search{"is:issue is:open assignee:@me user:" + o + " updated:>=" + since, "issue search of " + o})
 	}
 	stopped := slices.ContainsFunc(failures, func(f failure) bool { return f.stops() })
-	for _, s := range searches {
+	run := func(s search) []node {
 		if stopped {
-			break
+			return nil
 		}
 		nodes, read, short, f := searchAll[node](ctx, r, token, openSearch, s.q, s.label)
 		if f != nil {
@@ -197,11 +204,39 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 			out.Health.Lower(health.Degraded, health.Truncated)
 			detail(short)
 		}
-		for _, n := range nodes {
+		return nodes
+	}
+	for _, s := range searches {
+		for _, n := range run(s) {
 			if n.updated().Before(sc.Since) {
 				continue
 			}
 			admit(n)
+		}
+	}
+	// A key search finds the pull requests that name a ticket in any state, at
+	// any age and by any author the repository trusts, so merged work and a
+	// colleague's join the ticket's workstream. GitHub's search finds the key
+	// anywhere in a title, in any case, so a hit whose own key differs, such as
+	// one whose title names another key first, is left out. Several keys go in
+	// one search, since each search is a round trip on every read. That rests on
+	// GitHub applying is:pr, in:title and user: to every alternative OR joins,
+	// which read-only queries against github.com showed; were it to apply them
+	// to one alternative only, hits from elsewhere would be fetched, and the
+	// checks here and in admit would still keep them out.
+	groups, skipped := keyGroups(sc.Keys.Searchable())
+	for _, key := range skipped {
+		detail("key " + key + ": too long for GitHub's search, so it is not searched for")
+	}
+	for _, keys := range groups {
+		asked := strings.Join(keys, `" OR "`)
+		for _, o := range owners {
+			for _, n := range run(search{`is:pr in:title "` + asked + `" user:` + o, "key search for " + strings.Join(keys, ", ") + " in " + o}) {
+				key := n.key(sc.Keys)
+				if n.Typename == "PullRequest" && trusted[n.AuthorAssociation] && slices.ContainsFunc(keys, func(k string) bool { return strings.EqualFold(k, key) }) {
+					admit(n)
+				}
+			}
 		}
 	}
 
@@ -243,6 +278,7 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 			out.Health.Lower(health.Degraded, health.ClockSkew)
 			detail(id + ": its last update is dated ahead of this machine's clock")
 		}
+		item.Key = n.key(sc.Keys)
 		out.Items = append(out.Items, item)
 	}
 	out.Health.RecordCount = len(out.Items)
@@ -335,24 +371,59 @@ func parseID(id string) (ref, bool) {
 	return ref{owner: strings.ToLower(owner), repo: strings.ToLower(name), number: n}, true
 }
 
+// keyGroups splits keys into the groups one search each asks for, each within
+// keysPerSearch keys and keyText characters as the query quotes and joins
+// them. A key too long to fit a search alone is skipped, never asked for.
+func keyGroups(keys []string) (groups [][]string, skipped []string) {
+	var group []string
+	text := 0
+	for _, k := range keys {
+		size := len(`""`) + len(k)
+		if size > keyText {
+			skipped = append(skipped, k)
+			continue
+		}
+		if len(group) > 0 {
+			size += len(" OR ")
+		}
+		if len(group) == keysPerSearch || text+size > keyText {
+			groups, group, text = append(groups, group), nil, 0
+			size = len(`""`) + len(k)
+		}
+		group = append(group, k)
+		text += size
+	}
+	if len(group) > 0 {
+		groups = append(groups, group)
+	}
+	return groups, skipped
+}
+
+// trusted is each author association, as GitHub names how an author relates to
+// a repository, whose pull request a key search may join: the owner, a member
+// of the owning organization, or a collaborator. Anyone can open a pull
+// request on a public repository and title it with a key.
+var trusted = map[string]bool{"OWNER": true, "MEMBER": true, "COLLABORATOR": true}
+
 // nodeFields selects what an item is built from, for a pull request or an
 // issue alike.
 const nodeFields = `__typename
-... on PullRequest { number title url state isDraft createdAt updatedAt headRefName repository { nameWithOwner owner { login } } }
+... on PullRequest { number title url state isDraft createdAt updatedAt headRefName authorAssociation repository { nameWithOwner owner { login } } }
 ... on Issue { number title url state createdAt updatedAt repository { nameWithOwner owner { login } } }`
 
 // node is a pull request or issue as GitHub's GraphQL API returns it.
 type node struct {
-	Typename    string `json:"__typename"`
-	Number      int    `json:"number"`
-	Title       string `json:"title"`
-	URL         string `json:"url"`
-	State       string `json:"state"`
-	IsDraft     bool   `json:"isDraft"`
-	CreatedAt   string `json:"createdAt"`
-	UpdatedAt   string `json:"updatedAt"`
-	HeadRefName string `json:"headRefName"`
-	Repository  struct {
+	Typename          string `json:"__typename"`
+	Number            int    `json:"number"`
+	Title             string `json:"title"`
+	URL               string `json:"url"`
+	State             string `json:"state"`
+	IsDraft           bool   `json:"isDraft"`
+	CreatedAt         string `json:"createdAt"`
+	UpdatedAt         string `json:"updatedAt"`
+	HeadRefName       string `json:"headRefName"`
+	AuthorAssociation string `json:"authorAssociation"`
+	Repository        struct {
 		NameWithOwner string `json:"nameWithOwner"`
 		Owner         struct {
 			Login string `json:"login"`
@@ -361,6 +432,15 @@ type node struct {
 }
 
 func (n node) id() string { return itemID(n.Repository.NameWithOwner, n.Number) }
+
+// key is the key a pull request carries, in its title or else its branch; an
+// issue carries none.
+func (n node) key(keys *config.Keys) string {
+	if n.Typename != "PullRequest" {
+		return ""
+	}
+	return keys.Of(n.Title, n.HeadRefName)
+}
 
 // itemID is the id of number in the repository GitHub names nameWithOwner.
 func itemID(nameWithOwner string, number int) string {

@@ -20,7 +20,10 @@ type Item struct {
 	Title       string
 	LastTouched time.Time
 	StartedAt   *time.Time
-	Raw         json.RawMessage
+	// Key is the key the item carries, as the setting's key pattern finds it,
+	// or empty. A supplied item carries none: its own id is the key.
+	Key string
+	Raw json.RawMessage
 }
 
 // Reading is what one input contributed: its health, and the items a
@@ -34,9 +37,14 @@ type Reading struct {
 type Scope struct {
 	Owners []config.Owner
 	// Since is the earliest touch an unclaimed item may have and still be
-	// offered; an item Members names is read whatever its age.
+	// offered. An item Members names, and a git branch or a pull request a key
+	// search found whose key Keys places, is read whatever its age; a Claude
+	// Code session a key places is read only since Since.
 	Since   time.Time
 	Members map[string]bool
+	// Keys finds the key an item carries; nil where the setting has no key
+	// pattern.
+	Keys *config.Keys
 }
 
 // Readout is one setting's readout.
@@ -67,17 +75,30 @@ type Workstream struct {
 
 // Event is one touch within the event window.
 type Event struct {
-	Input string    `json:"input"`
-	ID    string    `json:"id"`
-	Title string    `json:"title,omitempty"`
-	At    time.Time `json:"at"`
+	Input  string    `json:"input"`
+	ID     string    `json:"id"`
+	Title  string    `json:"title,omitempty"`
+	At     time.Time `json:"at"`
+	Joined *Joined   `json:"joined,omitempty"`
 }
 
-// Placed is an item together with the input it came from.
+// Placed is an item together with the input it came from. Joined is set on an
+// item a workstream holds without naming it.
 type Placed struct {
-	Input string          `json:"input"`
-	Item  json.RawMessage `json:"item"`
+	Input  string          `json:"input"`
+	Item   json.RawMessage `json:"item"`
+	Joined *Joined         `json:"joined,omitempty"`
 }
+
+// Joined says why a workstream holds an item it does not name: By is how the
+// item was matched, and Member, as <input>:<id>, the member it was matched to.
+type Joined struct {
+	By     string `json:"by"`
+	Member string `json:"member"`
+}
+
+// byKey is the Joined.By of an item whose key is a member's id.
+const byKey = "key"
 
 // Build assembles the readout for cfg from each expected input's reading,
 // keyed by input name, as of now. dismissed maps an item, as <input>:<id>, to
@@ -103,60 +124,30 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 	claimed := map[key]time.Time{}
 	for _, ws := range cfg.Workstreams {
 		if ws.Completed == "" {
+			for _, m := range ws.Members {
+				claimed[key{m.Input, m.ID}] = time.Time{}
+			}
 			continue
 		}
 		out.CompletedCount++
 		until := ws.CompletedThrough(loc)
 		for _, m := range ws.Members {
-			if prev := claimed[key{m.Input, m.ID}]; until.After(prev) {
-				claimed[key{m.Input, m.ID}] = until
-			}
-		}
-	}
-	for _, ws := range cfg.Workstreams {
-		if ws.Completed != "" {
-			continue
-		}
-		w := Workstream{Name: ws.Name, Events: make([]Event, 0), InputsIncomplete: make([]string, 0), MembersUnread: make([]string, 0), Items: make([]Placed, 0, len(ws.Members))}
-		for _, m := range ws.Members {
-			claimed[key{m.Input, m.ID}] = time.Time{}
-			reading := readings[m.Input]
-			unhealthy := reading.Health.Status == health.Error || reading.Health.Status == health.Degraded
-			if unhealthy && !slices.Contains(w.InputsIncomplete, m.Input) {
-				w.InputsIncomplete = append(w.InputsIncomplete, m.Input)
-			}
-			i := slices.IndexFunc(reading.Items, func(it Item) bool { return it.ID == m.ID })
-			if i < 0 {
-				w.MembersUnread = append(w.MembersUnread, m.Input+":"+m.ID)
+			if prev, ok := claimed[key{m.Input, m.ID}]; ok && (prev.IsZero() || !until.After(prev)) {
 				continue
 			}
-			it := reading.Items[i]
-			w.Items = append(w.Items, Placed{Input: m.Input, Item: it.Raw})
-			touched := it.LastTouched.UTC()
-			if w.LastTouched == nil || touched.After(*w.LastTouched) {
-				w.LastTouched = &touched
-			}
-			if it.StartedAt != nil {
-				started := it.StartedAt.UTC()
-				if w.StartedAt == nil || started.Before(*w.StartedAt) {
-					w.StartedAt = &started
-				}
-			}
-			if !touched.Before(now.Add(-cfg.EventWindow)) {
-				w.Events = append(w.Events, Event{Input: m.Input, ID: it.ID, Title: it.Title, At: touched})
-			}
+			claimed[key{m.Input, m.ID}] = until
 		}
-		// Report inputs in the configuration's order rather than the order members
-		// happened to name them, so the list reads the same across workstreams.
-		slices.SortFunc(w.InputsIncomplete, func(a, b string) int {
-			return cmp.Compare(inputIndex(cfg, a), inputIndex(cfg, b))
-		})
-		slices.SortStableFunc(w.Events, func(a, b Event) int { return b.At.Compare(a.At) })
-		w.IdleSeconds = since(now, w.LastTouched)
-		w.AgeSeconds = since(now, w.StartedAt)
-		out.Workstreams = append(out.Workstreams, w)
 	}
 
+	// Each item no claim holds is joined to the workstream its key places it
+	// in, kept out by a dismissal it has not moved since, or offered.
+	keys := cfg.Keys()
+	type join struct {
+		input string
+		item  Item
+		by    config.KeyOwner
+	}
+	joins := map[string][]join{}
 	for _, in := range cfg.Inputs {
 		reading := readings[in.Name]
 		out.Health = append(out.Health, reading.Health)
@@ -168,8 +159,76 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 				out.DismissedCount++
 				continue
 			}
+			if owner, ok := keys.Owner(it.Key); ok {
+				joins[owner.Workstream] = append(joins[owner.Workstream], join{in.Name, it, owner})
+				continue
+			}
 			out.Unplaced = append(out.Unplaced, Placed{Input: in.Name, Item: it.Raw})
 		}
+	}
+
+	for _, ws := range cfg.Workstreams {
+		if ws.Completed != "" {
+			continue
+		}
+		w := Workstream{Name: ws.Name, Events: make([]Event, 0), InputsIncomplete: make([]string, 0), MembersUnread: make([]string, 0), Items: make([]Placed, 0, len(ws.Members))}
+		incomplete := func(input string) {
+			status := readings[input].Health.Status
+			if (status == health.Error || status == health.Degraded) && !slices.Contains(w.InputsIncomplete, input) {
+				w.InputsIncomplete = append(w.InputsIncomplete, input)
+			}
+		}
+		place := func(input string, it Item, joined *Joined) {
+			w.Items = append(w.Items, Placed{Input: input, Item: it.Raw, Joined: joined})
+			touched := it.LastTouched.UTC()
+			if w.LastTouched == nil || touched.After(*w.LastTouched) {
+				w.LastTouched = &touched
+			}
+			if it.StartedAt != nil {
+				started := it.StartedAt.UTC()
+				if w.StartedAt == nil || started.Before(*w.StartedAt) {
+					w.StartedAt = &started
+				}
+			}
+			if !touched.Before(now.Add(-cfg.EventWindow)) {
+				w.Events = append(w.Events, Event{Input: input, ID: it.ID, Title: it.Title, At: touched, Joined: joined})
+			}
+		}
+		for _, m := range ws.Members {
+			incomplete(m.Input)
+			reading := readings[m.Input]
+			i := slices.IndexFunc(reading.Items, func(it Item) bool { return it.ID == m.ID })
+			if i < 0 {
+				w.MembersUnread = append(w.MembersUnread, m.Input+":"+m.ID)
+				continue
+			}
+			place(m.Input, reading.Items[i], nil)
+		}
+		// A workstream a key places work in draws on every input that work can
+		// come from, so one that failed may have kept a join from it.
+		if keys.Places(ws.Name) {
+			for _, in := range cfg.Inputs {
+				if in.Kind != config.KindSupplied {
+					incomplete(in.Name)
+				}
+			}
+		}
+		joined := joins[ws.Name]
+		slices.SortStableFunc(joined, func(a, b join) int {
+			return cmp.Or(cmp.Compare(inputIndex(cfg, a.input), inputIndex(cfg, b.input)), cmp.Compare(a.item.ID, b.item.ID))
+		})
+		for _, j := range joined {
+			place(j.input, j.item, &Joined{By: byKey, Member: j.by.Member.Input + ":" + j.by.Member.ID})
+		}
+		// Report inputs in the configuration's order rather than the order members
+		// happened to name them, so the list reads the same across workstreams.
+		slices.SortFunc(w.InputsIncomplete, func(a, b string) int {
+			return cmp.Compare(inputIndex(cfg, a), inputIndex(cfg, b))
+		})
+		slices.SortStableFunc(w.Events, func(a, b Event) int { return b.At.Compare(a.At) })
+		w.IdleSeconds = since(now, w.LastTouched)
+		w.AgeSeconds = since(now, w.StartedAt)
+		out.Workstreams = append(out.Workstreams, w)
 	}
 	return out
 }

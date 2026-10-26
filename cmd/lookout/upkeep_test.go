@@ -25,10 +25,7 @@ func (f *fixture) refusedUnchanged(before, gesture, mention string, args ...stri
 	}
 }
 
-func itemIDs(items []struct {
-	Input string         `json:"input"`
-	Item  map[string]any `json:"item"`
-}) []string {
+func itemIDs(items []placedDoc) []string {
 	ids := []string{}
 	for _, it := range items {
 		ids = append(ids, it.Item["id"].(string))

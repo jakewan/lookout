@@ -48,6 +48,8 @@ type workstream struct {
 	MembersUnread    []string `json:"members_unread"`
 	Items            []struct {
 		Input string `json:"input"`
+		// Joined is present on an item the workstream holds without naming it.
+		Joined *struct{} `json:"joined"`
 	} `json:"items"`
 }
 
@@ -188,10 +190,11 @@ func inputOrder(hs []health) map[string]int {
 	return order
 }
 
-// counts is a workstream's members per input, read and unread, as the units a
-// row wraps between.
+// counts is a workstream's items per input, as the units a row wraps between:
+// its members read and unread, and apart from them the items it joined, so a
+// join never reads as a membership.
 func counts(ws workstream, order map[string]int) []string {
-	type tally struct{ read, unread int }
+	type tally struct{ read, unread, joined int }
 	tallies := map[string]*tally{}
 	var inputs []string
 	at := func(in string) *tally {
@@ -203,6 +206,10 @@ func counts(ws workstream, order map[string]int) []string {
 		return tallies[in]
 	}
 	for _, it := range ws.Items {
+		if it.Joined != nil {
+			at(it.Input).joined++
+			continue
+		}
 		at(it.Input).read++
 	}
 	for _, m := range ws.MembersUnread {
@@ -228,6 +235,9 @@ func counts(ws workstream, order map[string]int) []string {
 		u := name(in) + " " + strconv.Itoa(t.read)
 		if t.unread > 0 {
 			u += " (" + strconv.Itoa(t.unread) + " unread)"
+		}
+		if t.joined > 0 {
+			u += " +" + strconv.Itoa(t.joined) + " joined"
 		}
 		if i < len(inputs)-1 {
 			u += ","

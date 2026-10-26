@@ -268,7 +268,7 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 			out.Health.Details = append(out.Health.Details, id+": its sessions' dates cannot be written in a readout")
 			continue
 		}
-		out.Items = append(out.Items, readout.Item{ID: id, Title: it.title, LastTouched: it.touched, Raw: raw})
+		out.Items = append(out.Items, readout.Item{ID: id, Title: it.title, LastTouched: it.touched, Key: sc.Keys.Of(it.branch), Raw: raw})
 	}
 	out.Health.RecordCount = len(out.Items)
 	// Older transcripts are read only for a member, so judging emptiness on

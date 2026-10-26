@@ -172,7 +172,9 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 
 	ids := make([]string, 0, len(found))
 	for id, b := range found {
-		if b.touched.Before(sc.Since) && !sc.Members[id] {
+		// Work a key places is read at any age, as a member is.
+		_, keyed := sc.Keys.Owner(sc.Keys.Of(b.name))
+		if b.touched.Before(sc.Since) && !sc.Members[id] && !keyed {
 			continue
 		}
 		ids = append(ids, id)
@@ -200,7 +202,7 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 			}
 			continue
 		}
-		out.Items = append(out.Items, readout.Item{ID: id, Title: b.name, LastTouched: b.touched, Raw: raw})
+		out.Items = append(out.Items, readout.Item{ID: id, Title: b.name, LastTouched: b.touched, Key: sc.Keys.Of(b.name), Raw: raw})
 	}
 	out.Health.RecordCount = len(out.Items)
 	// Branches older than the discovery window are still branches, so a quiet
