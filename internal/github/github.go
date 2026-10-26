@@ -83,8 +83,9 @@ func (f *failure) stops() bool {
 
 // Read reports in's pull requests and issues: each member asked for by
 // number, at any age and in any state, the open work discovered within the
-// owner fence, and the pull requests a search finds carrying a key. A member outside the fence is never asked for, and a node
-// the fence does not admit is counted, never named.
+// owner fence, and the pull requests a search finds carrying a key. A member
+// outside the fence is never asked for, and a node the fence does not admit
+// is counted, never named.
 func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, now time.Time) readout.Reading {
 	out := readout.Reading{Health: health.New(in.Name), Items: make([]readout.Item, 0)}
 	detail := func(line string) {
@@ -209,8 +210,9 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 	}
 	// A key search finds the pull requests that name a ticket in any state, at
 	// any age and by any author the repository trusts, so merged work and a
-	// colleague's join the ticket's workstream. GitHub's search matches more
-	// than the key, so a hit whose own key differs is left out.
+	// colleague's join the ticket's workstream. GitHub's search finds the key
+	// anywhere in a title, in any case, so a hit whose own key differs, such as
+	// one whose title names another key first, is left out.
 	for _, key := range sc.Keys.Searchable() {
 		for _, o := range owners {
 			for _, n := range run(search{`is:pr in:title "` + key + `" user:` + o, "key search for " + key + " in " + o}) {
