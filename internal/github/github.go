@@ -37,8 +37,14 @@ const (
 	// memberChunk bounds how many members one lookup asks for, keeping each
 	// query well inside GitHub's per-query node limit.
 	memberChunk = 50
-	ghTimeout   = 10 * time.Second
-	httpTimeout = 30 * time.Second
+	// keysPerSearch and keyText bound one key search: GitHub's search
+	// documentation refuses a query with more than five AND, OR or NOT
+	// operators, or longer than 256 characters not counting its qualifiers.
+	// A query past either is refused, which would fail the search.
+	keysPerSearch = 6
+	keyText       = 256
+	ghTimeout     = 10 * time.Second
+	httpTimeout   = 30 * time.Second
 	// maxResponse bounds what lookout reads of one response.
 	maxResponse = 16 << 20
 )
@@ -212,11 +218,14 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 	// any age and by any author the repository trusts, so merged work and a
 	// colleague's join the ticket's workstream. GitHub's search finds the key
 	// anywhere in a title, in any case, so a hit whose own key differs, such as
-	// one whose title names another key first, is left out.
-	for _, key := range sc.Keys.Searchable() {
+	// one whose title names another key first, is left out. Several keys go in
+	// one search, since each search is a round trip on every read.
+	for _, keys := range keyGroups(sc.Keys.Searchable()) {
+		asked := strings.Join(keys, `" OR "`)
 		for _, o := range owners {
-			for _, n := range run(search{`is:pr in:title "` + key + `" user:` + o, "key search for " + key + " in " + o}) {
-				if n.Typename == "PullRequest" && trusted[n.AuthorAssociation] && strings.EqualFold(n.key(sc.Keys), key) {
+			for _, n := range run(search{`is:pr in:title "` + asked + `" user:` + o, "key search for " + strings.Join(keys, ", ") + " in " + o}) {
+				key := n.key(sc.Keys)
+				if n.Typename == "PullRequest" && trusted[n.AuthorAssociation] && slices.ContainsFunc(keys, func(k string) bool { return strings.EqualFold(k, key) }) {
 					admit(n)
 				}
 			}
@@ -352,6 +361,34 @@ func parseID(id string) (ref, bool) {
 		return ref{}, false
 	}
 	return ref{owner: strings.ToLower(owner), repo: strings.ToLower(name), number: n}, true
+}
+
+// keyGroups splits keys into the groups one search each asks for, each within
+// keysPerSearch keys and keyText characters as the query quotes and joins
+// them. A key too long to fit a search alone is never asked for.
+func keyGroups(keys []string) [][]string {
+	var groups [][]string
+	var group []string
+	text := 0
+	for _, k := range keys {
+		size := len(`""`) + len(k)
+		if size > keyText {
+			continue
+		}
+		if len(group) > 0 {
+			size += len(" OR ")
+		}
+		if len(group) == keysPerSearch || text+size > keyText {
+			groups, group, text = append(groups, group), nil, 0
+			size = len(`""`) + len(k)
+		}
+		group = append(group, k)
+		text += size
+	}
+	if len(group) > 0 {
+		groups = append(groups, group)
+	}
+	return groups
 }
 
 // trusted is each author association, as GitHub names how an author relates to

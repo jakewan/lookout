@@ -199,6 +199,50 @@ workstreams:
 	}
 }
 
+func TestAKeySearchAsksForSeveralKeysAtOnce(t *testing.T) {
+	keys := []string{"ABC-1", "ABC-2", "ABC-3", "ABC-4", "ABC-5", "ABC-6", "ABC-7"}
+	members := make([]string, 0, len(keys))
+	items := make([]any, 0, len(keys))
+	nodes := make([]ghNode, 0, len(keys))
+	for i, k := range keys {
+		members = append(members, `"tracker:`+k+`"`)
+		items = append(items, item(k, time.Hour, nil))
+		nodes = append(nodes, ghNode{pr: true, repo: "alice/app", number: 20 + i, title: k + ": a change", state: "MERGED", created: 30 * 24 * time.Hour, updated: 30 * 24 * time.Hour, association: "MEMBER"})
+	}
+	f := newFixture(t)
+	f.write("personal.yml", `
+key_pattern: '([A-Z]+-[0-9]+)'
+forge_owners: [alice]
+inputs:
+  - name: tracker
+    kind: supplied
+    supplied: tracker.json
+    max_age: 24h
+  - name: hub
+    kind: github
+workstreams:
+  - name: billing
+    members: [`+strings.Join(members, ", ")+`]
+`)
+	f.supplied("tracker.json", suppliedDoc("tracker", items, nil))
+	fake := f.withGitHub(nodes...)
+
+	doc := f.read()
+
+	if got := placed(t, doc, "billing"); len(got) != 2*len(keys) {
+		t.Errorf("billing = %v, want every key's pull request joined", got)
+	}
+	var keySearches []string
+	for _, q := range fake.searches() {
+		if strings.Contains(q, "in:title") {
+			keySearches = append(keySearches, q)
+		}
+	}
+	if len(keySearches) != 2 {
+		t.Errorf("key searches = %q, want the seven keys asked for in two", keySearches)
+	}
+}
+
 func TestNothingJoinsWithoutAKeyPattern(t *testing.T) {
 	f := newFixture(t)
 	f.write("personal.yml", strings.Replace(keyed, "key_pattern: '([A-Za-z]+-[0-9]+)'\n", "", 1))

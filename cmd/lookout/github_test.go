@@ -212,17 +212,20 @@ func (g *githubFake) search(w http.ResponseWriter, q string, after any) {
 // matches applies the search qualifiers lookout sends, so a query that lost
 // one would find nodes it should not.
 func (g *githubFake) matches(n ghNode, q string) bool {
+	// Quoted terms joined by OR are alternatives, each matching titles holding
+	// it in any case, as GitHub's search does; in:title says that is where to
+	// look, and the qualifiers apply to every alternative.
+	var phrases []string
 	for _, term := range strings.Fields(q) {
-		// A quoted term matches titles holding it in any case, as GitHub's
-		// search does; in:title says that is where to look.
+		if term == "OR" {
+			continue
+		}
 		if phrase, ok := strings.CutPrefix(term, `"`); ok {
 			phrase, ok = strings.CutSuffix(phrase, `"`)
 			if !ok || !strings.Contains(q, "in:title") {
 				g.t.Errorf("search %q: term %s is not a quoted phrase searched in titles", q, term)
 			}
-			if !strings.Contains(strings.ToLower(n.title), strings.ToLower(phrase)) {
-				return false
-			}
+			phrases = append(phrases, phrase)
 			continue
 		}
 		key, value, _ := strings.Cut(term, ":")
@@ -288,7 +291,16 @@ func (g *githubFake) matches(n ghNode, q string) bool {
 			g.t.Errorf("search %q: unexpected term %q", q, term)
 		}
 	}
-	return true
+	// GitHub refuses a query with more than five AND, OR or NOT operators.
+	if strings.Count(" "+q+" ", " OR ") > 5 {
+		g.t.Errorf("search %q: more operators than GitHub accepts", q)
+	}
+	if len(phrases) == 0 {
+		return true
+	}
+	return slices.ContainsFunc(phrases, func(p string) bool {
+		return strings.Contains(strings.ToLower(n.title), strings.ToLower(p))
+	})
 }
 
 // members answers a lookup whose variables are o<i>, n<i> and k<i> for each
