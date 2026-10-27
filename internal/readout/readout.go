@@ -23,7 +23,12 @@ type Item struct {
 	// Key is the key the item carries, as the setting's key pattern finds it,
 	// or empty. A supplied item carries none: its own id is the key.
 	Key string
-	Raw json.RawMessage
+	// Keys is every key a pull request's description carries.
+	Keys []string
+	// Head is the id a git or Claude Code input gives the branch an open pull
+	// request was made from, or empty.
+	Head string
+	Raw  json.RawMessage
 }
 
 // Reading is what one input contributed: its health, and the items a
@@ -39,7 +44,8 @@ type Scope struct {
 	// Since is the earliest touch an unclaimed item may have and still be
 	// offered. An item Members names, and a git branch or a pull request a key
 	// search found whose key Keys places, is read whatever its age; a Claude
-	// Code session a key places is read only since Since.
+	// Code session a key places, and a branch or session that follows its pull
+	// request, is read only since Since.
 	Since   time.Time
 	Members map[string]bool
 	// Keys finds the key an item carries; nil where the setting has no key
@@ -91,14 +97,22 @@ type Placed struct {
 }
 
 // Joined says why a workstream holds an item it does not name: By is how the
-// item was matched, and Member, as <input>:<id>, the member it was matched to.
+// item was matched, Member, as <input>:<id>, the member it was matched to, and
+// Via the pull request it joined through, where it did.
 type Joined struct {
 	By     string `json:"by"`
 	Member string `json:"member"`
+	Via    string `json:"via,omitempty"`
 }
 
-// byKey is the Joined.By of an item whose key is a member's id.
-const byKey = "key"
+// The values of Joined.By: an item whose title or branch key is a member's id,
+// a pull request whose description names a member's id, and a branch or
+// session an open pull request the workstream holds was made from.
+const (
+	byKey         = "key"
+	byDescription = "description"
+	byPullRequest = "pull_request"
+)
 
 // Build assembles the readout for cfg from each expected input's reading,
 // keyed by input name, as of now. dismissed maps an item, as <input>:<id>, to
@@ -139,15 +153,29 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 		}
 	}
 
-	// Each item no claim holds is joined to the workstream its key places it
-	// in, kept out by a dismissal it has not moved since, or offered.
+	// Each item no claim holds is kept out by a dismissal it has not moved
+	// since, joined to every workstream a key places it in, at most once each,
+	// or offered.
 	keys := cfg.Keys()
 	type join struct {
-		input string
-		item  Item
-		by    config.KeyOwner
+		input  string
+		item   Item
+		joined Joined
 	}
 	joins := map[string][]join{}
+	joinedAny := map[key]bool{}
+	add := func(workstream, input string, it Item, joined Joined) {
+		if slices.ContainsFunc(joins[workstream], func(j join) bool { return j.input == input && j.item.ID == it.ID }) {
+			return
+		}
+		joins[workstream] = append(joins[workstream], join{input, it, joined})
+		joinedAny[key{input, it.ID}] = true
+	}
+	type offer struct {
+		input string
+		item  Item
+	}
+	var free []offer
 	for _, in := range cfg.Inputs {
 		reading := readings[in.Name]
 		out.Health = append(out.Health, reading.Health)
@@ -159,11 +187,56 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 				out.DismissedCount++
 				continue
 			}
+			free = append(free, offer{in.Name, it})
 			if owner, ok := keys.Owner(it.Key); ok {
-				joins[owner.Workstream] = append(joins[owner.Workstream], join{in.Name, it, owner})
+				add(owner.Workstream, in.Name, it, Joined{By: byKey, Member: owner.Member.Input + ":" + owner.Member.ID})
+			}
+			for _, k := range it.Keys {
+				if owner, ok := keys.Owner(k); ok {
+					add(owner.Workstream, in.Name, it, Joined{By: byDescription, Member: owner.Member.Input + ":" + owner.Member.ID})
+				}
+			}
+		}
+	}
+
+	// A branch or session follows the open pull request it was made from into
+	// each live workstream holding that pull request, whether as a member or as
+	// a join, so work need not name its ticket in a branch.
+	type source struct{ workstream, member, via string }
+	heads := map[string][]source{}
+	sourced := map[string]bool{}
+	if keys != nil {
+		for _, ws := range cfg.Workstreams {
+			if ws.Completed != "" {
 				continue
 			}
-			out.Unplaced = append(out.Unplaced, Placed{Input: in.Name, Item: it.Raw})
+			for _, m := range ws.Members {
+				items := readings[m.Input].Items
+				if i := slices.IndexFunc(items, func(it Item) bool { return it.ID == m.ID }); i >= 0 && items[i].Head != "" {
+					token := m.Input + ":" + m.ID
+					heads[items[i].Head] = append(heads[items[i].Head], source{ws.Name, token, token})
+					sourced[ws.Name] = true
+				}
+			}
+			for _, j := range joins[ws.Name] {
+				if j.item.Head != "" {
+					heads[j.item.Head] = append(heads[j.item.Head], source{ws.Name, j.joined.Member, j.input + ":" + j.item.ID})
+					sourced[ws.Name] = true
+				}
+			}
+		}
+	}
+	for _, o := range free {
+		if kind := cfg.Inputs[inputIndex(cfg, o.input)].Kind; kind != config.KindGit && kind != config.KindClaudeCode {
+			continue
+		}
+		for _, s := range heads[o.item.ID] {
+			add(s.workstream, o.input, o.item, Joined{By: byPullRequest, Member: s.member, Via: s.via})
+		}
+	}
+	for _, o := range free {
+		if !joinedAny[key{o.input, o.item.ID}] {
+			out.Unplaced = append(out.Unplaced, Placed{Input: o.input, Item: o.item.Raw})
 		}
 	}
 
@@ -204,9 +277,10 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 			}
 			place(m.Input, reading.Items[i], nil)
 		}
-		// A workstream a key places work in draws on every input that work can
-		// come from, so one that failed may have kept a join from it.
-		if keys.Places(ws.Name) {
+		// A workstream a key or a pull request places work in draws on every
+		// input that work can come from, so one that failed may have kept a
+		// join from it.
+		if keys.Places(ws.Name) || sourced[ws.Name] {
 			for _, in := range cfg.Inputs {
 				if in.Kind != config.KindSupplied {
 					incomplete(in.Name)
@@ -218,7 +292,7 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 			return cmp.Or(cmp.Compare(inputIndex(cfg, a.input), inputIndex(cfg, b.input)), cmp.Compare(a.item.ID, b.item.ID))
 		})
 		for _, j := range joined {
-			place(j.input, j.item, &Joined{By: byKey, Member: j.by.Member.Input + ":" + j.by.Member.ID})
+			place(j.input, j.item, &j.joined)
 		}
 		// Report inputs in the configuration's order rather than the order members
 		// happened to name them, so the list reads the same across workstreams.

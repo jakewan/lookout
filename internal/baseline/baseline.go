@@ -47,8 +47,9 @@ type Record struct {
 	// gesture added.
 	HandPlaced   []string `json:"hand_placed"`
 	UnloggedEdit bool     `json:"unlogged_edit"`
-	// Joined is every item a key places in a workstream on this record, which
-	// no gesture placed and no member names.
+	// Joined is every item a workstream holds on this record without naming
+	// it, as a key or a pull request placed it, each once however many
+	// workstreams hold it; no gesture placed it and no member names it.
 	Joined []string `json:"joined"`
 	// DiscoveryDigest stands for the configuration that decides what inputs
 	// offer, and DiscoveryChanged reports that it differs from the previous
@@ -233,6 +234,8 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 	if err != nil {
 		return Record{}, err
 	}
+	// An item that joins several workstreams is one item.
+	r.Joined = slices.Compact(r.Joined)
 	var older []string
 	for _, p := range joined {
 		var it struct {
@@ -242,8 +245,8 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 		if err := json.Unmarshal(p.Item, &it); err != nil {
 			return Record{}, fmt.Errorf("reading an item of %s: %w", p.Input, err)
 		}
-		if it.LastTouched.Before(now.Add(-cfg.DiscoveryWindow)) {
-			older = append(older, p.Input+":"+it.ID)
+		if t := p.Input + ":" + it.ID; it.LastTouched.Before(now.Add(-cfg.DiscoveryWindow)) && !slices.Contains(older, t) {
+			older = append(older, t)
 		}
 	}
 
@@ -464,25 +467,34 @@ func handPlaced(replayed, current []config.Workstream) []string {
 	return out
 }
 
+// joinRules is the version of the rules by which a key, a description or a
+// pull request places work; changing what they place moves it on.
+const joinRules = 2
+
 // discoveryDigest stands for the configuration that decides what inputs offer
 // and where a key places it: the inputs themselves, the discovery window, the
-// owner fence and the key pattern. A change to any of them changes what is
-// unplaced with no item having moved. Whether an input expects records is left
-// out: it decides only the input's health, and adopting or removing a supplied
-// input's member changes it.
+// owner fence, the key pattern, and the rules that pattern places work by. A
+// change to any of them changes what is unplaced with no item having moved.
+// Whether an input expects records is left out: it decides only the input's
+// health, and adopting or removing a supplied input's member changes it.
 func discoveryDigest(cfg *config.Config) (string, error) {
 	inputs := slices.Clone(cfg.Inputs)
 	for i := range inputs {
 		inputs[i].ExpectRecords = false
 	}
+	// The pattern and its rules are left out where none is set, so a setting
+	// that sets none keeps the digest it had before the key existed.
+	rules := 0
+	if cfg.KeyPattern != "" {
+		rules = joinRules
+	}
 	data, err := json.Marshal(struct {
 		Inputs          []config.Input
 		DiscoveryWindow time.Duration
 		ForgeOwners     []config.Owner
-		// KeyPattern is left out where none is set, so a setting that sets
-		// none keeps the digest it had before the key existed.
-		KeyPattern string `json:",omitempty"`
-	}{inputs, cfg.DiscoveryWindow, cfg.ForgeOwners, cfg.KeyPattern})
+		KeyPattern      string `json:",omitempty"`
+		JoinRules       int    `json:",omitempty"`
+	}{inputs, cfg.DiscoveryWindow, cfg.ForgeOwners, cfg.KeyPattern, rules})
 	if err != nil {
 		return "", fmt.Errorf("encoding the discovery configuration: %w", err)
 	}

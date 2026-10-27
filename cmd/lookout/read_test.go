@@ -126,13 +126,7 @@ type readoutDoc struct {
 		InputsIncomplete []string    `json:"inputs_incomplete"`
 		MembersUnread    []string    `json:"members_unread"`
 		Items            []placedDoc `json:"items"`
-		Events           []struct {
-			Input  string     `json:"input"`
-			ID     string     `json:"id"`
-			Title  string     `json:"title"`
-			At     string     `json:"at"`
-			Joined *joinedDoc `json:"joined"`
-		} `json:"events"`
+		Events           []eventDoc  `json:"events"`
 	} `json:"workstreams"`
 	Unplaced []struct {
 		Input string         `json:"input"`
@@ -141,6 +135,15 @@ type readoutDoc struct {
 	Health         []healthDoc `json:"health"`
 	DismissedCount int         `json:"dismissed_count"`
 	CompletedCount int         `json:"completed_count"`
+}
+
+// eventDoc is one touch within the event window.
+type eventDoc struct {
+	Input  string     `json:"input"`
+	ID     string     `json:"id"`
+	Title  string     `json:"title"`
+	At     string     `json:"at"`
+	Joined *joinedDoc `json:"joined"`
 }
 
 // placedDoc is one item of a workstream, with the provenance a joined one

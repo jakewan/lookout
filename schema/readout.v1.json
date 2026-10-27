@@ -146,7 +146,7 @@
           }
         },
         "inputs_incomplete": {
-          "description": "Inputs this workstream draws on whose health is error or degraded, so its figures may understate. A workstream a key belongs to, whether or not anything joined it on this read, draws on every input lookout reads itself, since a failed one may have kept a join from it.",
+          "description": "Inputs this workstream draws on whose health is error or degraded, so its figures may understate. A workstream a key belongs to, or one holding an open pull request whose branch can follow it, whether or not anything joined it on this read, draws on every input lookout reads itself, since a failed one may have kept a join from it.",
           "type": "array",
           "items": {
             "type": "string"
@@ -160,7 +160,7 @@
           }
         },
         "items": {
-          "description": "Each member item an input supplied, in the order the configuration lists the members, then each item the workstream joined, by input in the configuration's order and then by id, each exactly as its input reported it. A joined item carries joined, so an item without it is a member.",
+          "description": "Each member item an input supplied, in the order the configuration lists the members, then each item the workstream joined, by input in the configuration's order and then by id, each exactly as its input reported it. A joined item carries joined, so an item without it is a member. One item may join several workstreams, appearing once in each.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/placed_item"
@@ -195,12 +195,17 @@
       ],
       "properties": {
         "by": {
-          "description": "How the item was matched to the member: key, where the key the item carries in a branch name or pull request title is the member's id. A renderer should show a value it does not know as a join rather than drop the item.",
+          "description": "How the item was matched to the member: key, where the key the item carries in a branch name or pull request title is the member's id; description, where a pull request's description names the member's id; pull_request, where the item is the branch, or a session on the branch, that an open pull request the workstream holds was made from, named in via. A renderer should show a value it does not know as a join rather than drop the item.",
           "type": "string",
           "minLength": 1
         },
         "member": {
-          "description": "The member the item was matched to, as <input>:<id>.",
+          "description": "The member the item was matched to, as <input>:<id>: for pull_request, the member the pull request was matched to, or the pull request itself where it is a member.",
+          "type": "string",
+          "minLength": 1
+        },
+        "via": {
+          "description": "The item this one joined through, as <input>:<id>; present where by is pull_request.",
           "type": "string",
           "minLength": 1
         }
