@@ -128,7 +128,7 @@ func TestABranchAndItsSessionsFollowTheirOpenPullRequest(t *testing.T) {
     members: ["hub:alice/app#9"]
 `)
 	old := 30 * 24 * time.Hour
-	f.withDescribedInputs(
+	fake := f.withDescribedInputs(
 		ghNode{pr: true, repo: "alice/app", number: 5, title: "Export polish", state: "OPEN", draft: true, branch: "export-polish", body: "ABC-1", created: 5 * time.Hour, updated: 3 * time.Hour, authored: true},
 		ghNode{pr: true, repo: "alice/app", number: 6, title: "Old fix", state: "MERGED", branch: "patch-1", body: "ABC-1", created: old, updated: old},
 		ghNode{pr: true, repo: "alice/app", number: 7, title: "From a fork", state: "OPEN", branch: "fork-work", headRepo: "bob/app", body: "ABC-1", created: 5 * time.Hour, updated: 3 * time.Hour, authored: true},
@@ -163,6 +163,19 @@ func TestABranchAndItsSessionsFollowTheirOpenPullRequest(t *testing.T) {
 	if doc.DismissedCount != 1 {
 		t.Errorf("dismissed_count = %d, want the dismissed branch kept out though its pull request joined", doc.DismissedCount)
 	}
+	lookups := 0
+	for _, r := range fake.requests {
+		if _, search := r.variables["q"]; search {
+			continue
+		}
+		lookups++
+		if strings.Contains(r.query, "body") || !strings.Contains(r.query, "headRepository") {
+			t.Errorf("lookup query %q, want the head repository and no description, which never joins a member", r.query)
+		}
+	}
+	if lookups == 0 {
+		t.Error("no member lookup sent")
+	}
 }
 
 func TestAKeySearchReadsDescriptionsButNeverAdmitsOnABranch(t *testing.T) {
@@ -196,9 +209,6 @@ func TestAKeySearchReadsDescriptionsButNeverAdmitsOnABranch(t *testing.T) {
 		q, search := r.variables["q"].(string)
 		switch {
 		case !search:
-			if strings.Contains(r.query, "body") || !strings.Contains(r.query, "headRepository") {
-				t.Errorf("lookup query %q, want the head repository and no description", r.query)
-			}
 		case strings.Contains(q, `"`):
 			keySearches++
 			if !strings.Contains(q, "in:title,body") {
