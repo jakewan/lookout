@@ -44,8 +44,8 @@ type Scope struct {
 	// Since is the earliest touch an unclaimed item may have and still be
 	// offered. An item Members names, and a git branch or a pull request a key
 	// search found whose key Keys places, is read whatever its age; a Claude
-	// Code session a key places, and a branch or session that follows its pull
-	// request, is read only since Since.
+	// Code session a key places, and a branch or session only its pull request
+	// places, is read only since Since.
 	Since   time.Time
 	Members map[string]bool
 	// Keys finds the key an item carries; nil where the setting has no key

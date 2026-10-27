@@ -38,7 +38,10 @@ const (
 	// its description. GitHub allows a description of 65,536 characters
 	// (GitHub's documentation on issue and pull request bodies), so a full page
 	// of long ones could pass maxResponse, and a page past it fails every read,
-	// since the same search returns the same page.
+	// since the same search returns the same page. This page stays under it
+	// while descriptions average fewer than about five bytes a character as
+	// JSON, which UTF-8 text does; one dense with characters JSON escapes, such
+	// as control characters, could still pass it.
 	describedPage = 50
 	// memberChunk bounds how many members one lookup asks for, keeping each
 	// query well inside GitHub's per-query node limit.
@@ -192,20 +195,29 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 		}
 	}
 
-	type search struct{ q, label string }
+	type search struct {
+		query    searchText
+		q, label string
+	}
+	// Only a setting with a key pattern reads descriptions, so only its pull
+	// request searches ask for them.
+	prSearch := plainSearch
+	if sc.Keys != nil {
+		prSearch = describedSearch
+	}
 	searches := make([]search, 0, 2*len(owners))
 	since := sc.Since.UTC().Format(time.RFC3339)
 	for _, o := range owners {
 		searches = append(searches,
-			search{"is:pr is:open author:@me user:" + o + " updated:>=" + since, "pull request search of " + o},
-			search{"is:issue is:open assignee:@me user:" + o + " updated:>=" + since, "issue search of " + o})
+			search{prSearch, "is:pr is:open author:@me user:" + o + " updated:>=" + since, "pull request search of " + o},
+			search{plainSearch, "is:issue is:open assignee:@me user:" + o + " updated:>=" + since, "issue search of " + o})
 	}
 	stopped := slices.ContainsFunc(failures, func(f failure) bool { return f.stops() })
 	run := func(s search) []node {
 		if stopped {
 			return nil
 		}
-		nodes, read, short, f := searchAll[node](ctx, r, token, openSearch, s.q, s.label)
+		nodes, read, short, f := searchAll[node](ctx, r, token, s.query, s.q, s.label)
 		if f != nil {
 			failures = append(failures, *f)
 			stopped = f.stops()
@@ -244,7 +256,7 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 	for _, keys := range groups {
 		asked := strings.Join(keys, `" OR "`)
 		for _, o := range owners {
-			for _, n := range run(search{`is:pr in:title,body "` + asked + `" user:` + o, "key search for " + strings.Join(keys, ", ") + " in " + o}) {
+			for _, n := range run(search{describedSearch, `is:pr in:title,body "` + asked + `" user:` + o, "key search for " + strings.Join(keys, ", ") + " in " + o}) {
 				named := append(sc.Keys.All(n.Body), n.key(sc.Keys, false))
 				if n.Typename == "PullRequest" && trusted[n.AuthorAssociation] && slices.ContainsFunc(keys, func(k string) bool {
 					return slices.ContainsFunc(named, func(c string) bool { return strings.EqualFold(k, c) })
@@ -426,7 +438,8 @@ var trusted = map[string]bool{"OWNER": true, "MEMBER": true, "COLLABORATOR": tru
 
 // nodeFields selects what an item is built from, for a pull request or an
 // issue alike, and describedFields its pull requests' descriptions as well,
-// which only a search asks for: a member is never joined by its description.
+// which only a pull request search under a key pattern asks for: a member is
+// never joined by its description.
 const (
 	prFields        = `number title url state isDraft createdAt updatedAt headRefName headRepository { nameWithOwner } authorAssociation repository { nameWithOwner owner { login } }`
 	issueFields     = `... on Issue { number title url state createdAt updatedAt repository { nameWithOwner owner { login } } }`
@@ -640,7 +653,10 @@ nodes { ` + fields + ` }
 }`, page}
 }
 
-var openSearch = searchQuery(describedFields, describedPage)
+var (
+	plainSearch     = searchQuery(nodeFields, pageSize)
+	describedSearch = searchQuery(describedFields, describedPage)
+)
 
 // searchAll pages through one search, decoding each node as a T. short, when not
 // empty, says why the results stop before the matches do, opening with label.

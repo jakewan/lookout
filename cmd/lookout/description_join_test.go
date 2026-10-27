@@ -1,10 +1,14 @@
 package main
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jakewan/lookout/schema"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // described is a setting whose tickets are named in pull request descriptions
@@ -116,6 +120,9 @@ func TestADescriptionJoinsAPullRequestToEachAdoptedTicketItNames(t *testing.T) {
 		if !touched {
 			t.Errorf("%s events = %+v, want the release notes counted as a touch in every workstream it names", w.Name, w.Events)
 		}
+		if at, err := time.Parse(time.RFC3339, *w.LastTouched); err != nil || !at.Equal(now.Add(-10*time.Minute)) {
+			t.Errorf("%s last_touched = %s, want the release notes' update, the newest touch it holds", w.Name, *w.LastTouched)
+		}
 	}
 	if ids := unplacedIDs(doc); !slices.Equal(ids, []string{"hub:alice/app#4"}) {
 		t.Errorf("unplaced = %v, want the pull request naming only a ticket no workstream adopted", ids)
@@ -163,6 +170,24 @@ func TestABranchAndItsSessionsFollowTheirOpenPullRequest(t *testing.T) {
 	if doc.DismissedCount != 1 {
 		t.Errorf("dismissed_count = %d, want the dismissed branch kept out though its pull request joined", doc.DismissedCount)
 	}
+	// The contract requires via wherever by is pull_request, so a renderer can
+	// always name the pull request a branch came through.
+	_, stdout, _ := f.run("read", "--json")
+	via := regexp.MustCompile(`,\s*"via":\s*"hub:alice/app#5"`)
+	if !via.MatchString(stdout) {
+		t.Fatalf("readout = %s, want via on the joins this check strips", stdout)
+	}
+	inst, err := jsonschema.UnmarshalJSON(strings.NewReader(via.ReplaceAllString(stdout, "")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sch, err := schema.Compile("readout.v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sch.Validate(inst) == nil {
+		t.Error("a pull_request join without via validates against readout.v1, want it refused")
+	}
 	lookups := 0
 	for _, r := range fake.requests {
 		if _, search := r.variables["q"]; search {
@@ -209,6 +234,10 @@ func TestAKeySearchReadsDescriptionsButNeverAdmitsOnABranch(t *testing.T) {
 		q, search := r.variables["q"].(string)
 		switch {
 		case !search:
+		case strings.Contains(q, "is:issue"):
+			if strings.Contains(r.query, "body") || !strings.Contains(r.query, "first: 100") {
+				t.Errorf("issue search query %q, want no descriptions and full pages", r.query)
+			}
 		case strings.Contains(q, `"`):
 			keySearches++
 			if !strings.Contains(q, "in:title,body") {
@@ -217,12 +246,39 @@ func TestAKeySearchReadsDescriptionsButNeverAdmitsOnABranch(t *testing.T) {
 			fallthrough
 		default:
 			if !strings.Contains(r.query, "body") || !strings.Contains(r.query, "first: 50") {
-				t.Errorf("search query %q, want descriptions selected in pages of 50", r.query)
+				t.Errorf("pull request search query %q, want descriptions selected in pages of 50", r.query)
 			}
 		}
 	}
 	if keySearches == 0 {
 		t.Error("no key search sent")
+	}
+}
+
+// TestWithoutAKeyPatternNothingFollowsAPullRequest pins the gate that keeps a
+// setting with no pattern on the joins, and the discovery digest, it had: an
+// adopted pull request's branch stays unplaced, and no search pays for
+// descriptions nothing will read.
+func TestWithoutAKeyPatternNothingFollowsAPullRequest(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", strings.Replace(described, "key_pattern: '([A-Z][A-Z0-9]+-[0-9]+)'\n", "", 1)+`  - name: review
+    members: ["hub:alice/app#9"]
+`)
+	fake := f.withDescribedInputs(ghNode{pr: true, repo: "alice/app", number: 9, title: "Review me", state: "OPEN", branch: "review-me", body: "ABC-1", created: 5 * time.Hour, updated: 3 * time.Hour, authored: true})
+	f.branch(f.repo("code/app", "git@github.com:alice/app.git"), "review-me", time.Hour)
+
+	doc := f.read()
+
+	if got := joins(t, doc, "review"); len(got) != 0 {
+		t.Errorf("review joins = %v, want none with no key_pattern", got)
+	}
+	if ids := unplacedIDs(doc); !slices.Equal(ids, []string{"code:alice/app:review-me"}) {
+		t.Errorf("unplaced = %v, want the branch", ids)
+	}
+	for _, r := range fake.requests {
+		if _, search := r.variables["q"]; search && (strings.Contains(r.query, "body") || !strings.Contains(r.query, "first: 100")) {
+			t.Errorf("search query %q, want no descriptions and full pages with no key_pattern", r.query)
+		}
 	}
 }
 

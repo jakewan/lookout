@@ -302,7 +302,7 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 	r.HandPlaced = handPlaced(replayed, cfg.Workstreams)
 
 	candidates := slices.Concat(unplaced, r.HandPlaced)
-	// A key places an item without anyone deciding to, so one any earlier
+	// A join places an item without anyone deciding to, so one any earlier
 	// record lists as joined has arrived already, however it was held since:
 	// joining it again, after it was adopted and removed, asks nothing new.
 	joinedBefore := map[string]bool{}

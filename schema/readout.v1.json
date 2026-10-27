@@ -193,6 +193,18 @@
         "by",
         "member"
       ],
+      "if": {
+        "properties": {
+          "by": {
+            "const": "pull_request"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "via"
+        ]
+      },
       "properties": {
         "by": {
           "description": "How the item was matched to the member: key, where the key the item carries in a branch name or pull request title is the member's id; description, where a pull request's description names the member's id; pull_request, where the item is the branch, or a session on the branch, that an open pull request the workstream holds was made from, named in via. A renderer should show a value it does not know as a join rather than drop the item.",
