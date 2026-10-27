@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -279,6 +281,40 @@ func TestWithoutAKeyPatternNothingFollowsAPullRequest(t *testing.T) {
 		if _, search := r.variables["q"]; search && (strings.Contains(r.query, "body") || !strings.Contains(r.query, "first: 100")) {
 			t.Errorf("search query %q, want no descriptions and full pages with no key_pattern", r.query)
 		}
+	}
+}
+
+// TestSnapshotFlagsAnUpgradeThatChangesTheJoinRules pins what an upgrade that
+// places more work does to the baseline: work it newly reaches, moved within
+// the discovery window, arrives as on any change to discovery, and the record
+// says discovery changed, so a reader can discount it. The previous record's
+// digest stands in for the one the earlier rules gave.
+func TestSnapshotFlagsAnUpgradeThatChangesTheJoinRules(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", described)
+	fake := f.withDescribedInputs()
+	f.snapshot()
+
+	path := f.baselinePath("personal")
+	var rec map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(readFile(t, path))), &rec); err != nil {
+		t.Fatal(err)
+	}
+	rec["discovery_digest"] = "the earlier rules' digest"
+	data, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	f.nextDay()
+	fake.nodes = append(fake.nodes, ghNode{pr: true, repo: "alice/app", number: 30, title: "Exporter cleanup", state: "OPEN", branch: "cleanup", body: "Part of ABC-1", created: 5 * time.Hour, updated: 3 * time.Hour, association: "MEMBER"})
+	f.supplied("tracker.json", suppliedDoc("tracker", []any{item("ABC-1", -23*time.Hour, nil), item("XYZ-9", -23*time.Hour, nil), item("QRS-4", -23*time.Hour, nil)}, nil))
+	b := f.snapshot()
+	if !b.DiscoveryChanged || !slices.Equal(b.Arrivals, []string{"hub:alice/app#30"}) {
+		t.Errorf("discovery_changed = %v, arrivals = %v, want the newly reached pull request arriving on a record flagged as a change to discovery", b.DiscoveryChanged, b.Arrivals)
 	}
 }
 

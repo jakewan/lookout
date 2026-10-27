@@ -45,9 +45,9 @@ func TestDiscoveryDigestOfASettingWithoutAKeyPatternIsUnchanged(t *testing.T) {
 
 // TestDiscoveryDigestOfASettingWithAKeyPatternFollowsTheJoinRules pins that a
 // change to what a key joins changes a patterned setting's digest, so the
-// first snapshot after it reports discovery_changed rather than counting the
-// work it newly places as arriving. The value is the digest the key join's
-// first rules gave this setting.
+// first snapshot after it reports discovery_changed and a reader can tell the
+// work it newly places from activity, as with any change to discovery. The
+// value is the digest the key join's first rules gave this setting.
 func TestDiscoveryDigestOfASettingWithAKeyPatternFollowsTheJoinRules(t *testing.T) {
 	cfg, err := config.Parse([]byte("key_pattern: '([A-Z]+-[0-9]+)'\n"+digestFixture), "/settings/personal.yml")
 	if err != nil {
