@@ -555,6 +555,34 @@ func TestStateIsPrivateAndBelongsToOneConfiguration(t *testing.T) {
 	}
 }
 
+// TestTheOwnershipRefusalLeadsWithRunningAgainstTheBoundFile pins the hint a
+// copy of a configuration meets: deleting the owner record would rebind the
+// state to the copy, away from the file other runs of the setting use, so the
+// hint says how to run against the bound file, or keep the copy's history apart,
+// before it mentions deletion.
+func TestTheOwnershipRefusalLeadsWithRunningAgainstTheBoundFile(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.mustRun("dismiss", "tracker:ABC-3")
+	bound, err := filepath.EvalSymlinks(filepath.Join(f.dir, "personal.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	copied := filepath.Join(t.TempDir(), "personal.yml")
+	if err := os.WriteFile(copied, []byte(handWritten), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.env["LOOKOUT_CONFIG"] = copied
+	code, _, stderr := f.run("dismiss", "tracker:ABC-4")
+	run := strings.Index(stderr, "LOOKOUT_CONFIG="+bound)
+	apart := strings.Index(stderr, "XDG_STATE_HOME")
+	del := strings.Index(stderr, "delete")
+	if code != exitFailure || run < 0 || apart < 0 || (del >= 0 && (del < run || del < apart)) {
+		t.Errorf("exit code = %d, stderr = %q, want a refusal that says to run with LOOKOUT_CONFIG=%s or set XDG_STATE_HOME before any deletion", code, stderr, bound)
+	}
+}
+
 func TestASettingNameMustBeValidWhateverTheRoute(t *testing.T) {
 	for name, file := range map[string]string{
 		"empty":     ".yml",

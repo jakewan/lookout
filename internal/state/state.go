@@ -184,7 +184,11 @@ func (s *Store) checkOwner() error {
 	case err != nil:
 		return fmt.Errorf("reading state: %w", err)
 	case strings.TrimSpace(string(owner)) != s.config:
-		return fmt.Errorf("state directory %s belongs to configuration %s, not %s: if these are two settings, give one file a different name; if the file moved, delete %s so the state follows it", s.dir, strings.TrimSpace(string(owner)), s.config, path)
+		// Deleting the owner record rebinds the state to whichever file runs
+		// next, so it comes last: a copy of the file, such as one in another
+		// checkout, would take the history from the file other runs use.
+		bound := strings.TrimSpace(string(owner))
+		return fmt.Errorf("state directory %s belongs to configuration %s, not %s: to use that state, run with LOOKOUT_CONFIG=%s; to keep this file's history apart, set XDG_STATE_HOME to another directory; if these are two settings, give one file a different name; only if the file has moved for good, delete %s so the state follows it", s.dir, bound, s.config, bound, path)
 	}
 	return nil
 }
