@@ -1,6 +1,7 @@
-// Package hookspec runs a package's specs the way the pre-push hook runs them,
-// so a spec that reaches past its own fixtures into the repository being
-// pushed fails where every run can see it. Not part of the binary.
+// Package hookspec reruns a package's specs under the GIT_DIR a pre-push hook
+// in a linked worktree inherits, so a spec that rewrites the config of the
+// repository being pushed fails where every run can see it. Not part of the
+// binary.
 package hookspec
 
 import (
@@ -46,7 +47,13 @@ func LeavesRepositoryAlone(t *testing.T) {
 	config := filepath.Join(pushed, ".git", "config")
 	before := readFile(t, config)
 
-	cmd := exec.Command(os.Args[0], "-test.count=1")
+	// Resolved before Dir moves the rerun into the worktree, where a relative
+	// path to the test binary would no longer reach it.
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatalf("locating the test binary: %v", err)
+	}
+	cmd := exec.Command(binary, "-test.count=1")
 	cmd.Dir = worktree
 	cmd.Env = slices.Concat(env, []string{"GIT_DIR=" + gitDir, reentered + "=1"})
 	out, err := cmd.CombinedOutput()
@@ -58,9 +65,10 @@ func LeavesRepositoryAlone(t *testing.T) {
 	}
 }
 
-// withoutRepositoryVariables is the process environment minus the variables
-// git reads to locate a repository, which a hook running these specs exports.
-// The list comes from git itself, so a variable a later git adds is covered.
+// withoutRepositoryVariables is the process environment minus the
+// repository-local variables git rev-parse --local-env-vars lists, GIT_DIR
+// among them. The list comes from git itself, so a variable a later git adds
+// to it is covered.
 func withoutRepositoryVariables(t *testing.T) []string {
 	t.Helper()
 	out, err := exec.Command("git", "rev-parse", "--local-env-vars").Output()
