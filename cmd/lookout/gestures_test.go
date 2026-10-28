@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -1150,12 +1151,61 @@ func TestAnExplicitOnlySettingIsNeverChosenByDefault(t *testing.T) {
 			if stdout != "" {
 				t.Errorf("stdout = %q, want nothing", stdout)
 			}
-			for _, want := range []string{"explicit_only", "--setting personal", "LOOKOUT_CONFIG=" + path} {
+			for _, want := range []string{"explicit_only", "--setting personal", "LOOKOUT_CONFIG=", path} {
 				if !strings.Contains(stderr, want) {
 					t.Errorf("stderr = %q, want it to say %q", stderr, want)
 				}
 			}
 			f.requireUntouched("personal.yml", explicitOnly)
+		})
+	}
+}
+
+func TestTheExplicitOnlyRefusalsPathReadsBackInAShell(t *testing.T) {
+	for name, tc := range map[string]struct {
+		config string
+		// usable says the file, once named, is read without error, so following
+		// the hint should land the command.
+		usable bool
+	}{
+		"set":        {explicitOnly, true},
+		"unreadable": {"explicit_only: maybe\n" + handWritten, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			base := filepath.Join(t.TempDir(), "My Configs")
+			f.env["XDG_CONFIG_HOME"] = base
+			f.dir = filepath.Join(base, "lookout")
+			if err := os.MkdirAll(f.dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			path := f.write("personal.yml", tc.config)
+			code, _, stderr := f.run("adopt", "tracker:ABC-3", "billing")
+			if code != exitFailure {
+				t.Fatalf("exit code = %d, want a refusal", code)
+			}
+			// The route ends the message, so the word to copy is all that
+			// follows its last LOOKOUT_CONFIG=.
+			i := strings.LastIndex(stderr, "LOOKOUT_CONFIG=")
+			if i < 0 {
+				t.Fatalf("stderr = %q, want a LOOKOUT_CONFIG= route", stderr)
+			}
+			word := strings.TrimSpace(stderr[i+len("LOOKOUT_CONFIG="):])
+			out, err := exec.Command("sh", "-c", "printf %s "+word).Output()
+			if err != nil {
+				t.Fatalf("sh reading %q: %v", word, err)
+			}
+			if got := string(out); got != path {
+				t.Fatalf("sh reads the hint's %q as %q, want %q", word, got, path)
+			}
+			if !tc.usable {
+				return
+			}
+			f.env["LOOKOUT_CONFIG"] = string(out)
+			f.mustRun("adopt", "tracker:ABC-3", "billing")
+			if gs := f.gestures("personal"); len(gs) != 1 || gs[0].Outcome != "ok" {
+				t.Errorf("gestures = %+v, want the adopt the hint led to", gs)
+			}
 		})
 	}
 }
@@ -1244,7 +1294,7 @@ func TestAnExplicitOnlyKeyThatCannotBeReadIsNeverChosenByDefault(t *testing.T) {
 			if code != exitFailure {
 				t.Errorf("exit code = %d, want a refusal", code)
 			}
-			for _, want := range []string{"explicit_only", "--setting personal", "LOOKOUT_CONFIG=" + path} {
+			for _, want := range []string{"explicit_only", "--setting personal", "LOOKOUT_CONFIG=", path} {
 				if !strings.Contains(stderr, want) {
 					t.Errorf("stderr = %q, want it to say %q", stderr, want)
 				}

@@ -226,21 +226,11 @@ func (s *Store) refusal(bound, path string) error {
 	case s.named != "" && namedErr == nil && named == bound:
 		use = fmt.Sprintf("to use that state, run with --setting %s, which reaches it through %s", setting, s.named)
 	case strings.TrimSuffix(filepath.Base(bound), filepath.Ext(bound)) == setting:
-		use = fmt.Sprintf("to use that state, run with LOOKOUT_CONFIG=%s and no --setting, or through the link you ran it through before where the configuration's relative paths are written from the link's directory", shellQuote(bound))
+		use = fmt.Sprintf("to use that state, run with LOOKOUT_CONFIG=%s and no --setting, or through the link you ran it through before where the configuration's relative paths are written from the link's directory", config.ShellQuote(bound))
 	default:
 		use = fmt.Sprintf("to use that state, run against the path named for setting %s that resolves to %s, such as the link you ran it through before", setting, bound)
 	}
 	return fmt.Errorf("%s: %s; %s; only if the file has moved for good, delete %s so the state follows it", head, use, apart, path)
-}
-
-// shellQuote writes s so a POSIX shell reads it back as one word: as it is
-// where it holds only characters no shell treats specially, and otherwise in
-// single quotes, each quote within closed, escaped and reopened.
-func shellQuote(s string) string {
-	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./@%+=:,-") == "" {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // Claim makes the state directory this configuration's, creating it on first
