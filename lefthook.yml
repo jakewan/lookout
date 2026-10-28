@@ -24,14 +24,21 @@ pre-push:
       priority: 1
       runner: sh
       use_stdin: true
+  # Lint and tests run without the repository variables git exports to the hook
+  # (githooks(5)). From a linked worktree that includes GIT_DIR naming the
+  # repository being pushed, and a spec's git init inheriting it rewrites that
+  # repository's config: core.bare=true leaves the main checkout's files no
+  # longer following HEAD. Clearing them here covers every package, including
+  # ones added later; the sweep keeps them, since it reads the repository being
+  # pushed. The list comes from git, so a variable a later git adds is covered.
   commands:
     go-lint:
       priority: 2
-      run: just lint
+      run: unset $(git rev-parse --local-env-vars) && just lint
       skip: merge
     go-test:
       priority: 3
       # The same form CI runs, so a push that passes here cannot fail CI's test
       # job for a reason the hook never checked.
-      run: just test-race
+      run: unset $(git rev-parse --local-env-vars) && just test-race
       skip: merge
