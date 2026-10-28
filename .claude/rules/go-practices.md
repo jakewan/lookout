@@ -32,6 +32,7 @@ Conventions for Go code in this repository.
 - Use the standard `testing` package — no external assertion or mocking frameworks.
 - Prefer table-driven tests for behavior variations (valid input, invalid input, edge cases, error paths) — not just the happy path.
 - Isolate filesystem state with `t.TempDir()`; register cleanup with `t.Cleanup`.
+- A spec that runs git, directly or through the code it tests, keeps git's repository variables from reaching it. Set each command's environment in full, as `cmd/lookout`'s `gitWith` does, or, where the code under test inherits the process environment, clear those variables in the process (as the sweep specs' `clearRepositoryEnvironment` does) before any git command reads or writes a repository. A pre-push hook run from a linked worktree exports `GIT_DIR` as that worktree's git directory inside the repository being pushed, so a git command that inherits it, `git init` above all, acts on that repository rather than the fixture.
 - Tests describe **what** the code does from the caller's perspective, not **how**. An interface should exist because a test needs to substitute an implementation, not as speculative abstraction.
 - A guard that has never been observed failing is not yet a guard. When adding one, break the thing it protects, watch it go red, and restore.
 
