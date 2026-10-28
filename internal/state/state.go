@@ -16,6 +16,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/jakewan/lookout/internal/config"
 )
 
 // Outcomes a gesture can have. A refused gesture still cost the user a
@@ -78,8 +80,11 @@ const (
 
 // Store is one setting's state directory, held until Close.
 type Store struct {
-	dir      string
-	config   string
+	dir    string
+	config string
+	// named is the file --setting selects for this setting, or empty where
+	// there is none.
+	named    string
 	gestures []Gesture
 	lock     *os.File
 }
@@ -115,14 +120,19 @@ func Open(getenv func(string) string, setting, configPath string, mode Mode) (_ 
 	}
 	// The resolved path names the file itself, so a relative path or a symlinked
 	// directory reaching the same file finds the same owner.
-	config, err := filepath.EvalSymlinks(configPath)
+	resolved, err := filepath.EvalSymlinks(configPath)
 	if err == nil {
-		config, err = filepath.Abs(config)
+		resolved, err = filepath.Abs(resolved)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("resolving %s: %w", configPath, err)
 	}
-	s := &Store{dir: filepath.Join(base, setting), config: config}
+	s := &Store{dir: filepath.Join(base, setting), config: resolved}
+	// A refusal offers --setting where the file it selects resolves to the
+	// owner, so a missing one is no error here.
+	if named, locateErr := config.Locate(getenv, setting); locateErr == nil {
+		s.named = named
+	}
 	if mode == Write {
 		if mkErr := os.MkdirAll(s.dir, 0o700); mkErr != nil {
 			return nil, fmt.Errorf("creating the state directory: %w", mkErr)
@@ -184,9 +194,53 @@ func (s *Store) checkOwner() error {
 	case err != nil:
 		return fmt.Errorf("reading state: %w", err)
 	case strings.TrimSpace(string(owner)) != s.config:
-		return fmt.Errorf("state directory %s belongs to configuration %s, not %s: if these are two settings, give one file a different name; if the file moved, delete %s so the state follows it", s.dir, strings.TrimSpace(string(owner)), s.config, path)
+		return s.refusal(strings.TrimSpace(string(owner)), path)
 	}
 	return nil
+}
+
+// refusal says how to go on when the directory belongs to the configuration
+// at bound. Deleting the owner record rebinds the state to whichever file
+// writes next, so it comes last, unless bound no longer resolves to itself:
+// a copy of the file, such as one in another checkout, would take the history
+// from the file other runs use. The route offered is one that reaches this
+// state when followed. --setting does where the file it selects resolves to
+// bound, and selects it through that path, so relative paths in the
+// configuration keep resolving as they did. Otherwise LOOKOUT_CONFIG does,
+// but only where bound carries the setting's name, since the setting is named
+// by the path an invocation selects, and only without --setting, which
+// outranks it.
+func (s *Store) refusal(bound, path string) error {
+	setting := filepath.Base(s.dir)
+	head := fmt.Sprintf("state directory %s belongs to configuration %s, not %s", s.dir, bound, s.config)
+	const apart = "to keep this file's history apart, set XDG_STATE_HOME to another directory; if this file is another setting, give it a different name"
+	now, err := filepath.EvalSymlinks(bound)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return fmt.Errorf("%s, which no longer exists: if this file replaces it, delete %s so the state follows it; %s", head, path, apart)
+	case err == nil && now != bound:
+		return fmt.Errorf("%s, which now leads to %s: if the file moved there, or this file replaces it, delete %s so the state follows it; %s", head, now, path, apart)
+	}
+	var use string
+	switch named, namedErr := filepath.EvalSymlinks(s.named); {
+	case s.named != "" && namedErr == nil && named == bound:
+		use = fmt.Sprintf("to use that state, run with --setting %s, which reaches it through %s", setting, s.named)
+	case strings.TrimSuffix(filepath.Base(bound), filepath.Ext(bound)) == setting:
+		use = fmt.Sprintf("to use that state, run with LOOKOUT_CONFIG=%s and no --setting, or through the link you ran it through before where the configuration's relative paths are written from the link's directory", shellQuote(bound))
+	default:
+		use = fmt.Sprintf("to use that state, run against the path named for setting %s that resolves to %s, such as the link you ran it through before", setting, bound)
+	}
+	return fmt.Errorf("%s: %s; %s; only if the file has moved for good, delete %s so the state follows it", head, use, apart, path)
+}
+
+// shellQuote writes s so a POSIX shell reads it back as one word: as it is
+// where it holds only characters no shell treats specially, and otherwise in
+// single quotes, each quote within closed, escaped and reopened.
+func shellQuote(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./@%+=:,-") == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // Claim makes the state directory this configuration's, creating it on first

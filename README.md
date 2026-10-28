@@ -66,7 +66,7 @@ workstreams:
 
   `lookout unplaced` prints these tokens ready to paste. `completed: YYYY-MM-DD` marks a workstream finished. It leaves the readout, and a member touched after that date is offered again.
 
-`lookout adopt`, `move`, `remove`, `rename`, `order` and `complete` edit this file in place and keep its comments and layout. They refuse a file whose YAML they cannot edit safely, such as one using anchors, tags, several documents or non-empty flow-style (`[...]`) workstream or member lists, and say what to change. Everything lookout records itself, the gesture log and the baseline, is under `$XDG_STATE_HOME/lookout/<setting>/` (`~/.local/state/lookout/<setting>/` by default), and is never hand-edited.
+`lookout adopt`, `move`, `remove`, `rename`, `order` and `complete` edit this file in place and keep its comments and layout. They refuse a file whose YAML they cannot edit safely, such as one using anchors, tags, several documents or non-empty flow-style (`[...]`) workstream or member lists, and say what to change. Everything lookout records itself, the gesture log and the baseline, is under `$XDG_STATE_HOME/lookout/<setting>/` (`~/.local/state/lookout/<setting>/` by default), and is never hand-edited. That directory belongs to the configuration file that claimed it by writing to it first, so another file for the same setting, such as a copy in another checkout, is refused. The refusal says how to run against the file it belongs to; to try a copy without touching that history, run it with `XDG_STATE_HOME` set to another directory. Delete the directory's owner record, as the refusal names it, only when the file has moved for good.
 
 ## License
 

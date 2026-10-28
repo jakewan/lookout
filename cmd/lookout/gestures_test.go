@@ -555,6 +555,171 @@ func TestStateIsPrivateAndBelongsToOneConfiguration(t *testing.T) {
 	}
 }
 
+// TestTheOwnershipRefusalSaysHowToReachTheBoundState pins the hint a copy of
+// a configuration meets: deleting the owner record would rebind the state to
+// the copy, away from the file other runs of the setting use, so the hint
+// leads with a way to run against the bound state that works where it is
+// followed, or to keep the copy's history apart, and mentions deletion last,
+// unless the bound file has moved or gone, when deleting is the way on.
+func TestTheOwnershipRefusalSaysHowToReachTheBoundState(t *testing.T) {
+	file := func(f *fixture, dir, name string) string {
+		f.t.Helper()
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			f.t.Fatal(err)
+		}
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(handWritten), 0o644); err != nil {
+			f.t.Fatal(err)
+		}
+		return path
+	}
+	resolve := func(f *fixture, path string) string {
+		f.t.Helper()
+		r, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			f.t.Fatal(err)
+		}
+		return r
+	}
+	for name, tc := range map[string]struct {
+		// bind makes the bound file, records a gesture through it, and returns
+		// the path the owner record holds and the path the hint says to run
+		// with LOOKOUT_CONFIG, if any.
+		bind func(f *fixture) (bound, reach string)
+		// want is text the refusal must hold, in order; absent must not appear.
+		want   []string
+		absent string
+		// bySetting says the hint's way back is --setting; with it unset and
+		// no reach, the hint offers no way back to the bound state.
+		bySetting bool
+	}{
+		"a copy of a file in the configuration directory": {
+			bind: func(f *fixture) (string, string) {
+				path := f.write("personal.yml", handWritten)
+				f.mustRun("dismiss", "tracker:ABC-3")
+				return resolve(f, path), ""
+			},
+			want:      []string{"--setting personal", "XDG_STATE_HOME", "give it a different name", "delete"},
+			absent:    "LOOKOUT_CONFIG=<bound>",
+			bySetting: true,
+		},
+		"a copy of a file the configuration directory links to by the same name": {
+			bind: func(f *fixture) (string, string) {
+				target := file(f, filepath.Join(f.t.TempDir(), "dotfiles"), "personal.yml")
+				if err := os.Symlink(target, filepath.Join(f.dir, "personal.yml")); err != nil {
+					f.t.Fatal(err)
+				}
+				f.mustRun("dismiss", "tracker:ABC-3", "--setting", "personal")
+				return resolve(f, target), ""
+			},
+			want:      []string{"--setting personal", "XDG_STATE_HOME", "delete"},
+			absent:    "LOOKOUT_CONFIG=<bound>",
+			bySetting: true,
+		},
+		"a bound path that needs quoting": {
+			bind: func(f *fixture) (string, string) {
+				path := file(f, filepath.Join(f.t.TempDir(), "My Configs"), "personal.yml")
+				f.env["LOOKOUT_CONFIG"] = path
+				f.mustRun("dismiss", "tracker:ABC-3")
+				return resolve(f, path), path
+			},
+			want: []string{"LOOKOUT_CONFIG='<bound>'", "no --setting", "XDG_STATE_HOME", "delete"},
+		},
+		"a bound file reached through a link of another name": {
+			bind: func(f *fixture) (string, string) {
+				target := file(f, f.t.TempDir(), "home.yml")
+				link := filepath.Join(f.t.TempDir(), "personal.yml")
+				if err := os.Symlink(target, link); err != nil {
+					f.t.Fatal(err)
+				}
+				f.env["LOOKOUT_CONFIG"] = link
+				f.mustRun("dismiss", "tracker:ABC-3")
+				return resolve(f, target), link
+			},
+			want:   []string{"personal", "<bound>", "XDG_STATE_HOME", "delete"},
+			absent: "LOOKOUT_CONFIG=<bound>",
+		},
+		"a bound file since gone": {
+			bind: func(f *fixture) (string, string) {
+				path := file(f, f.t.TempDir(), "personal.yml")
+				f.env["LOOKOUT_CONFIG"] = path
+				f.mustRun("dismiss", "tracker:ABC-3")
+				bound := resolve(f, path)
+				if err := os.Remove(path); err != nil {
+					f.t.Fatal(err)
+				}
+				return bound, ""
+			},
+			want:   []string{"no longer exists", "delete", "XDG_STATE_HOME"},
+			absent: "LOOKOUT_CONFIG=",
+		},
+		"a bound file moved, leaving a link in its place": {
+			bind: func(f *fixture) (string, string) {
+				base := f.t.TempDir()
+				old := file(f, filepath.Join(base, "old"), "personal.yml")
+				f.env["LOOKOUT_CONFIG"] = old
+				f.mustRun("dismiss", "tracker:ABC-3")
+				bound := resolve(f, old)
+				moved := filepath.Join(base, "new", "personal.yml")
+				if err := os.MkdirAll(filepath.Dir(moved), 0o755); err != nil {
+					f.t.Fatal(err)
+				}
+				if err := os.Rename(old, moved); err != nil {
+					f.t.Fatal(err)
+				}
+				if err := os.Symlink(moved, old); err != nil {
+					f.t.Fatal(err)
+				}
+				return bound, ""
+			},
+			want:   []string{"now leads to", "delete", "XDG_STATE_HOME"},
+			absent: "LOOKOUT_CONFIG=",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			bound, reach := tc.bind(f)
+
+			copied := file(f, t.TempDir(), "personal.yml")
+			f.env["LOOKOUT_CONFIG"] = copied
+			code, _, stderr := f.run("dismiss", "tracker:ABC-4")
+			at := 0
+			for _, w := range tc.want {
+				w = strings.ReplaceAll(w, "<bound>", bound)
+				i := strings.Index(stderr[at:], w)
+				if i < 0 {
+					t.Errorf("stderr = %q, want %q after what came before it", stderr, w)
+					break
+				}
+				at += i + len(w)
+			}
+			if absent := strings.ReplaceAll(tc.absent, "<bound>", bound); absent != "" && strings.Contains(stderr, absent) {
+				t.Errorf("stderr = %q, want no %q, which would not reach the bound state", stderr, absent)
+			}
+			if code != exitFailure {
+				t.Errorf("exit code = %d, want a refusal", code)
+			}
+
+			// Following the hint reaches the bound state; --setting does so with
+			// the copy still in LOOKOUT_CONFIG.
+			args := []string{"dismiss", "tracker:ABC-4"}
+			switch {
+			case tc.bySetting:
+				args = append(args, "--setting", "personal")
+			case reach != "":
+				f.env["LOOKOUT_CONFIG"] = reach
+			default:
+				return
+			}
+			f.mustRun(args...)
+			gestures := f.gestures("personal")
+			if len(gestures) == 0 || gestures[len(gestures)-1].Item != "tracker:ABC-4" {
+				t.Errorf("gestures = %+v, want the dismissal recorded in the bound state", gestures)
+			}
+		})
+	}
+}
+
 func TestASettingNameMustBeValidWhateverTheRoute(t *testing.T) {
 	for name, file := range map[string]string{
 		"empty":     ".yml",
