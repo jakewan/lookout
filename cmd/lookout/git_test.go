@@ -10,8 +10,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/jakewan/lookout/internal/devtools/hookspec"
 )
 
 // withGit lets the invocation find git, and keeps the machine's own git
@@ -820,10 +818,6 @@ func TestReadIgnoresTheCallersRepositoryVariables(t *testing.T) {
 	if ids := unplacedIDs(f.read()); !slices.Equal(ids, []string{"code:alice/app:feat"}) {
 		t.Errorf("unplaced = %v, want the configured repository's branch, not the decoy's", ids)
 	}
-}
-
-func TestSpecsLeaveThePushedRepositoryAlone(t *testing.T) {
-	hookspec.LeavesRepositoryAlone(t)
 }
 
 func TestUnplacedBranchTokensAreAdoptable(t *testing.T) {

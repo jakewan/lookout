@@ -13,22 +13,21 @@ It is the data layer: it emits a readout for a renderer to consume. `lookout sho
 Early. `lookout read --json`, `lookout show` and `lookout unplaced` report on supplied files, local git repositories, GitHub and Claude Code sessions; `adopt`, `move`, `remove`, `rename`, `order` and `complete` edit the configuration file, and `dismiss` writes state, each recording a gesture; `snapshot` records a daily baseline in state.
 
 ```
-cmd/lookout/                # binary entry point and its behavior specs
-schema/                     # the published contracts, embedded so lookout enforces the same files
-internal/config/            # locating, loading, and editing one setting's configuration file
-internal/git/               # reading local branches of owner-fenced git repositories
-internal/github/            # reading owner-fenced pull requests and issues on github.com
-internal/claudecode/        # reading owner-fenced Claude Code sessions, one item per repository and branch
-internal/execpath/          # finding an executable on the invocation's own PATH
-internal/fsx/               # the one rule filesystem errors are sorted by
-internal/supplied/          # reading a supplied file and judging its input's health
-internal/health/            # the health record every input reports
-internal/readout/           # assembling the readout
-internal/textview/          # the plain-text view of a readout, read only through its published JSON
-internal/state/             # one setting's tool history: the gesture log, the dismissals replayed from it, and the baseline
-internal/baseline/          # deriving each day's baseline record from a readout, the configuration and the gesture log
-internal/devtools/sweep/    # disclosure sweep run before every push; not part of the binary
-internal/devtools/hookspec/ # reruns a package's specs under the GIT_DIR a linked worktree's pre-push hook inherits; not part of the binary
+cmd/lookout/              # binary entry point and its behavior specs
+schema/                   # the published contracts, embedded so lookout enforces the same files
+internal/config/          # locating, loading, and editing one setting's configuration file
+internal/git/             # reading local branches of owner-fenced git repositories
+internal/github/          # reading owner-fenced pull requests and issues on github.com
+internal/claudecode/      # reading owner-fenced Claude Code sessions, one item per repository and branch
+internal/execpath/        # finding an executable on the invocation's own PATH
+internal/fsx/             # the one rule filesystem errors are sorted by
+internal/supplied/        # reading a supplied file and judging its input's health
+internal/health/          # the health record every input reports
+internal/readout/         # assembling the readout
+internal/textview/        # the plain-text view of a readout, read only through its published JSON
+internal/state/           # one setting's tool history: the gesture log, the dismissals replayed from it, and the baseline
+internal/baseline/        # deriving each day's baseline record from a readout, the configuration and the gesture log
+internal/devtools/sweep/  # disclosure sweep run before every push; not part of the binary
 ```
 
 A change to a file under `schema/` changes a published contract: suppliers and renderers outside this repository read it.

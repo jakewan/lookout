@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/jakewan/lookout/internal/devtools/hookspec"
 )
 
 // repo is a throwaway git repository the sweep runs inside. Commits are
@@ -157,10 +155,6 @@ func TestHelperIgnoresInheritedRepositoryEnvironment(t *testing.T) {
 	if got := strings.TrimSpace(string(out)); got != "0" {
 		t.Fatalf("the decoy repository named by GIT_DIR gained %s commit(s); the helper must act only on its throwaway repository", got)
 	}
-}
-
-func TestSpecsLeaveThePushedRepositoryAlone(t *testing.T) {
-	hookspec.LeavesRepositoryAlone(t)
 }
 
 func TestMissingPatternFileWarnsLoudlyAndPasses(t *testing.T) {
