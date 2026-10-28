@@ -373,14 +373,16 @@ func chosenByDefault(path string) error {
 	return nil
 }
 
-// ShellQuote writes a path lookout offers for copying into a shell, such as a
-// LOOKOUT_CONFIG= route, so that a POSIX shell or zsh reads it back as one
+// ShellQuote writes a path lookout offers for pasting into a POSIX shell or
+// zsh, such as a LOOKOUT_CONFIG= route, so that either reads it back as one
 // word: as it is where it holds only characters neither treats specially in an
 // assignment, and otherwise in single quotes, each quote within closed,
-// escaped and reopened. A leading = is quoted because zsh expands =name in an
-// assignment's value to the path of the command name.
+// escaped and reopened. Any = is quoted because zsh's filename expansion
+// (zshexpn, with the EQUALS option it sets by default) turns =name, at the
+// start of an assignment's value or after a :, into the path of the command
+// name; left bare, such a route would fail or name another file in zsh.
 func ShellQuote(s string) string {
-	if s != "" && !strings.HasPrefix(s, "=") && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./@%+=:,-") == "" {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./@%+:,-") == "" {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"

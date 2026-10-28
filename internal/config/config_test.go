@@ -71,7 +71,8 @@ func TestShellQuote(t *testing.T) {
 		"/home/you/it's/personal.yml":            `'/home/you/it'\''s/personal.yml'`,
 		"":                                       "''",
 		"=configs/lookout/personal.yml":          "'=configs/lookout/personal.yml'",
-		"configs/a=b/personal.yml":               "configs/a=b/personal.yml",
+		"configs/a=b/personal.yml":               "'configs/a=b/personal.yml'",
+		"/home/you/a:=b/personal.yml":            "'/home/you/a:=b/personal.yml'",
 		"~/lookout/personal.yml":                 "'~/lookout/personal.yml'",
 	} {
 		if got := ShellQuote(in); got != want {
