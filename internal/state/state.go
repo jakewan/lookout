@@ -184,13 +184,40 @@ func (s *Store) checkOwner() error {
 	case err != nil:
 		return fmt.Errorf("reading state: %w", err)
 	case strings.TrimSpace(string(owner)) != s.config:
-		// Deleting the owner record rebinds the state to whichever file runs
-		// next, so it comes last: a copy of the file, such as one in another
-		// checkout, would take the history from the file other runs use.
-		bound := strings.TrimSpace(string(owner))
-		return fmt.Errorf("state directory %s belongs to configuration %s, not %s: to use that state, run with LOOKOUT_CONFIG=%s; to keep this file's history apart, set XDG_STATE_HOME to another directory; if these are two settings, give one file a different name; only if the file has moved for good, delete %s so the state follows it", s.dir, bound, s.config, bound, path)
+		return s.refusal(strings.TrimSpace(string(owner)), path)
 	}
 	return nil
+}
+
+// refusal says how to go on when the directory belongs to the configuration
+// at bound. Deleting the owner record rebinds the state to whichever file
+// writes next, so it comes last, unless bound is gone: a copy of the file,
+// such as one in another checkout, would take the history from the file other
+// runs use. The setting is named by the path an invocation selects, not by the
+// file it resolves to, so LOOKOUT_CONFIG reaches this state through bound
+// itself only where bound carries the setting's name; --setting outranks it.
+func (s *Store) refusal(bound, path string) error {
+	setting := filepath.Base(s.dir)
+	head := fmt.Sprintf("state directory %s belongs to configuration %s, not %s", s.dir, bound, s.config)
+	const apart = "to keep this file's history apart, set XDG_STATE_HOME to another directory; if this file is another setting, give it a different name"
+	if _, err := os.Stat(bound); errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("%s, which no longer exists: if this file replaces it, delete %s so the state follows it; %s", head, path, apart)
+	}
+	use := fmt.Sprintf("to use that state, run with LOOKOUT_CONFIG=%s and no --setting", shellQuote(bound))
+	if strings.TrimSuffix(filepath.Base(bound), filepath.Ext(bound)) != setting {
+		use = fmt.Sprintf("to use that state, run against the path named for setting %s that resolves to %s, such as the link you ran it through before", setting, bound)
+	}
+	return fmt.Errorf("%s: %s; %s; only if the file has moved for good, delete %s so the state follows it", head, use, apart, path)
+}
+
+// shellQuote writes s so a POSIX shell reads it back as one word: as it is
+// where it holds only characters no shell treats specially, and otherwise in
+// single quotes, each quote within closed, escaped and reopened.
+func shellQuote(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./@%+=:,-") == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // Claim makes the state directory this configuration's, creating it on first

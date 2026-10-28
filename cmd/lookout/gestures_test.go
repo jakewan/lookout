@@ -555,31 +555,120 @@ func TestStateIsPrivateAndBelongsToOneConfiguration(t *testing.T) {
 	}
 }
 
-// TestTheOwnershipRefusalLeadsWithRunningAgainstTheBoundFile pins the hint a
-// copy of a configuration meets: deleting the owner record would rebind the
-// state to the copy, away from the file other runs of the setting use, so the
-// hint says how to run against the bound file, or keep the copy's history apart,
-// before it mentions deletion.
-func TestTheOwnershipRefusalLeadsWithRunningAgainstTheBoundFile(t *testing.T) {
-	f := newFixture(t)
-	f.write("personal.yml", handWritten)
-	f.mustRun("dismiss", "tracker:ABC-3")
-	bound, err := filepath.EvalSymlinks(filepath.Join(f.dir, "personal.yml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+// TestTheOwnershipRefusalSaysHowToReachTheBoundState pins the hint a copy of
+// a configuration meets: deleting the owner record would rebind the state to
+// the copy, away from the file other runs of the setting use, so the hint
+// leads with a way to run against the bound state that works where it is
+// followed, or to keep the copy's history apart, and mentions deletion last.
+func TestTheOwnershipRefusalSaysHowToReachTheBoundState(t *testing.T) {
+	for name, tc := range map[string]struct {
+		// bind makes the bound file and returns the path a later run reaches
+		// the bound state through, or "" where the bound file is gone.
+		bind func(f *fixture) string
+		// want is text the refusal must hold, in order; absent must not appear.
+		want   []string
+		absent string
+	}{
+		"a copy of the bound file": {
+			bind: func(f *fixture) string {
+				return f.write("personal.yml", handWritten)
+			},
+			want: []string{"LOOKOUT_CONFIG=<bound>", "no --setting", "XDG_STATE_HOME", "give it a different name", "delete"},
+		},
+		"a bound path that needs quoting": {
+			bind: func(f *fixture) string {
+				dir := filepath.Join(f.t.TempDir(), "My Configs")
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					f.t.Fatal(err)
+				}
+				path := filepath.Join(dir, "personal.yml")
+				if err := os.WriteFile(path, []byte(handWritten), 0o644); err != nil {
+					f.t.Fatal(err)
+				}
+				f.env["LOOKOUT_CONFIG"] = path
+				return path
+			},
+			want: []string{"LOOKOUT_CONFIG='<bound>'", "XDG_STATE_HOME", "delete"},
+		},
+		"a bound file reached through a link of another name": {
+			bind: func(f *fixture) string {
+				target := filepath.Join(f.t.TempDir(), "home.yml")
+				if err := os.WriteFile(target, []byte(handWritten), 0o644); err != nil {
+					f.t.Fatal(err)
+				}
+				link := filepath.Join(f.t.TempDir(), "personal.yml")
+				if err := os.Symlink(target, link); err != nil {
+					f.t.Fatal(err)
+				}
+				f.env["LOOKOUT_CONFIG"] = link
+				return link
+			},
+			want:   []string{"personal", "<bound>", "XDG_STATE_HOME", "delete"},
+			absent: "LOOKOUT_CONFIG=<bound>",
+		},
+		"a bound file since gone": {
+			bind: func(f *fixture) string {
+				path := filepath.Join(f.t.TempDir(), "personal.yml")
+				if err := os.WriteFile(path, []byte(handWritten), 0o644); err != nil {
+					f.t.Fatal(err)
+				}
+				f.env["LOOKOUT_CONFIG"] = path
+				f.mustRun("dismiss", "tracker:ABC-3")
+				if err := os.Remove(path); err != nil {
+					f.t.Fatal(err)
+				}
+				return ""
+			},
+			want:   []string{"no longer exists", "delete", "XDG_STATE_HOME"},
+			absent: "LOOKOUT_CONFIG=",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			reach := tc.bind(f)
+			var bound string
+			if reach != "" {
+				f.mustRun("dismiss", "tracker:ABC-3")
+				var err error
+				if bound, err = filepath.EvalSymlinks(reach); err != nil {
+					t.Fatal(err)
+				}
+			}
 
-	copied := filepath.Join(t.TempDir(), "personal.yml")
-	if err := os.WriteFile(copied, []byte(handWritten), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	f.env["LOOKOUT_CONFIG"] = copied
-	code, _, stderr := f.run("dismiss", "tracker:ABC-4")
-	run := strings.Index(stderr, "LOOKOUT_CONFIG="+bound)
-	apart := strings.Index(stderr, "XDG_STATE_HOME")
-	del := strings.Index(stderr, "delete")
-	if code != exitFailure || run < 0 || apart < 0 || (del >= 0 && (del < run || del < apart)) {
-		t.Errorf("exit code = %d, stderr = %q, want a refusal that says to run with LOOKOUT_CONFIG=%s or set XDG_STATE_HOME before any deletion", code, stderr, bound)
+			copied := filepath.Join(t.TempDir(), "personal.yml")
+			if err := os.WriteFile(copied, []byte(handWritten), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			f.env["LOOKOUT_CONFIG"] = copied
+			code, _, stderr := f.run("dismiss", "tracker:ABC-4")
+			at := 0
+			for _, w := range tc.want {
+				w = strings.ReplaceAll(w, "<bound>", bound)
+				i := strings.Index(stderr[at:], w)
+				if i < 0 {
+					t.Errorf("stderr = %q, want %q after what came before it", stderr, w)
+					break
+				}
+				at += i + len(w)
+			}
+			if absent := strings.ReplaceAll(tc.absent, "<bound>", bound); absent != "" && strings.Contains(stderr, absent) {
+				t.Errorf("stderr = %q, want no %q, which would not reach the bound state", stderr, absent)
+			}
+			if code != exitFailure {
+				t.Errorf("exit code = %d, want a refusal", code)
+			}
+
+			if reach == "" {
+				return
+			}
+			// Following the hint reaches the bound state.
+			f.env["LOOKOUT_CONFIG"] = reach
+			f.mustRun("dismiss", "tracker:ABC-4")
+			gestures := f.gestures("personal")
+			if len(gestures) == 0 || gestures[len(gestures)-1].Item != "tracker:ABC-4" {
+				t.Errorf("gestures = %+v, want the dismissal recorded in the bound state", gestures)
+			}
+		})
 	}
 }
 
