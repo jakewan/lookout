@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jakewan/lookout/internal/config"
 )
 
 // handWritten is a configuration a person maintains: comments, blank lines and
@@ -1150,13 +1153,80 @@ func TestAnExplicitOnlySettingIsNeverChosenByDefault(t *testing.T) {
 			if stdout != "" {
 				t.Errorf("stdout = %q, want nothing", stdout)
 			}
-			for _, want := range []string{"explicit_only", "--setting personal", "LOOKOUT_CONFIG=" + path} {
+			for _, want := range []string{"explicit_only", "--setting personal", "LOOKOUT_CONFIG=" + config.ShellQuote(path)} {
 				if !strings.Contains(stderr, want) {
 					t.Errorf("stderr = %q, want it to say %q", stderr, want)
 				}
 			}
 			f.requireUntouched("personal.yml", explicitOnly)
 		})
+	}
+}
+
+func TestTheExplicitOnlyRefusalsPathReadsBackInAShell(t *testing.T) {
+	// The route is pasted as an assignment, so each shell reads it as one: zsh
+	// expands = after a : there, which a command argument would not show.
+	shells := [][]string{{"sh", "-c"}}
+	if _, err := exec.LookPath("zsh"); err == nil {
+		shells = append(shells, []string{"zsh", "-f", "-c"})
+	} else {
+		t.Log("zsh is not installed; reading the route in sh only")
+	}
+	for name, tc := range map[string]struct {
+		dir, config string
+		// usable says the file, once named, is read without error, so following
+		// the hint should land the command.
+		usable bool
+	}{
+		"set, a space":        {"My Configs", explicitOnly, true},
+		"set, a := in a name": {"a:=b", explicitOnly, true},
+		"unreadable":          {"My Configs", "explicit_only: maybe\n" + handWritten, false},
+	} {
+		for _, shell := range shells {
+			t.Run(name+", "+shell[0], func(t *testing.T) {
+				f := newFixture(t)
+				base := filepath.Join(t.TempDir(), tc.dir)
+				f.env["XDG_CONFIG_HOME"] = base
+				f.dir = filepath.Join(base, "lookout")
+				if err := os.MkdirAll(f.dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				path := f.write("personal.yml", tc.config)
+				code, _, stderr := f.run("adopt", "tracker:ABC-3", "billing")
+				if code != exitFailure {
+					t.Fatalf("exit code = %d, want a refusal", code)
+				}
+				// The route ends the message, so the word to copy is all that
+				// follows its last LOOKOUT_CONFIG=.
+				i := strings.LastIndex(stderr, "LOOKOUT_CONFIG=")
+				if i < 0 {
+					t.Fatalf("stderr = %q, want a LOOKOUT_CONFIG= route", stderr)
+				}
+				route := strings.TrimSpace(stderr[i:])
+				script := route + `; printf %s "$LOOKOUT_CONFIG"`
+				out, err := exec.Command(shell[0], append(shell[1:], script)...).Output()
+				if err != nil {
+					t.Fatalf("%s reading %q: %v", shell[0], route, err)
+				}
+				if got := string(out); got != path {
+					t.Fatalf("%s reads %q as %q, want %q", shell[0], route, got, path)
+				}
+				f.env["LOOKOUT_CONFIG"] = string(out)
+				if !tc.usable {
+					// Named, the file gets past the default refusal to the
+					// error the hint told its user to fix.
+					code, _, stderr := f.run("adopt", "tracker:ABC-3", "billing")
+					if code != exitFailure || strings.Contains(stderr, "never chosen by default") || !strings.Contains(stderr, "not a boolean") {
+						t.Errorf("following the hint: exit %d, stderr %q, want the file's own explicit_only error", code, stderr)
+					}
+					return
+				}
+				f.mustRun("adopt", "tracker:ABC-3", "billing")
+				if gs := f.gestures("personal"); len(gs) != 1 || gs[0].Outcome != "ok" {
+					t.Errorf("gestures = %+v, want the adopt the hint led to", gs)
+				}
+			})
+		}
 	}
 }
 
@@ -1224,7 +1294,7 @@ func TestASettingThatIsNotExplicitOnlyIsStillChosenByDefault(t *testing.T) {
 }
 
 func TestAnExplicitOnlyKeyThatCannotBeReadIsNeverChosenByDefault(t *testing.T) {
-	for name, config := range map[string]string{
+	for name, text := range map[string]string{
 		"quoted":                          `explicit_only: "true"` + "\n" + handWritten,
 		"not a bool":                      "explicit_only: maybe\n" + handWritten,
 		"empty":                           "explicit_only:\n" + handWritten,
@@ -1239,17 +1309,17 @@ func TestAnExplicitOnlyKeyThatCannotBeReadIsNeverChosenByDefault(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
-			path := f.write("personal.yml", config)
+			path := f.write("personal.yml", text)
 			code, _, stderr := f.run("adopt", "tracker:ABC-3", "billing")
 			if code != exitFailure {
 				t.Errorf("exit code = %d, want a refusal", code)
 			}
-			for _, want := range []string{"explicit_only", "--setting personal", "LOOKOUT_CONFIG=" + path} {
+			for _, want := range []string{"explicit_only", "--setting personal", "LOOKOUT_CONFIG=" + config.ShellQuote(path)} {
 				if !strings.Contains(stderr, want) {
 					t.Errorf("stderr = %q, want it to say %q", stderr, want)
 				}
 			}
-			f.requireUntouched("personal.yml", config)
+			f.requireUntouched("personal.yml", text)
 		})
 	}
 }

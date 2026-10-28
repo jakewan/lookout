@@ -64,6 +64,23 @@ func TestParseRefusesAnExplicitOnlyThatIsNotABool(t *testing.T) {
 	}
 }
 
+func TestShellQuote(t *testing.T) {
+	for in, want := range map[string]string{
+		"/home/you/.config/lookout/personal.yml": "/home/you/.config/lookout/personal.yml",
+		"/home/you/My Configs/personal.yml":      "'/home/you/My Configs/personal.yml'",
+		"/home/you/it's/personal.yml":            `'/home/you/it'\''s/personal.yml'`,
+		"":                                       "''",
+		"=configs/lookout/personal.yml":          "'=configs/lookout/personal.yml'",
+		"configs/a=b/personal.yml":               "'configs/a=b/personal.yml'",
+		"/home/you/a:=b/personal.yml":            "'/home/you/a:=b/personal.yml'",
+		"~/lookout/personal.yml":                 "'~/lookout/personal.yml'",
+	} {
+		if got := ShellQuote(in); got != want {
+			t.Errorf("ShellQuote(%q) = %s, want %s", in, got, want)
+		}
+	}
+}
+
 // TestKeysSearchesEveryIDButSearchSyntax pins which member ids a forge's
 // search is asked for: every one, whatever the pattern would make of it, since
 // each hit is checked against the key it carries, except one holding text the

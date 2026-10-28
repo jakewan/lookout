@@ -363,7 +363,7 @@ func chosenByDefault(path string) error {
 	default:
 		readErr = errors.New("explicit_only is not set as lookout reads it")
 	}
-	routes := "--setting " + name + " or LOOKOUT_CONFIG=" + path
+	routes := "--setting " + name + " or LOOKOUT_CONFIG=" + ShellQuote(path)
 	switch {
 	case readErr != nil:
 		return fmt.Errorf("%s looks like it sets explicit_only, but lookout cannot read it as a top-level key set to a boolean, so it is never chosen by default: check its spelling and value, then name it with %s", path, routes)
@@ -371,6 +371,21 @@ func chosenByDefault(path string) error {
 		return fmt.Errorf("%s sets explicit_only, so it is never chosen by default: name it with %s", path, routes)
 	}
 	return nil
+}
+
+// ShellQuote writes a path lookout offers for pasting into a POSIX shell or
+// zsh, such as a LOOKOUT_CONFIG= route, so that either reads it back as one
+// word: as it is where it holds only characters neither treats specially in an
+// assignment, and otherwise in single quotes, each quote within closed,
+// escaped and reopened. Any = is quoted because zsh's filename expansion
+// (zshexpn, with the EQUALS option it sets by default) turns =name, at the
+// start of an assignment's value or after a :, into the path of the command
+// name; left bare, such a route would fail or name another file in zsh.
+func ShellQuote(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./@%+:,-") == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // explicitOnly reads explicit_only as yaml.v3 decodes a bool, refusing an empty
