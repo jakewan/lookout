@@ -28,6 +28,7 @@ internal/textview/        # the plain-text view of a readout, read only through 
 internal/state/           # one setting's tool history: the gesture log, the dismissals replayed from it, and the baseline
 internal/baseline/        # deriving each day's baseline record from a readout, the configuration and the gesture log
 internal/devtools/sweep/  # disclosure sweep run before every push; not part of the binary
+internal/devtools/hookspec/ # reruns a package's specs as a linked worktree's pre-push hook runs them; not part of the binary
 ```
 
 A change to a file under `schema/` changes a published contract: suppliers and renderers outside this repository read it.

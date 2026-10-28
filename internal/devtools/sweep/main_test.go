@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jakewan/lookout/internal/devtools/hookspec"
 )
 
 // repo is a throwaway git repository the sweep runs inside. Commits are
@@ -135,16 +137,10 @@ func expectClean(t *testing.T, code int, out string) {
 }
 
 func TestHelperIgnoresInheritedRepositoryEnvironment(t *testing.T) {
-	// The pre-push hook runs this suite with GIT_DIR naming the repository
-	// being pushed, so the spec starts the same way.
-	pushed := t.TempDir()
-	if out, err := exec.Command("git", "init", "--quiet", pushed).CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v\n%s", err, out)
-	}
-	t.Setenv("GIT_DIR", filepath.Join(pushed, ".git"))
-
-	// Inherited, GIT_DIR would make git init set up the pushed repository
-	// again rather than the decoy.
+	// Cleared before any git runs: the pre-push hook may run this suite with
+	// GIT_DIR naming the repository being pushed, and a git init inheriting it
+	// reinitializes that repository instead of the decoy, marking it bare when
+	// the push comes from a linked worktree.
 	clearRepositoryEnvironment(t)
 	decoy := t.TempDir()
 	if out, err := exec.Command("git", "init", "--quiet", decoy).CombinedOutput(); err != nil {
@@ -161,6 +157,10 @@ func TestHelperIgnoresInheritedRepositoryEnvironment(t *testing.T) {
 	if got := strings.TrimSpace(string(out)); got != "0" {
 		t.Fatalf("the decoy repository named by GIT_DIR gained %s commit(s); the helper must act only on its throwaway repository", got)
 	}
+}
+
+func TestSpecsLeaveThePushedRepositoryAlone(t *testing.T) {
+	hookspec.LeavesRepositoryAlone(t)
 }
 
 func TestMissingPatternFileWarnsLoudlyAndPasses(t *testing.T) {
