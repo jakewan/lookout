@@ -14,6 +14,7 @@ import (
 type joinedDoc struct {
 	By     string `json:"by"`
 	Member string `json:"member"`
+	Via    string `json:"via"`
 }
 
 // keyed is a setting whose tracker tickets' keys, written in branch names,

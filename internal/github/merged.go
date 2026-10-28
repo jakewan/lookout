@@ -30,7 +30,7 @@ type Merge struct {
 // mergedFields selects what a Merge is built from.
 const mergedFields = `... on PullRequest { id number mergedAt baseRefName repository { nameWithOwner owner { login } defaultBranchRef { name } } }`
 
-var mergedSearch = searchQuery(mergedFields)
+var mergedSearch = searchQuery(mergedFields, pageSize)
 
 type mergedNode struct {
 	ID          string `json:"id"`

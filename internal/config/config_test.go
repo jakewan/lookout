@@ -68,6 +68,26 @@ func TestParseRefusesAnExplicitOnlyThatIsNotABool(t *testing.T) {
 // search is asked for: every one, whatever the pattern would make of it, since
 // each hit is checked against the key it carries, except one holding text the
 // search would read as its own syntax rather than a key.
+func TestKeysAllFindsEveryKeyOnce(t *testing.T) {
+	cfg, err := Parse([]byte("key_pattern: '([A-Za-z]+-[0-9]+)'\n"), "personal.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := cfg.Keys()
+	for text, want := range map[string][]string{
+		"Ships ABC-1, XYZ-9 and abc-1 again": {"ABC-1", "XYZ-9"},
+		"no key here":                        nil,
+		"":                                   nil,
+	} {
+		if got := keys.All(text); !slices.Equal(got, want) {
+			t.Errorf("All(%q) = %q, want %q", text, got, want)
+		}
+	}
+	if got := (*Keys)(nil).All("ABC-1"); got != nil {
+		t.Errorf("All on no keys = %q, want none", got)
+	}
+}
+
 func TestKeysSearchesEveryIDButSearchSyntax(t *testing.T) {
 	for name, tc := range map[string]struct {
 		pattern string

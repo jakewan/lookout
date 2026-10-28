@@ -53,6 +53,14 @@ type ghNode struct {
 	// association is how GitHub relates a pull request's author to its
 	// repository; empty sends OWNER.
 	association string
+	// body is a pull request's description.
+	body string
+	// headRepo is the repository a pull request's branch lives in; empty is
+	// its own repository, and "-" sends none, as for a deleted fork.
+	headRepo string
+	// anyKey makes a key search return it whatever key it asks for, as
+	// GitHub's search does for text its tokenizer splits, such as "ABC 1".
+	anyKey bool
 }
 
 // ghRequest is one request the fake received.
@@ -212,10 +220,11 @@ func (g *githubFake) search(w http.ResponseWriter, q string, after any) {
 // matches applies the search qualifiers lookout sends, so a query that lost
 // one would find nodes it should not.
 func (g *githubFake) matches(n ghNode, q string) bool {
-	// Quoted terms joined by OR are alternatives, each matching titles holding
-	// it in any case, as GitHub's search does; in:title says that is where to
-	// look, and the qualifiers apply to every alternative.
+	// Quoted terms joined by OR are alternatives, each matching the text
+	// holding it in any case, as GitHub's search does; in: says which text to
+	// look in, and the qualifiers apply to every alternative.
 	var phrases []string
+	inBody := false
 	for _, term := range strings.Fields(q) {
 		if term == "OR" {
 			continue
@@ -255,7 +264,11 @@ func (g *githubFake) matches(n ghNode, q string) bool {
 				g.t.Errorf("search %q: unexpected is:%s", q, value)
 			}
 		case "in":
-			if value != "title" {
+			switch value {
+			case "title":
+			case "title,body":
+				inBody = true
+			default:
 				g.t.Errorf("search %q: unexpected in:%s", q, value)
 			}
 		case "author":
@@ -295,11 +308,15 @@ func (g *githubFake) matches(n ghNode, q string) bool {
 	if strings.Count(" "+q+" ", " OR ") > 5 {
 		g.t.Errorf("search %q: more operators than GitHub accepts", q)
 	}
-	if len(phrases) == 0 {
+	if len(phrases) == 0 || n.anyKey {
 		return true
 	}
+	text := n.title
+	if inBody {
+		text += "\n" + n.body
+	}
 	return slices.ContainsFunc(phrases, func(p string) bool {
-		return strings.Contains(strings.ToLower(n.title), strings.ToLower(p))
+		return strings.Contains(strings.ToLower(text), strings.ToLower(p))
 	})
 }
 
@@ -383,6 +400,13 @@ func (n ghNode) json() map[string]any {
 		doc["isDraft"] = n.draft
 		doc["authorAssociation"] = cmp.Or(n.association, "OWNER")
 		doc["headRefName"] = n.branch
+		doc["body"] = n.body
+		switch n.headRepo {
+		case "-":
+			doc["headRepository"] = nil
+		default:
+			doc["headRepository"] = map[string]any{"nameWithOwner": cmp.Or(n.headRepo, n.repo)}
+		}
 		doc["mergedAt"] = nil
 		if !n.merged.IsZero() {
 			doc["mergedAt"] = n.merged.UTC().Format(time.RFC3339)

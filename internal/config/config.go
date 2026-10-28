@@ -216,6 +216,22 @@ func (k *Keys) Of(texts ...string) string {
 	return ""
 }
 
+// All is every key text carries, the pattern's capture in each match, in the
+// order they appear and each once, compared without regard to case. It is
+// empty on nil Keys.
+func (k *Keys) All(text string) []string {
+	if k == nil {
+		return nil
+	}
+	var out []string
+	for _, m := range k.pattern.FindAllStringSubmatch(text, -1) {
+		if m[1] != "" && !slices.ContainsFunc(out, func(s string) bool { return strings.EqualFold(s, m[1]) }) {
+			out = append(out, m[1])
+		}
+	}
+	return out
+}
+
 // Owner is the workstream key places work in.
 func (k *Keys) Owner(key string) (KeyOwner, bool) {
 	if k == nil || key == "" {
