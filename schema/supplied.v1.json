@@ -38,6 +38,7 @@
       "format": "date-time"
     },
     "supplier_status": {
+      "description": "How the supplier's own run went. degraded or error reports a fault, such as a source that refused part of a request; an item lacking a field it has no value for, such as a due date on work that has none, is not one.",
       "enum": [
         "ok",
         "degraded",
@@ -45,11 +46,11 @@
       ]
     },
     "reason": {
-      "description": "The supplier's explanation of a degraded or error status, for people.",
+      "description": "The supplier's explanation of a degraded or error status, or of its missing_fields, for people.",
       "type": "string"
     },
     "missing_fields": {
-      "description": "Fields the supplier could not fill for any item.",
+      "description": "Fields the supplier failed to fill where its source should have had a value, on some items or all, such as one the source withheld. Any entry makes the input degraded. A field an item has no value for by its nature is left off that item and listed nowhere, even when no item in the file carries it, since only the supplier can tell absent from lost.",
       "type": "array",
       "items": {
         "type": "string",

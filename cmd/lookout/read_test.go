@@ -381,6 +381,12 @@ func TestReadHealth(t *testing.T) {
 		{name: "missing fields under an ok status", file: suppliedDoc("tracker", healthyItems, map[string]any{
 			"missing_fields": []any{"estimate"},
 		}), status: "degraded", reasons: []string{"missing_fields"}, missing: []string{"estimate"}},
+		// A field an item lacks by its nature, such as a due date on work that
+		// has none, is no fault, however few items carry it.
+		{name: "optional fields some items lack", file: suppliedDoc("tracker", []any{
+			item("ABC-1", time.Hour, map[string]any{"title": "Ship it", "due": "2030-07-01", "started_at": stamp(2 * time.Hour)}),
+			item("ABC-2", time.Hour, nil),
+		}, map[string]any{"supplier_status": "ok", "missing_fields": []any{}}), status: "ok", missing: []string{}},
 		{name: "empty where records are expected", file: suppliedDoc("tracker", []any{}, nil), expect: true,
 			status: "degraded", reasons: []string{"empty"}},
 		{name: "empty where none are expected", file: suppliedDoc("tracker", []any{}, nil), status: "ok"},
