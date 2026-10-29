@@ -88,6 +88,11 @@ type Input struct {
 	IgnoreBranches []string
 	ConfigDirs     []string
 	Dir            string
+	// ReposMayBeEmpty says a git input's patterns may find no repository, so
+	// one that finds none under a directory that exists is no failure. Left
+	// out of JSON when unset, so a day's baseline digest of the inputs is the
+	// one it was before the key existed.
+	ReposMayBeEmpty bool `json:",omitempty"`
 	// expectWritten is expect_records as the file writes it, apart from what
 	// membership adds, so an edit that removes the last member can tell
 	// whether the expectation stays.
@@ -472,14 +477,15 @@ type fileShape struct {
 }
 
 type inputFile struct {
-	Name           string   `yaml:"name"`
-	Kind           string   `yaml:"kind"`
-	Supplied       string   `yaml:"supplied"`
-	MaxAge         string   `yaml:"max_age"`
-	ExpectRecords  bool     `yaml:"expect_records"`
-	Repos          []string `yaml:"repos"`
-	IgnoreBranches []string `yaml:"ignore_branches"`
-	ConfigDirs     []string `yaml:"config_dirs"`
+	Name            string   `yaml:"name"`
+	Kind            string   `yaml:"kind"`
+	Supplied        string   `yaml:"supplied"`
+	MaxAge          string   `yaml:"max_age"`
+	ExpectRecords   bool     `yaml:"expect_records"`
+	Repos           []string `yaml:"repos"`
+	IgnoreBranches  []string `yaml:"ignore_branches"`
+	ConfigDirs      []string `yaml:"config_dirs"`
+	ReposMayBeEmpty bool     `yaml:"repos_may_be_empty"`
 }
 
 // Load reads and checks the configuration at path. Every error names the file.
@@ -604,6 +610,9 @@ func parse(data []byte, path string) (*Config, error) {
 		if len(in.ConfigDirs) > 0 {
 			return nil, fmt.Errorf("input %q is kind supplied, so config_dirs applies only to kind claude_code: remove it", in.Name)
 		}
+		if in.ReposMayBeEmpty {
+			return nil, fmt.Errorf("input %q is kind supplied, so repos_may_be_empty applies only to kind git: remove it", in.Name)
+		}
 		if in.Supplied == "" {
 			return nil, fmt.Errorf("input %q needs supplied: the path of the file its supplier writes", in.Name)
 		}
@@ -687,6 +696,9 @@ func gitInput(in inputFile, base string) (Input, error) {
 	if len(in.Repos) == 0 {
 		return Input{}, fmt.Errorf("input %q needs repos: the repository paths or patterns to read, such as ~/code/*", in.Name)
 	}
+	if in.ReposMayBeEmpty && in.ExpectRecords {
+		return Input{}, fmt.Errorf("input %q: repos_may_be_empty and expect_records contradict each other: keep the one this input means, or move the pattern that may be empty to an input of its own", in.Name)
+	}
 	repos := make([]string, 0, len(in.Repos))
 	for _, r := range in.Repos {
 		// filepath.Glob reads ** as two * within one name, never as any depth.
@@ -704,7 +716,7 @@ func gitInput(in inputFile, base string) (Input, error) {
 	if err := branchPatterns(in); err != nil {
 		return Input{}, err
 	}
-	return Input{Name: in.Name, Kind: KindGit, ExpectRecords: in.ExpectRecords, Repos: repos, IgnoreBranches: in.IgnoreBranches, Dir: base}, nil
+	return Input{Name: in.Name, Kind: KindGit, ExpectRecords: in.ExpectRecords, Repos: repos, IgnoreBranches: in.IgnoreBranches, Dir: base, ReposMayBeEmpty: in.ReposMayBeEmpty}, nil
 }
 
 // gitHubInput checks a github input, which takes no keys of its own and reads
@@ -722,6 +734,8 @@ func gitHubInput(in inputFile, owners []Owner) (Input, error) {
 		return Input{}, fmt.Errorf("input %q is kind github, so ignore_branches applies only to kinds git and claude_code: remove it", in.Name)
 	case len(in.ConfigDirs) > 0:
 		return Input{}, fmt.Errorf("input %q is kind github, so config_dirs applies only to kind claude_code: remove it", in.Name)
+	case in.ReposMayBeEmpty:
+		return Input{}, fmt.Errorf("input %q is kind github, so repos_may_be_empty applies only to kind git: remove it", in.Name)
 	case len(owners) == 0:
 		return Input{}, fmt.Errorf("forge_owners is required once a github input is configured: list the owners whose pull requests and issues this setting admits, such as forge_owners: [your-name]")
 	case !slices.ContainsFunc(owners, func(o Owner) bool { return o.Host == defaultForgeHost }):
@@ -741,6 +755,8 @@ func claudeCodeInput(in inputFile, base string) (Input, error) {
 		return Input{}, fmt.Errorf(live+", so it is never stale: remove max_age", in.Name)
 	case len(in.Repos) > 0:
 		return Input{}, fmt.Errorf("input %q is kind claude_code, so repos applies only to kind git: remove it", in.Name)
+	case in.ReposMayBeEmpty:
+		return Input{}, fmt.Errorf("input %q is kind claude_code, so repos_may_be_empty applies only to kind git: remove it", in.Name)
 	case len(in.ConfigDirs) == 0:
 		return Input{}, fmt.Errorf("input %q needs config_dirs: the Claude Code configuration directories whose sessions to read, such as [~/.claude]", in.Name)
 	case slices.Contains(in.ConfigDirs, ""):

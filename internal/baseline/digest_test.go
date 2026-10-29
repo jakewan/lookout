@@ -1,6 +1,7 @@
 package baseline
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jakewan/lookout/internal/config"
@@ -40,6 +41,31 @@ func TestDiscoveryDigestOfASettingWithoutAKeyPatternIsUnchanged(t *testing.T) {
 	const want = "955f9a64d30839668e3de25f77eb8b48053bebbc48cf6b29df426796673cb80c"
 	if got != want {
 		t.Errorf("digest = %s, want %s", got, want)
+	}
+}
+
+// TestDiscoveryDigestLeavesOutWhetherReposMayBeEmpty pins that a key deciding
+// only an input's health does not move the digest, so setting it is not taken
+// for a change to what is offered.
+func TestDiscoveryDigestLeavesOutWhetherReposMayBeEmpty(t *testing.T) {
+	digest := func(src string) string {
+		t.Helper()
+		cfg, err := config.Parse([]byte(src), "/settings/personal.yml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := discoveryDigest(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	flagged := strings.Replace(digestFixture, `repos: ["/code/*"]`, `repos: ["/code/*"]`+"\n    repos_may_be_empty: true", 1)
+	if flagged == digestFixture {
+		t.Fatal("the fixture no longer holds the git input this spec flags")
+	}
+	if got, want := digest(flagged), digest(digestFixture); got != want {
+		t.Errorf("digest = %s, want %s: repos_may_be_empty decides only health", got, want)
 	}
 }
 
