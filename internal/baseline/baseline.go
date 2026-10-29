@@ -467,9 +467,10 @@ func handPlaced(replayed, current []config.Workstream) []string {
 	return out
 }
 
-// joinRules is the version of the rules by which a key, a description or a
-// pull request places work; changing what they place moves it on.
-const joinRules = 2
+// joinRules is the version of the rules by which a key, a description, a
+// supplied item's notes or a pull request places work; changing what they
+// place moves it on.
+const joinRules = 3
 
 // discoveryDigest stands for the configuration that decides what inputs offer
 // and where a key places it: the inputs themselves, the discovery window, the

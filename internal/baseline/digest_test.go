@@ -47,7 +47,8 @@ func TestDiscoveryDigestOfASettingWithoutAKeyPatternIsUnchanged(t *testing.T) {
 // change to what a key joins changes a patterned setting's digest, so the
 // first snapshot after it reports discovery_changed and a reader can tell the
 // work it newly places from activity, as with any change to discovery. The
-// value is the digest the key join's first rules gave this setting.
+// values are the digests each earlier version of the rules gave this setting:
+// keys alone, then descriptions and pull requests, then supplied items' notes.
 func TestDiscoveryDigestOfASettingWithAKeyPatternFollowsTheJoinRules(t *testing.T) {
 	cfg, err := config.Parse([]byte("key_pattern: '([A-Z]+-[0-9]+)'\n"+digestFixture), "/settings/personal.yml")
 	if err != nil {
@@ -57,8 +58,12 @@ func TestDiscoveryDigestOfASettingWithAKeyPatternFollowsTheJoinRules(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	const before = "c2026b62cbe66fa0f969d81564cd5f046e698686ac56eed760380be4a971ccb1"
-	if got == before {
-		t.Errorf("digest = %s, the digest of the earlier join rules", got)
+	for _, before := range []string{
+		"c2026b62cbe66fa0f969d81564cd5f046e698686ac56eed760380be4a971ccb1",
+		"976a61b7fd619ac8a99bfa11b5405daa1510883065b4cf2be4afdad99f81dfb2",
+	} {
+		if got == before {
+			t.Errorf("digest = %s, the digest of earlier join rules", got)
+		}
 	}
 }
