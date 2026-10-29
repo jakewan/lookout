@@ -387,6 +387,9 @@ func TestReadHealth(t *testing.T) {
 			item("ABC-1", time.Hour, map[string]any{"title": "Ship it", "due": "2030-07-01", "started_at": stamp(2 * time.Hour)}),
 			item("ABC-2", time.Hour, nil),
 		}, map[string]any{"supplier_status": "ok", "missing_fields": []any{}}), status: "ok", missing: []string{}},
+		{name: "an optional field no item carries", file: suppliedDoc("tracker", []any{
+			item("ABC-1", time.Hour, nil), item("ABC-2", time.Hour, nil),
+		}, map[string]any{"supplier_status": "ok", "missing_fields": []any{}}), status: "ok", missing: []string{}},
 		{name: "empty where records are expected", file: suppliedDoc("tracker", []any{}, nil), expect: true,
 			status: "degraded", reasons: []string{"empty"}},
 		{name: "empty where none are expected", file: suppliedDoc("tracker", []any{}, nil), status: "ok"},

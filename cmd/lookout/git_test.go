@@ -653,6 +653,18 @@ func TestReadGitHealth(t *testing.T) {
 				f.t.Fatal(err)
 			}
 		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"~/code/*: 1 match could not be read"}, items: 1, fetched: true},
+		{name: "a pattern that may be empty still counts a directory it cannot search", repos: `["~/code/app", "~/spare/*"]`, mayBeEmpty: true, build: func(f *fixture) {
+			f.branch(f.repo("code/app", "git@github.com:alice/app.git"), "feat", time.Hour)
+			if err := os.MkdirAll(f.home("spare"), 0o755); err != nil {
+				f.t.Fatal(err)
+			}
+			f.locked(f.home("spare"))
+		}, status: "degraded", reasons: []string{"git_failed"}, details: []string{"~/spare/*: 1 match could not be read"}, items: 1, fetched: true},
+		{name: "a pattern that may be empty under a file is missing", repos: `["~/notes/*"]`, mayBeEmpty: true, build: func(f *fixture) {
+			if err := os.WriteFile(f.home("notes"), []byte("notes\n"), 0o644); err != nil {
+				f.t.Fatal(err)
+			}
+		}, status: "error", reasons: []string{"missing"}, details: []string{"~/notes/*: no such directory"}},
 		{name: "a missing path is missing where patterns may be empty", repos: `["~/code/*", "~/code/gone"]`, mayBeEmpty: true, build: func(f *fixture) {
 			if err := os.MkdirAll(f.home("code"), 0o755); err != nil {
 				f.t.Fatal(err)

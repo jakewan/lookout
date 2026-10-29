@@ -50,7 +50,7 @@
       "type": "string"
     },
     "missing_fields": {
-      "description": "Fields the supplier failed to fill where its source should have had a value, on some items or all, such as one the source withheld. Any entry makes the input degraded. A field an item has no value for by its nature is left off that item and listed nowhere, even when no item in the file carries it, since only the supplier can tell absent from lost.",
+      "description": "Fields the supplier failed to fill where its source should have had a value, on some items or all, such as one the source withheld. Any entry makes the input at least degraded. A field an item has no value for by its nature is left off that item and listed nowhere, even when no item in the file carries it, since only the supplier can tell absent from lost.",
       "type": "array",
       "items": {
         "type": "string",

@@ -262,7 +262,9 @@ type attrs struct {
 // unreadable counts the places a pattern could not look into, so they are
 // reported rather than taken for places with nothing in them. Where mayBeEmpty
 // is set, a pattern finding nothing is no failure so long as the directory it
-// is searched from exists, so a mistyped or unmounted one is still missing.
+// is searched from exists, so a mistyped one, or one on a volume that is not
+// mounted, is still missing. A mount point is itself a directory that stays
+// when its volume is unmounted, so a pattern searched from one cannot tell.
 func (r *Reader) resolve(entry, base string, mayBeEmpty bool) (dirs []string, unreadable int, literal bool, reason, cause string) {
 	prefix, rest := r.split(entry, base)
 	if !hasMeta(rest) {
@@ -290,9 +292,12 @@ func (r *Reader) resolve(entry, base string, mayBeEmpty bool) (dirs []string, un
 		if !mayBeEmpty {
 			return nil, 0, false, health.Missing, "matches no repository"
 		}
-		// match has already counted a root it could not look into.
-		if info, err := os.Stat(root(prefix, rest)); err != nil || !info.IsDir() {
+		switch info, err := os.Stat(root(prefix, rest)); {
+		case err == nil && info.IsDir():
+		case err == nil || fsx.Absent(err):
 			return nil, 0, false, health.Missing, "no such directory"
+		default:
+			return nil, 0, false, health.GitFailed, "lookout could not look into it"
 		}
 	}
 	return dirs, unreadable, false, "", ""
