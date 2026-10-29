@@ -34,6 +34,7 @@ type itemFields struct {
 	Title       string     `json:"title"`
 	LastTouched time.Time  `json:"last_touched"`
 	StartedAt   *time.Time `json:"started_at"`
+	Notes       *string    `json:"notes"`
 }
 
 // Reader reads supplied files against the compiled supplied.v1 contract.
@@ -95,8 +96,16 @@ func (rd *Reader) Read(ctx context.Context, in config.Input, now time.Time) read
 		if decodeErr = json.Unmarshal(doc.Items[i], &f); decodeErr == nil {
 			decodeErr = encodable(f.LastTouched, f.StartedAt)
 		}
+		raw := doc.Items[i]
+		if decodeErr == nil && f.Notes != nil {
+			raw, decodeErr = withoutNotes(raw)
+		}
 		if decodeErr == nil {
-			items = append(items, readout.Item{ID: f.ID, Title: f.Title, LastTouched: f.LastTouched, StartedAt: f.StartedAt, Raw: doc.Items[i]})
+			it := readout.Item{ID: f.ID, Title: f.Title, LastTouched: f.LastTouched, StartedAt: f.StartedAt, Raw: raw}
+			if f.Notes != nil {
+				it.Notes = *f.Notes
+			}
+			items = append(items, it)
 		}
 	}
 	if decodeErr != nil {
@@ -181,6 +190,19 @@ func untrusted(r readout.Reading, in config.Input, inst any, problems []string) 
 		r.Health.Lower(health.Error, health.SupplierError)
 	}
 	return r
+}
+
+// withoutNotes is raw with its notes removed. Notes can carry anything a work
+// note says, so they are read for keys and never passed on to a readout. Only
+// the exact key is removed: Go's decoder would also read a key such as "Notes"
+// as notes, and it is the closed item schema, checked first, that refuses one.
+func withoutNotes(raw json.RawMessage) (json.RawMessage, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+	delete(fields, "notes")
+	return json.Marshal(fields)
 }
 
 // encodable reports a time the readout could not write: RFC 3339 admits an

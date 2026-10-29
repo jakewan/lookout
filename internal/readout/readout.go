@@ -13,8 +13,8 @@ import (
 )
 
 // Item is one item an input reported. Raw is the item in supplied.v1's item
-// shape, exactly as its input reported it, passed through to the readout so no
-// source detail is lost.
+// shape as its input reported it, less its notes, passed through to the
+// readout so no other source detail is lost.
 type Item struct {
 	ID          string
 	Title       string
@@ -25,6 +25,9 @@ type Item struct {
 	Key string
 	// Keys is every key a pull request's description carries.
 	Keys []string
+	// Notes is a supplied item's notes, searched for every key they carry. It
+	// never reaches the readout, since it can hold anything a work note says.
+	Notes string
 	// Head is the id a git or Claude Code input gives the branch an open pull
 	// request was made from, or empty.
 	Head string
@@ -106,11 +109,13 @@ type Joined struct {
 }
 
 // The values of Joined.By: an item whose title or branch key is a member's id,
-// a pull request whose description names a member's id, and a branch or
-// session an open pull request the workstream holds was made from.
+// a pull request whose description names a member's id, a supplied item whose
+// notes name a member's id, and a branch or session an open pull request the
+// workstream holds was made from.
 const (
 	byKey         = "key"
 	byDescription = "description"
+	byNotes       = "notes"
 	byPullRequest = "pull_request"
 )
 
@@ -196,6 +201,11 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 					add(owner.Workstream, in.Name, it, Joined{By: byDescription, Member: owner.Member.Input + ":" + owner.Member.ID})
 				}
 			}
+			for _, k := range keys.All(it.Notes) {
+				if owner, ok := keys.Owner(k); ok {
+					add(owner.Workstream, in.Name, it, Joined{By: byNotes, Member: owner.Member.Input + ":" + owner.Member.ID})
+				}
+			}
 		}
 	}
 
@@ -279,10 +289,11 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 		}
 		// A workstream a key or a pull request places work in draws on every
 		// input that work can come from, so one that failed may have kept a
-		// join from it.
-		if keys.Places(ws.Name) || sourced[ws.Name] {
+		// join from it. A supplied item joins only through the keys in its
+		// notes, so only a workstream a key places work in draws on one.
+		if placed := keys.Places(ws.Name); placed || sourced[ws.Name] {
 			for _, in := range cfg.Inputs {
-				if in.Kind != config.KindSupplied {
+				if placed || in.Kind != config.KindSupplied {
 					incomplete(in.Name)
 				}
 			}

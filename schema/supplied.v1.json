@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/jakewan/lookout/main/schema/supplied.v1.json",
   "title": "lookout supplied file, version 1",
-  "description": "What an outside supplier writes for lookout to read: one input's items, already reduced, with the supplier's own account of how the fetch went. A supplier knows nothing about workstreams. lookout asserts every format keyword, which JSON Schema 2020-12 validators skip by default, so enable format validation when checking against this file. The contract is closed: a field it does not list is a violation, and a later version changes its name.",
+  "description": "What an outside supplier writes for lookout to read: one input's items, already reduced, with the supplier's own account of how the fetch went. A supplier knows nothing about workstreams. lookout asserts every format keyword, which JSON Schema 2020-12 validators skip by default, so enable format validation when checking against this file. The contract is closed: a field it does not list is a violation. Version 1 gains only optional fields, which a lookout built before a field was added refuses, so update lookout before a supplier writes a new one; any other change is a later version with another name.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -138,6 +138,11 @@
         "attrs": {
           "description": "Source-specific detail, such as a sprint or an estimate, that has no field of its own.",
           "type": "object"
+        },
+        "notes": {
+          "description": "Free text the item was worked under, such as the ticket section of a work container's notes, which lookout searches for the setting's ticket keys. The supplier passes it along without knowing the key pattern. lookout never emits it: only the joins it produces reach a readout. maxLength counts Unicode code points, and one over-long value withholds every item in the file, so a supplier with more text cuts it at whitespace, or leaves the field out, rather than cutting a key in two.",
+          "type": "string",
+          "maxLength": 4096
         }
       }
     }
