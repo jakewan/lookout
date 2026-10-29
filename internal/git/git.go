@@ -304,19 +304,44 @@ func (r *Reader) resolve(entry, base string, mayBeEmpty bool) (dirs []string, un
 }
 
 // root is the directory pattern is searched from: prefix and the elements of
-// pattern before the first that holds a wildcard.
+// pattern before the first that holds a wildcard. An escaped character is
+// literal to filepath.Match, so an element holding only escaped ones names a
+// directory and is followed rather than taken for the wildcard.
 func root(prefix, pattern string) string {
 	dir := prefix
 	if dir == "" {
 		dir = string(filepath.Separator)
 	}
 	for elem := range strings.SplitSeq(strings.Trim(pattern, string(filepath.Separator)), string(filepath.Separator)) {
-		if hasMeta(elem) {
+		name, ok := unescaped(elem)
+		if !ok {
 			break
 		}
-		dir = filepath.Join(dir, elem)
+		dir = filepath.Join(dir, name)
 	}
 	return dir
+}
+
+// unescaped is elem with its escapes removed, or false where elem holds a
+// wildcard filepath.Match would read as one.
+func unescaped(elem string) (string, bool) {
+	var b strings.Builder
+	for i := 0; i < len(elem); i++ {
+		switch c := elem[i]; c {
+		case '*', '?', '[':
+			return "", false
+		case '\\':
+			// A backslash ending an element escaped the separator after it,
+			// which match never matches either, so it is kept as written.
+			if i+1 < len(elem) {
+				i++
+			}
+			b.WriteByte(elem[i])
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String(), true
 }
 
 // match expands pattern, read from the directory prefix, one path element at a

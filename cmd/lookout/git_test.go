@@ -665,6 +665,15 @@ func TestReadGitHealth(t *testing.T) {
 				f.t.Fatal(err)
 			}
 		}, status: "error", reasons: []string{"missing"}, details: []string{"~/notes/*: no such directory"}},
+		// An escaped wildcard is a literal character, so the directory it names
+		// is the one searched from.
+		{name: "a pattern that may be empty under an escaped name that is gone", repos: `['~/code\[archive\]/*']`, mayBeEmpty: true,
+			status: "error", reasons: []string{"missing"}, details: []string{`~/code\[archive\]/*: no such directory`}},
+		{name: "a pattern that may be empty under an escaped name that is there", repos: `['~/code\[archive\]/*']`, mayBeEmpty: true, build: func(f *fixture) {
+			if err := os.MkdirAll(f.home("code[archive]"), 0o755); err != nil {
+				f.t.Fatal(err)
+			}
+		}, status: "ok", fetched: true},
 		{name: "a missing path is missing where patterns may be empty", repos: `["~/code/*", "~/code/gone"]`, mayBeEmpty: true, build: func(f *fixture) {
 			if err := os.MkdirAll(f.home("code"), 0o755); err != nil {
 				f.t.Fatal(err)
