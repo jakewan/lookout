@@ -105,7 +105,7 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 		if ctx.Err() != nil {
 			return out
 		}
-		dirs, unreadable, literal, reason, cause := r.resolve(entry, in.Dir)
+		dirs, unreadable, literal, reason, cause := r.resolve(entry, in.Dir, in.ReposMayBeEmpty)
 		if reason != "" {
 			entryFailures = append(entryFailures, reason)
 			out.Health.Details = append(out.Health.Details, entry+": "+cause)
@@ -165,7 +165,9 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 	for _, reason := range entryFailures {
 		out.Health.Lower(status, reason)
 	}
-	if readAny {
+	// Every entry resolving to no repository without a failure is a complete
+	// read of an input that may be empty.
+	if readAny || len(entryFailures) == 0 {
 		at := now.UTC()
 		out.Health.FetchedAt = &at
 	}
@@ -258,8 +260,12 @@ type attrs struct {
 // one, and a pattern keeps only the matches that are. Where it finds none, it
 // returns the health reason and the cause to report against the entry.
 // unreadable counts the places a pattern could not look into, so they are
-// reported rather than taken for places with nothing in them.
-func (r *Reader) resolve(entry, base string) (dirs []string, unreadable int, literal bool, reason, cause string) {
+// reported rather than taken for places with nothing in them. Where mayBeEmpty
+// is set, a pattern finding nothing is no failure so long as the directory it
+// is searched from exists, so a mistyped one, or one on a volume that is not
+// mounted, is still missing. A mount point is itself a directory that stays
+// when its volume is unmounted, so a pattern searched from one cannot tell.
+func (r *Reader) resolve(entry, base string, mayBeEmpty bool) (dirs []string, unreadable int, literal bool, reason, cause string) {
 	prefix, rest := r.split(entry, base)
 	if !hasMeta(rest) {
 		path := filepath.Join(prefix, rest)
@@ -283,9 +289,59 @@ func (r *Reader) resolve(entry, base string) (dirs []string, unreadable int, lit
 		}
 	}
 	if len(dirs) == 0 && unreadable == 0 {
-		return nil, 0, false, health.Missing, "matches no repository"
+		if !mayBeEmpty {
+			return nil, 0, false, health.Missing, "matches no repository"
+		}
+		switch info, err := os.Stat(root(prefix, rest)); {
+		case err == nil && info.IsDir():
+		case err == nil || fsx.Absent(err):
+			return nil, 0, false, health.Missing, "no such directory"
+		default:
+			return nil, 0, false, health.GitFailed, "lookout could not look into it"
+		}
 	}
 	return dirs, unreadable, false, "", ""
+}
+
+// root is the directory pattern is searched from: prefix and the elements of
+// pattern before the first that holds a wildcard. An escaped character is
+// literal to filepath.Match, so an element holding only escaped ones names a
+// directory and is followed rather than taken for the wildcard.
+func root(prefix, pattern string) string {
+	dir := prefix
+	if dir == "" {
+		dir = string(filepath.Separator)
+	}
+	for elem := range strings.SplitSeq(strings.Trim(pattern, string(filepath.Separator)), string(filepath.Separator)) {
+		name, ok := unescaped(elem)
+		if !ok {
+			break
+		}
+		dir = filepath.Join(dir, name)
+	}
+	return dir
+}
+
+// unescaped is elem with its escapes removed, or false where elem holds a
+// wildcard filepath.Match would read as one.
+func unescaped(elem string) (string, bool) {
+	var b strings.Builder
+	for i := 0; i < len(elem); i++ {
+		switch c := elem[i]; c {
+		case '*', '?', '[':
+			return "", false
+		case '\\':
+			// A backslash ending an element escaped the separator after it,
+			// which match never matches either, so it is kept as written.
+			if i+1 < len(elem) {
+				i++
+			}
+			b.WriteByte(elem[i])
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String(), true
 }
 
 // match expands pattern, read from the directory prefix, one path element at a

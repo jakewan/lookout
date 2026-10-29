@@ -476,12 +476,14 @@ const joinRules = 3
 // and where a key places it: the inputs themselves, the discovery window, the
 // owner fence, the key pattern, and the rules that pattern places work by. A
 // change to any of them changes what is unplaced with no item having moved.
-// Whether an input expects records is left out: it decides only the input's
-// health, and adopting or removing a supplied input's member changes it.
+// Whether an input expects records, or may find no repository, is left out:
+// each decides only the input's health, and adopting or removing a supplied
+// input's member changes the first.
 func discoveryDigest(cfg *config.Config) (string, error) {
 	inputs := slices.Clone(cfg.Inputs)
 	for i := range inputs {
 		inputs[i].ExpectRecords = false
+		inputs[i].ReposMayBeEmpty = false
 	}
 	// The pattern and its rules are left out where none is set, so a setting
 	// that sets none keeps the digest it had before the key existed.
