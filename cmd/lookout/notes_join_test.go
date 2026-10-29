@@ -125,6 +125,27 @@ func TestOverLongNotesDegradeTheInputWithoutEchoingThem(t *testing.T) {
 	}
 }
 
+func TestTheNotesBoundCountsCodePoints(t *testing.T) {
+	for name, tc := range map[string]struct {
+		points int
+		status string
+	}{
+		"at the bound, though past it in bytes": {4096, "ok"},
+		"one past the bound":                    {4097, "degraded"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.write("personal.yml", noted)
+			f.withNotedTracker()
+			f.supplied("agents.json", suppliedDoc("agents", []any{item("session-1", time.Hour, map[string]any{"notes": strings.Repeat("é", tc.points)})}, nil))
+
+			if h := f.read().health(t, "agents"); h.Status != tc.status {
+				t.Errorf("agents health = %+v, want %s", h, tc.status)
+			}
+		})
+	}
+}
+
 func TestNotesNeverMoveAnItemAWorkstreamHoldsOrTheUserDismissed(t *testing.T) {
 	f := newFixture(t)
 	f.write("personal.yml", noted+`  - name: review
@@ -157,6 +178,31 @@ func TestAKeyedWorkstreamMarksAFailingSupplierItsNotesCouldJoinFrom(t *testing.T
 	for _, w := range doc.Workstreams {
 		if !slices.Contains(w.InputsIncomplete, "agents") {
 			t.Errorf("%s inputs_incomplete = %v, want agents: its missing file may have kept a join from it", w.Name, w.InputsIncomplete)
+		}
+	}
+}
+
+// TestAPullRequestsWorkstreamDoesNotDrawOnASupplier pins the other side: a
+// workstream only a pull request feeds can gain nothing from a supplied item,
+// whose notes join only a ticket's workstream, so a failing supplier does not
+// mark it.
+func TestAPullRequestsWorkstreamDoesNotDrawOnASupplier(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", strings.Replace(described, "workstreams:", `  - name: agents
+    kind: supplied
+    supplied: agents.json
+    max_age: 24h
+workstreams:`, 1)+`  - name: review
+    members: ["hub:alice/app#9"]
+`)
+	f.withDescribedInputs(ghNode{pr: true, repo: "alice/app", number: 9, title: "Review me", state: "OPEN", branch: "review-me", created: 5 * time.Hour, updated: 3 * time.Hour, authored: true})
+	f.branch(f.repo("code/app", "git@github.com:alice/app.git"), "review-me", time.Hour)
+
+	doc := f.read()
+
+	for _, w := range doc.Workstreams {
+		if got, want := slices.Contains(w.InputsIncomplete, "agents"), w.Name != "review"; got != want {
+			t.Errorf("%s inputs_incomplete = %v, want agents listed only where a key places work", w.Name, w.InputsIncomplete)
 		}
 	}
 }

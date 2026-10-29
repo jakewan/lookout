@@ -288,11 +288,14 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 			place(m.Input, reading.Items[i], nil)
 		}
 		// A workstream a key or a pull request places work in draws on every
-		// input that work can come from, a supplied one through its notes, so
-		// one that failed may have kept a join from it.
-		if keys.Places(ws.Name) || sourced[ws.Name] {
+		// input that work can come from, so one that failed may have kept a
+		// join from it. A supplied item joins only through the keys in its
+		// notes, so only a workstream a key places work in draws on one.
+		if placed := keys.Places(ws.Name); placed || sourced[ws.Name] {
 			for _, in := range cfg.Inputs {
-				incomplete(in.Name)
+				if placed || in.Kind != config.KindSupplied {
+					incomplete(in.Name)
+				}
 			}
 		}
 		joined := joins[ws.Name]

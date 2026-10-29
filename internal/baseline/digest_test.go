@@ -48,7 +48,7 @@ func TestDiscoveryDigestOfASettingWithoutAKeyPatternIsUnchanged(t *testing.T) {
 // first snapshot after it reports discovery_changed and a reader can tell the
 // work it newly places from activity, as with any change to discovery. The
 // values are the digests each earlier version of the rules gave this setting:
-// keys alone, then descriptions and pull requests, then supplied items' notes.
+// keys alone, then descriptions and pull requests.
 func TestDiscoveryDigestOfASettingWithAKeyPatternFollowsTheJoinRules(t *testing.T) {
 	cfg, err := config.Parse([]byte("key_pattern: '([A-Z]+-[0-9]+)'\n"+digestFixture), "/settings/personal.yml")
 	if err != nil {

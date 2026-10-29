@@ -146,7 +146,7 @@
           }
         },
         "inputs_incomplete": {
-          "description": "Inputs this workstream draws on whose health is error or degraded, so its figures may understate. A workstream a key belongs to, or one holding an open pull request whose branch can follow it, whether or not anything joined it on this read, draws on every input, since a failed one may have kept a join from it: a supplied item joins through its notes.",
+          "description": "Inputs this workstream draws on whose health is error or degraded, so its figures may understate. A workstream a key belongs to, or one holding an open pull request whose branch can follow it, whether or not anything joined it on this read, draws on every input lookout reads itself, since a failed one may have kept a join from it. A workstream a key belongs to also draws on every supplied input, whose items' notes may join it.",
           "type": "array",
           "items": {
             "type": "string"

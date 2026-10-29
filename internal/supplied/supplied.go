@@ -193,21 +193,16 @@ func untrusted(r readout.Reading, in config.Input, inst any, problems []string) 
 }
 
 // withoutNotes is raw with its notes removed. Notes can carry anything a work
-// note says, so they are read for keys and never passed on to a readout.
-// Escaping is left off so every other value reaches the readout as written.
+// note says, so they are read for keys and never passed on to a readout. Only
+// the exact key is removed: Go's decoder would also read a key such as "Notes"
+// as notes, and it is the closed item schema, checked first, that refuses one.
 func withoutNotes(raw json.RawMessage) (json.RawMessage, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return nil, err
 	}
 	delete(fields, "notes")
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(fields); err != nil {
-		return nil, err
-	}
-	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
+	return json.Marshal(fields)
 }
 
 // encodable reports a time the readout could not write: RFC 3339 admits an
