@@ -93,6 +93,12 @@ type Input struct {
 	// out of JSON when unset, so a day's baseline digest of the inputs is the
 	// one it was before the key existed.
 	ReposMayBeEmpty bool `json:",omitempty"`
+	// Windowed says a supplied input offers as unplaced only items that moved
+	// within the discovery window, as an input lookout reads itself does. Left
+	// out of JSON when unset, so a day's baseline digest of the inputs is the
+	// one it was before the key existed, while setting it, which changes what
+	// is offered, changes the digest.
+	Windowed bool `json:",omitempty"`
 	// expectWritten is expect_records as the file writes it, apart from what
 	// membership adds, so an edit that removes the last member can tell
 	// whether the expectation stays.
@@ -486,6 +492,7 @@ type inputFile struct {
 	IgnoreBranches  []string `yaml:"ignore_branches"`
 	ConfigDirs      []string `yaml:"config_dirs"`
 	ReposMayBeEmpty bool     `yaml:"repos_may_be_empty"`
+	Windowed        bool     `yaml:"windowed"`
 }
 
 // Load reads and checks the configuration at path. Every error names the file.
@@ -627,7 +634,7 @@ func parse(data []byte, path string) (*Config, error) {
 		if !filepath.IsAbs(supplied) {
 			supplied = filepath.Join(base, supplied)
 		}
-		cfg.Inputs = append(cfg.Inputs, Input{Name: in.Name, Kind: in.Kind, Supplied: supplied, MaxAge: maxAge, ExpectRecords: in.ExpectRecords, expectWritten: in.ExpectRecords})
+		cfg.Inputs = append(cfg.Inputs, Input{Name: in.Name, Kind: in.Kind, Supplied: supplied, MaxAge: maxAge, ExpectRecords: in.ExpectRecords, Windowed: in.Windowed, expectWritten: in.ExpectRecords})
 	}
 
 	for _, ws := range shape.Workstreams {
@@ -690,6 +697,9 @@ func gitInput(in inputFile, base string) (Input, error) {
 	if in.MaxAge != "" {
 		return Input{}, fmt.Errorf("input %q is kind git, which lookout reads live, so it is never stale: remove max_age", in.Name)
 	}
+	if in.Windowed {
+		return Input{}, fmt.Errorf("input %q is kind git, which lookout reads live and is always read within discovery_window: remove windowed", in.Name)
+	}
 	if len(in.ConfigDirs) > 0 {
 		return Input{}, fmt.Errorf("input %q is kind git, so config_dirs applies only to kind claude_code: remove it", in.Name)
 	}
@@ -736,6 +746,8 @@ func gitHubInput(in inputFile, owners []Owner) (Input, error) {
 		return Input{}, fmt.Errorf("input %q is kind github, so config_dirs applies only to kind claude_code: remove it", in.Name)
 	case in.ReposMayBeEmpty:
 		return Input{}, fmt.Errorf("input %q is kind github, so repos_may_be_empty applies only to kind git: remove it", in.Name)
+	case in.Windowed:
+		return Input{}, fmt.Errorf(live+" and is always read within discovery_window: remove windowed", in.Name)
 	case len(owners) == 0:
 		return Input{}, fmt.Errorf("forge_owners is required once a github input is configured: list the owners whose pull requests and issues this setting admits, such as forge_owners: [your-name]")
 	case !slices.ContainsFunc(owners, func(o Owner) bool { return o.Host == defaultForgeHost }):
@@ -757,6 +769,8 @@ func claudeCodeInput(in inputFile, base string) (Input, error) {
 		return Input{}, fmt.Errorf("input %q is kind claude_code, so repos applies only to kind git: remove it", in.Name)
 	case in.ReposMayBeEmpty:
 		return Input{}, fmt.Errorf("input %q is kind claude_code, so repos_may_be_empty applies only to kind git: remove it", in.Name)
+	case in.Windowed:
+		return Input{}, fmt.Errorf(live+" and is always read within discovery_window: remove windowed", in.Name)
 	case len(in.ConfigDirs) == 0:
 		return Input{}, fmt.Errorf("input %q needs config_dirs: the Claude Code configuration directories whose sessions to read, such as [~/.claude]", in.Name)
 	case slices.Contains(in.ConfigDirs, ""):

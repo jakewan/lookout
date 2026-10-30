@@ -69,6 +69,28 @@ func TestDiscoveryDigestLeavesOutWhetherReposMayBeEmpty(t *testing.T) {
 	}
 }
 
+// TestDiscoveryDigestFollowsWhetherASupplierIsWindowed pins the other side: a
+// windowed supplier offers less, so setting it is a change to discovery and the
+// first snapshot after it says so.
+func TestDiscoveryDigestFollowsWhetherASupplierIsWindowed(t *testing.T) {
+	windowed := strings.Replace(digestFixture, "max_age: 24h", "max_age: 24h\n    windowed: true", 1)
+	if windowed == digestFixture {
+		t.Fatal("the fixture no longer holds the supplied input this spec windows")
+	}
+	cfg, err := config.Parse([]byte(windowed), "/settings/personal.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := discoveryDigest(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The digest TestDiscoveryDigestOfASettingWithoutAKeyPatternIsUnchanged pins.
+	if d == "955f9a64d30839668e3de25f77eb8b48053bebbc48cf6b29df426796673cb80c" {
+		t.Errorf("digest = %s, the unwindowed setting's: windowed changes what is offered", d)
+	}
+}
+
 // TestDiscoveryDigestOfASettingWithAKeyPatternFollowsTheJoinRules pins that a
 // change to what a key joins changes a patterned setting's digest, so the
 // first snapshot after it reports discovery_changed and a reader can tell the
