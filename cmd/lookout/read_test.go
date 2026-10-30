@@ -801,6 +801,12 @@ func TestReadRefusesAnInvalidConfiguration(t *testing.T) {
 		"git input that is windowed":                      "forge_owners: [alice]\ninputs:\n  - {name: code, kind: git, repos: [/x], windowed: true}\nworkstreams: []\n",
 		"github input that is windowed":                   "forge_owners: [alice]\ninputs:\n  - {name: hub, kind: github, windowed: true}\nworkstreams: []\n",
 		"claude_code input that is windowed":              "forge_owners: [alice]\ninputs:\n  - {name: claude, kind: claude_code, config_dirs: [~/.claude], windowed: true}\nworkstreams: []\n",
+		"git input that says it is not windowed":          "forge_owners: [alice]\ninputs:\n  - {name: code, kind: git, repos: [/x], windowed: false}\nworkstreams: []\n",
+		"github input that says it is not windowed":       "forge_owners: [alice]\ninputs:\n  - {name: hub, kind: github, windowed: false}\nworkstreams: []\n",
+		"claude_code input that says it is not windowed":  "forge_owners: [alice]\ninputs:\n  - {name: claude, kind: claude_code, config_dirs: [~/.claude], windowed: false}\nworkstreams: []\n",
+		"supplied input with repos_may_be_empty false":    "inputs:\n  - {name: tracker, kind: supplied, supplied: t.json, max_age: 1h, repos_may_be_empty: false}\nworkstreams: []\n",
+		"github input with repos_may_be_empty false":      "forge_owners: [alice]\ninputs:\n  - {name: hub, kind: github, repos_may_be_empty: false}\nworkstreams: []\n",
+		"claude_code input with repos_may_be_empty false": "forge_owners: [alice]\ninputs:\n  - {name: claude, kind: claude_code, config_dirs: [~/.claude], repos_may_be_empty: false}\nworkstreams: []\n",
 	}
 	// mentions is what a refusal must say beyond the file's path, where another
 	// refusal of the same file could otherwise pass for it.
@@ -843,6 +849,12 @@ func TestReadRefusesAnInvalidConfiguration(t *testing.T) {
 		"git input that is windowed":                      "windowed applies only to kind supplied",
 		"github input that is windowed":                   "windowed applies only to kind supplied",
 		"claude_code input that is windowed":              "windowed applies only to kind supplied",
+		"git input that says it is not windowed":          "windowed applies only to kind supplied",
+		"github input that says it is not windowed":       "windowed applies only to kind supplied",
+		"claude_code input that says it is not windowed":  "windowed applies only to kind supplied",
+		"supplied input with repos_may_be_empty false":    "repos_may_be_empty applies only to kind git",
+		"github input with repos_may_be_empty false":      "repos_may_be_empty applies only to kind git",
+		"claude_code input with repos_may_be_empty false": "repos_may_be_empty applies only to kind git",
 	}
 	for name, config := range cases {
 		t.Run(name, func(t *testing.T) {

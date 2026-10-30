@@ -2,18 +2,17 @@ package main
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
 // windowedAgents is the notes setting with a discovery window, whose agents
-// supplier may or may not be windowed; review names one of its items.
+// supplier says whether it is windowed; review names one of its items.
 func windowedAgents(windowed bool) string {
 	cfg := strings.Replace(noted, "key_pattern:", "discovery_window: 72h\nkey_pattern:", 1)
-	if windowed {
-		cfg = strings.Replace(cfg, "supplied: agents.json\n", "supplied: agents.json\n    windowed: true\n", 1)
-	}
+	cfg = strings.Replace(cfg, "supplied: agents.json\n", "supplied: agents.json\n    windowed: "+strconv.FormatBool(windowed)+"\n", 1)
 	return cfg + `  - name: review
     members: ["agents:kept"]
 `
