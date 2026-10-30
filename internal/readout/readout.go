@@ -158,9 +158,10 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 		}
 	}
 
-	// Each item no claim holds is kept out by a dismissal it has not moved
-	// since, joined to every workstream a key places it in, at most once each,
-	// or offered.
+	// Each item no claim holds is left out where a windowed supplier holds it
+	// past the window and nothing joins it, kept out by a dismissal it has not
+	// moved since, joined to every workstream a key places it in, at most once
+	// each, or offered.
 	keys := cfg.Keys()
 	type join struct {
 		input  string
@@ -180,6 +181,11 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 		input string
 		item  Item
 	}
+	type placement struct {
+		workstream string
+		joined     Joined
+	}
+	discoveredSince := now.Add(-cfg.DiscoveryWindow)
 	var free []offer
 	for _, in := range cfg.Inputs {
 		reading := readings[in.Name]
@@ -188,23 +194,35 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 			if until, ok := claimed[key{in.Name, it.ID}]; ok && (until.IsZero() || it.LastTouched.Before(until)) {
 				continue
 			}
+			var places []placement
+			if owner, ok := keys.Owner(it.Key); ok {
+				places = append(places, placement{owner.Workstream, Joined{By: byKey, Member: owner.Member.Input + ":" + owner.Member.ID}})
+			}
+			for _, k := range it.Keys {
+				if owner, ok := keys.Owner(k); ok {
+					places = append(places, placement{owner.Workstream, Joined{By: byDescription, Member: owner.Member.Input + ":" + owner.Member.ID}})
+				}
+			}
+			for _, k := range keys.All(it.Notes) {
+				if owner, ok := keys.Owner(k); ok {
+					places = append(places, placement{owner.Workstream, Joined{By: byNotes, Member: owner.Member.Input + ":" + owner.Member.ID}})
+				}
+			}
+			// A windowed supplier's item that nothing places and that has not
+			// moved within the window is never offered, so neither is it counted
+			// as dismissed, as an input lookout reads itself never reads one. A
+			// supplied item follows no pull request, so these are every join that
+			// could keep it.
+			if in.Windowed && len(places) == 0 && it.LastTouched.Before(discoveredSince) {
+				continue
+			}
 			if at, ok := dismissed[in.Name+":"+it.ID]; ok && !it.LastTouched.After(at) {
 				out.DismissedCount++
 				continue
 			}
 			free = append(free, offer{in.Name, it})
-			if owner, ok := keys.Owner(it.Key); ok {
-				add(owner.Workstream, in.Name, it, Joined{By: byKey, Member: owner.Member.Input + ":" + owner.Member.ID})
-			}
-			for _, k := range it.Keys {
-				if owner, ok := keys.Owner(k); ok {
-					add(owner.Workstream, in.Name, it, Joined{By: byDescription, Member: owner.Member.Input + ":" + owner.Member.ID})
-				}
-			}
-			for _, k := range keys.All(it.Notes) {
-				if owner, ok := keys.Owner(k); ok {
-					add(owner.Workstream, in.Name, it, Joined{By: byNotes, Member: owner.Member.Input + ":" + owner.Member.ID})
-				}
+			for _, p := range places {
+				add(p.workstream, in.Name, it, p.joined)
 			}
 		}
 	}
