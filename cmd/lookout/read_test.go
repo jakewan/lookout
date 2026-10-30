@@ -840,9 +840,9 @@ func TestReadRefusesAnInvalidConfiguration(t *testing.T) {
 		"supplied input with repos_may_be_empty":          "repos_may_be_empty applies only to kind git",
 		"github input with repos_may_be_empty":            "repos_may_be_empty applies only to kind git",
 		"claude_code input with repos_may_be_empty":       "repos_may_be_empty applies only to kind git",
-		"git input that is windowed":                      "is always read within discovery_window",
-		"github input that is windowed":                   "is always read within discovery_window",
-		"claude_code input that is windowed":              "is always read within discovery_window",
+		"git input that is windowed":                      "windowed applies only to kind supplied",
+		"github input that is windowed":                   "windowed applies only to kind supplied",
+		"claude_code input that is windowed":              "windowed applies only to kind supplied",
 	}
 	for name, config := range cases {
 		t.Run(name, func(t *testing.T) {

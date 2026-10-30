@@ -36,8 +36,9 @@ type Config struct {
 	// check it with everything else they must leave as it was.
 	ExplicitOnly bool
 	EventWindow  time.Duration
-	// DiscoveryWindow bounds how long ago an item a built-in input finds may
-	// have moved and still be offered as unplaced.
+	// DiscoveryWindow bounds how long ago an item a built-in input finds, or a
+	// windowed supplied input holds, may have moved and still be offered as
+	// unplaced.
 	DiscoveryWindow time.Duration
 	// ForgeOwners are the forge owners whose work this setting admits.
 	ForgeOwners []Owner
@@ -698,7 +699,7 @@ func gitInput(in inputFile, base string) (Input, error) {
 		return Input{}, fmt.Errorf("input %q is kind git, which lookout reads live, so it is never stale: remove max_age", in.Name)
 	}
 	if in.Windowed {
-		return Input{}, fmt.Errorf("input %q is kind git, which lookout reads live and is always read within discovery_window: remove windowed", in.Name)
+		return Input{}, fmt.Errorf("input %q is kind git, which discovery_window already bounds, so windowed applies only to kind supplied: remove it", in.Name)
 	}
 	if len(in.ConfigDirs) > 0 {
 		return Input{}, fmt.Errorf("input %q is kind git, so config_dirs applies only to kind claude_code: remove it", in.Name)
@@ -747,7 +748,7 @@ func gitHubInput(in inputFile, owners []Owner) (Input, error) {
 	case in.ReposMayBeEmpty:
 		return Input{}, fmt.Errorf("input %q is kind github, so repos_may_be_empty applies only to kind git: remove it", in.Name)
 	case in.Windowed:
-		return Input{}, fmt.Errorf(live+" and is always read within discovery_window: remove windowed", in.Name)
+		return Input{}, fmt.Errorf("input %q is kind github, which discovery_window already bounds, so windowed applies only to kind supplied: remove it", in.Name)
 	case len(owners) == 0:
 		return Input{}, fmt.Errorf("forge_owners is required once a github input is configured: list the owners whose pull requests and issues this setting admits, such as forge_owners: [your-name]")
 	case !slices.ContainsFunc(owners, func(o Owner) bool { return o.Host == defaultForgeHost }):
@@ -770,7 +771,7 @@ func claudeCodeInput(in inputFile, base string) (Input, error) {
 	case in.ReposMayBeEmpty:
 		return Input{}, fmt.Errorf("input %q is kind claude_code, so repos_may_be_empty applies only to kind git: remove it", in.Name)
 	case in.Windowed:
-		return Input{}, fmt.Errorf(live+" and is always read within discovery_window: remove windowed", in.Name)
+		return Input{}, fmt.Errorf("input %q is kind claude_code, which discovery_window already bounds, so windowed applies only to kind supplied: remove it", in.Name)
 	case len(in.ConfigDirs) == 0:
 		return Input{}, fmt.Errorf("input %q needs config_dirs: the Claude Code configuration directories whose sessions to read, such as [~/.claude]", in.Name)
 	case slices.Contains(in.ConfigDirs, ""):

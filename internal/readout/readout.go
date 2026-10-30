@@ -158,9 +158,10 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 		}
 	}
 
-	// Each item no claim holds is kept out by a dismissal it has not moved
-	// since, joined to every workstream a key places it in, at most once each,
-	// or offered.
+	// Each item no claim holds is left out where a windowed supplier holds it
+	// past the window and nothing joins it, kept out by a dismissal it has not
+	// moved since, joined to every workstream a key places it in, at most once
+	// each, or offered.
 	keys := cfg.Keys()
 	type join struct {
 		input  string

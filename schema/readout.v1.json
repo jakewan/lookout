@@ -40,7 +40,7 @@
       }
     },
     "unplaced": {
-      "description": "Items from readable inputs that no live workstream names or joins. A completed workstream's member returns here once touched after the day it was completed, and an item the user dismissed returns once touched after the dismissal; until then dismissed_count counts it. An input lookout reads itself, such as git, GitHub or Claude Code, offers here only items touched within the setting's discovery window.",
+      "description": "Items from readable inputs that no live workstream names or joins. A completed workstream's member returns here once touched after the day it was completed, and an item the user dismissed returns once touched after the dismissal; until then dismissed_count counts it. An input lookout reads itself, such as git, GitHub or Claude Code, and a supplied input the setting marks windowed, offers here only items touched within the setting's discovery window, and an item too old to offer is not counted in dismissed_count either.",
       "type": "array",
       "items": {
         "$ref": "#/$defs/placed_item"
