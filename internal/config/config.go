@@ -293,8 +293,8 @@ func Locate(getenv func(string) string, setting string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if !namePattern.MatchString(setting) {
-			return "", fmt.Errorf("setting %q is not a valid name: use lowercase letters, digits, - and _", setting)
+		if nameErr := CheckName(setting); nameErr != nil {
+			return "", nameErr
 		}
 		path := filepath.Join(dir, setting+".yml")
 		info, statErr := os.Stat(path)
@@ -459,6 +459,16 @@ func Name(path string) (string, error) {
 		return "", fmt.Errorf("%s: %w", path, err)
 	}
 	return name, nil
+}
+
+// CheckName reports a setting name that is not valid. A setting name keys
+// directories, so a name taken from outside a configuration file, such as a
+// saved readout's, is checked before it names a path.
+func CheckName(setting string) error {
+	if !namePattern.MatchString(setting) {
+		return fmt.Errorf("setting %q is not a valid name: use lowercase letters, digits, - and _", setting)
+	}
+	return nil
 }
 
 func settingName(path string) (string, error) {

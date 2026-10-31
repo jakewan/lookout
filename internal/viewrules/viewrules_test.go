@@ -72,8 +72,8 @@ func TestCleanShowsWhatItWouldOtherwiseObey(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"plain name", "plain name"},
 		{"tab\tand\nbreak", "tab and break"},
-		{"bidi‮override", "\"bidi\\u202eoverride\""},
-		{"zero​width", "\"zero\\u200bwidth\""},
+		{"bidi\u202eoverride", "\"bidi\\u202eoverride\""},
+		{"zero\u200bwidth", "\"zero\\u200bwidth\""},
 		{"bell\a", `"bell\a"`},
 	} {
 		if got := Clean(tc.in); got != tc.want {

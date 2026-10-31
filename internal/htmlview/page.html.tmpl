@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
+<meta http-equiv="x-dns-prefetch-control" content="off">
+<meta name="referrer" content="no-referrer">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lookout</title>
+<style>
+:root {
+  --bg: #fbfbfa; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --rule: #e4e3df;
+  --ok: #4f7a5a; --warn: #a86a00; --warn-bg: #fff4dd; --bad: #b3261e; --bad-bg: #fde8e6;
+  --mark: #33332f; --join: #6a5acd;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --muted: #9b9a93; --rule: #34332f;
+    --ok: #7fb58c; --warn: #f0b04a; --warn-bg: #3a2c10; --bad: #ff8a80; --bad-bg: #3d1a17;
+    --mark: #ecebe6; --join: #a99cff;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 14px; }
+h1 { font-size: 20px; margin: 0; }
+.asof { font-size: 16px; font-weight: 600; }
+.note { color: var(--muted); font-size: 12px; }
+code, .id { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+.health { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px; padding: 0; list-style: none; }
+.chip { border: 1px solid var(--rule); border-radius: 999px; padding: 2px 10px; background: var(--panel); font-size: 12px; }
+.chip.ok { color: var(--muted); }
+.chip.ok::before { content: "\25CF  "; color: var(--ok); }
+.chip.degraded { border-color: var(--warn); background: var(--warn-bg); color: var(--warn); font-weight: 600; }
+.chip.degraded::before { content: "\25B2  "; }
+.chip.error, .chip.fault { border-color: var(--bad); background: var(--bad-bg); color: var(--bad); font-weight: 600; }
+.chip.error::before { content: "\2716  "; }
+.chip.fault { border-style: dashed; }
+.chip.fault::before { content: "?  "; }
+.faults { margin: 0 0 18px; padding: 0; list-style: none; }
+.faults li { margin: 4px 0; padding: 6px 10px; border-left: 3px solid var(--bad); background: var(--panel); }
+.faults li.degraded { border-left-color: var(--warn); }
+.faults .why { color: var(--muted); }
+.ws { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; margin: 10px 0; padding: 10px 12px; }
+.ws.incomplete { border-color: var(--warn); }
+.row { display: grid; grid-template-columns: minmax(150px, 230px) 1fr; gap: 6px 16px; align-items: center; }
+.name { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
+.stats { color: var(--muted); font-size: 12px; }
+.idle { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.badge { display: inline-block; border-radius: 4px; padding: 0 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+.badge.stale { background: var(--warn-bg); color: var(--warn); }
+.badge.unread { border: 1px solid var(--muted); color: var(--muted); }
+svg.lane { width: 100%; height: 26px; display: block; }
+.lane .axis { stroke: var(--rule); stroke-width: 2; }
+.lane .member { fill: var(--mark); }
+.lane .joined { fill: none; stroke: var(--join); stroke-width: 2; }
+.lanekey { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
+.warnband { margin: 8px 0 0; padding: 4px 8px; border-radius: 4px; background: var(--warn-bg); color: var(--warn); font-size: 12px; }
+details { margin-top: 6px; }
+summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 16px; margin-top: 6px; }
+.group h3 { margin: 0 0 2px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.group ul { margin: 0; padding: 0; list-style: none; }
+.group li { padding: 2px 0; border-top: 1px dashed var(--rule); }
+.group li.join { padding-left: 10px; border-left: 2px solid var(--join); }
+.group li.unread { color: var(--muted); font-style: italic; }
+.joinbadge { color: var(--join); font-size: 11px; font-weight: 600; }
+.state { color: var(--muted); font-size: 11px; }
+a { color: inherit; }
+footer { margin-top: 18px; font-size: 13px; }
+footer.flagged { color: var(--warn); font-weight: 600; }
+@media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>lookout &middot; <bdi>{{.Setting}}</bdi></h1>
+  <span class="asof">as of {{.AsOf}}</span>
+  <span class="note">a snapshot: run lookout view again to refresh it</span>
+</header>
+
+{{if .Health}}<ul class="health">
+{{- range .Health}}
+  <li class="chip {{.Class}}"><bdi>{{.Input}}</bdi> {{.Label}}</li>
+{{- end}}
+</ul>
+<ul class="faults">
+{{- range .Health}}{{if .Unhealthy}}
+  <li class="{{.Class}}"><strong><bdi>{{.Input}}</bdi> is {{.Label}}</strong>{{if .Reasons}}: {{range $i, $r := .Reasons}}{{if $i}}, {{end}}{{$r}}{{end}}{{end}}
+    {{- if .SupplierReason}}<div class="why">supplier says: {{.SupplierReason}}</div>{{end}}
+    {{- range .Details}}<div class="why">{{.}}</div>{{end}}
+    {{- if .MissingFields}}<div class="why">fields it could not fill: {{range $i, $f := .MissingFields}}{{if $i}}, {{end}}{{$f}}{{end}}</div>{{end}}
+    {{- if .Excluded}}<div class="why">{{.Excluded}} records left out</div>{{end}}
+    <div class="why">{{.Records}} records{{if .FetchedAt}}, read {{.FetchedAt}}{{end}}</div>
+  </li>
+{{- end}}{{end}}
+</ul>{{end}}
+
+{{if not .Workstreams}}<p>No workstreams{{if .Completed}} ({{.Completed}} completed){{end}}.</p>{{end}}
+{{- range .Workstreams}}
+<section class="ws{{if .Incomplete}} incomplete{{end}}">
+  <div class="row">
+    <div>
+      <div class="name"><bdi>{{.Name}}</bdi>{{if .Marker}} <span class="badge {{.Marker}}">{{.Marker}}</span>{{end}}</div>
+      <div class="stats">last touched <span class="idle">{{.Idle}}</span> ago &middot; started {{.Age}} ago</div>
+    </div>
+    <div>
+      <svg class="lane" viewBox="0 0 1000 26" preserveAspectRatio="none" role="img" aria-label="last touch per item">
+        <line class="axis" x1="0" y1="13" x2="1000" y2="13"/>
+        {{- range .Lane}}
+        <circle class="{{if .Joined}}joined{{else}}member{{end}}" cx="{{.CX}}" cy="13" r="6"><title>{{.Label}}</title></circle>
+        {{- end}}
+      </svg>
+      <div class="lanekey"><span>{{$.Window}} ago</span><span>last touch per item &middot; filled: member, ring: joined</span><span>now</span></div>
+    </div>
+  </div>
+  {{- if .Incomplete}}
+  <div class="warnband">may be incomplete: draws on {{range $i, $in := .Incomplete}}{{if $i}}, {{end}}<bdi>{{$in}}</bdi>{{end}}</div>
+  {{- end}}
+  {{- if .Groups}}
+  <details>
+    <summary>{{len .Groups}} input{{if gt (len .Groups) 1}}s{{end}}: {{range $i, $g := .Groups}}{{if $i}}, {{end}}<bdi>{{$g.Input}}</bdi> {{len $g.Items}}{{end}}</summary>
+    <div class="groups">
+    {{- range .Groups}}
+      <div class="group">
+        <h3><bdi>{{.Input}}</bdi></h3>
+        <ul>
+        {{- range .Items}}
+          <li class="{{if .Join}}join{{else if .Unread}}unread{{end}}">
+            {{- if .Href}}<a href="{{.Href}}" rel="noreferrer noopener"><span class="id"><bdi>{{.ID}}</bdi></span></a>{{else}}<span class="id"><bdi>{{.ID}}</bdi></span>{{end}}
+            {{- if .Title}} <bdi>{{.Title}}</bdi>{{end}}
+            {{- if .State}} <span class="state">{{.State}}</span>{{end}}
+            {{- if .Unread}} <span class="state">not read: no input supplied it</span>{{end}}
+            {{- with .Join}}<br><span class="joinbadge">joined by {{.By}} &rarr; <bdi>{{.Member}}</bdi>{{if .Via}} via <bdi>{{.Via}}</bdi>{{end}}</span>{{end}}
+          </li>
+        {{- end}}
+        </ul>
+      </div>
+    {{- end}}
+    </div>
+  </details>
+  {{- end}}
+</section>
+{{- end}}
+
+<footer{{if .AnyUnhealthy}} class="flagged"{{end}}>
+  {{if .AnyUnhealthy}}&#9650; inputs are failing, so these counts may be short: {{end}}{{.Unplaced}} unplaced{{if .Dismissed}}, {{.Dismissed}} dismissed{{end}}{{if .Completed}}, {{.Completed}} workstream{{if gt .Completed 1}}s{{end}} completed{{end}}
+</footer>
+</main>
+</body>
+</html>

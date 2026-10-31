@@ -1,0 +1,565 @@
+{
+  "schema": "readout.v1",
+  "setting": "work",
+  "generated_at": "2030-06-15T12:00:00Z",
+  "event_window_seconds": 604800,
+  "workstreams": [
+    {
+      "name": "search-revamp",
+      "last_touched": "2030-06-15T11:20:00Z",
+      "idle_seconds": 2400,
+      "started_at": "2030-05-26T12:00:00Z",
+      "age_seconds": 1728000,
+      "events": [
+        {
+          "input": "hub",
+          "id": "owner/app#41",
+          "at": "2030-06-15T11:20:00Z",
+          "title": "ABC-13: add result filters",
+          "joined": {
+            "by": "key",
+            "member": "tracker:ABC-13"
+          }
+        },
+        {
+          "input": "sessions",
+          "id": "owner/app:feature/result-filters",
+          "at": "2030-06-15T11:18:00Z",
+          "joined": {
+            "by": "pull_request",
+            "member": "tracker:ABC-13",
+            "via": "hub:owner/app#41"
+          }
+        },
+        {
+          "input": "code",
+          "id": "owner/app:feature/result-filters",
+          "at": "2030-06-15T11:15:00Z",
+          "joined": {
+            "by": "pull_request",
+            "member": "tracker:ABC-13",
+            "via": "hub:owner/app#41"
+          }
+        },
+        {
+          "input": "tracker",
+          "id": "ABC-13",
+          "at": "2030-06-15T11:10:00Z",
+          "title": "Filters for search results"
+        },
+        {
+          "input": "tracker",
+          "id": "WORK-7",
+          "at": "2030-06-15T10:00:00Z",
+          "title": "Container: search filters",
+          "joined": {
+            "by": "notes",
+            "member": "tracker:ABC-12"
+          }
+        },
+        {
+          "input": "tracker",
+          "id": "ABC-12",
+          "at": "2030-06-15T09:00:00Z",
+          "title": "Search revamp"
+        },
+        {
+          "input": "hub",
+          "id": "owner/app#42",
+          "at": "2030-06-15T06:00:00Z",
+          "title": "Tidy the search index job",
+          "joined": {
+            "by": "description",
+            "member": "tracker:ABC-12"
+          }
+        },
+        {
+          "input": "tracker",
+          "id": "ABC-14",
+          "at": "2030-06-11T12:00:00Z",
+          "title": "Ranking tweaks"
+        }
+      ],
+      "inputs_incomplete": [
+        "tracker",
+        "chat"
+      ],
+      "members_unread": [],
+      "items": [
+        {
+          "input": "tracker",
+          "item": {
+            "id": "ABC-12",
+            "last_touched": "2030-06-15T09:00:00Z",
+            "state": "In Progress",
+            "links": [
+              {
+                "rel": "self",
+                "href": "https://tracker.example.com/ABC-12"
+              }
+            ],
+            "attrs": {
+              "type": "Epic"
+            },
+            "title": "Search revamp",
+            "started_at": "2030-05-26T12:00:00Z"
+          }
+        },
+        {
+          "input": "tracker",
+          "item": {
+            "id": "ABC-13",
+            "last_touched": "2030-06-15T11:10:00Z",
+            "state": "In Review",
+            "links": [
+              {
+                "rel": "self",
+                "href": "https://tracker.example.com/ABC-13"
+              }
+            ],
+            "attrs": {
+              "type": "Story",
+              "parent": "ABC-12"
+            },
+            "title": "Filters for search results",
+            "started_at": "2030-06-09T12:00:00Z"
+          }
+        },
+        {
+          "input": "tracker",
+          "item": {
+            "id": "ABC-14",
+            "last_touched": "2030-06-11T12:00:00Z",
+            "state": "To Do",
+            "links": [],
+            "attrs": {
+              "type": "Story",
+              "parent": "ABC-12"
+            },
+            "title": "Ranking tweaks",
+            "started_at": "2030-06-11T12:00:00Z"
+          }
+        },
+        {
+          "input": "hub",
+          "item": {
+            "id": "owner/app#41",
+            "last_touched": "2030-06-15T11:20:00Z",
+            "state": "open",
+            "links": [
+              {
+                "rel": "self",
+                "href": "https://github.com/owner/app/pull/41"
+              }
+            ],
+            "attrs": {},
+            "title": "ABC-13: add result filters",
+            "started_at": "2030-06-13T12:00:00Z"
+          },
+          "joined": {
+            "by": "key",
+            "member": "tracker:ABC-13"
+          }
+        },
+        {
+          "input": "hub",
+          "item": {
+            "id": "owner/app#42",
+            "last_touched": "2030-06-15T06:00:00Z",
+            "state": "merged",
+            "links": [
+              {
+                "rel": "self",
+                "href": "https://github.com/owner/app/pull/42"
+              }
+            ],
+            "attrs": {},
+            "title": "Tidy the search index job",
+            "started_at": "2030-06-12T12:00:00Z"
+          },
+          "joined": {
+            "by": "description",
+            "member": "tracker:ABC-12"
+          }
+        },
+        {
+          "input": "code",
+          "item": {
+            "id": "owner/app:feature/result-filters",
+            "last_touched": "2030-06-15T11:15:00Z",
+            "state": "open",
+            "links": [],
+            "attrs": {},
+            "started_at": "2030-06-13T12:00:00Z"
+          },
+          "joined": {
+            "by": "pull_request",
+            "member": "tracker:ABC-13",
+            "via": "hub:owner/app#41"
+          }
+        },
+        {
+          "input": "sessions",
+          "item": {
+            "id": "owner/app:feature/result-filters",
+            "last_touched": "2030-06-15T11:18:00Z",
+            "state": "open",
+            "links": [],
+            "attrs": {},
+            "started_at": "2030-06-13T12:00:00Z"
+          },
+          "joined": {
+            "by": "pull_request",
+            "member": "tracker:ABC-13",
+            "via": "hub:owner/app#41"
+          }
+        },
+        {
+          "input": "tracker",
+          "item": {
+            "id": "WORK-7",
+            "last_touched": "2030-06-15T10:00:00Z",
+            "state": "running",
+            "links": [],
+            "attrs": {},
+            "title": "Container: search filters"
+          },
+          "joined": {
+            "by": "notes",
+            "member": "tracker:ABC-12"
+          }
+        }
+      ]
+    },
+    {
+      "name": "billing-export",
+      "last_touched": "2030-06-15T07:00:00Z",
+      "idle_seconds": 18000,
+      "started_at": "2030-06-06T12:00:00Z",
+      "age_seconds": 777600,
+      "events": [
+        {
+          "input": "hub",
+          "id": "owner/billing#7",
+          "at": "2030-06-15T07:00:00Z",
+          "title": "Export invoices as CSV"
+        },
+        {
+          "input": "code",
+          "id": "owner/billing:fix/rounding",
+          "at": "2030-06-15T05:00:00Z"
+        }
+      ],
+      "inputs_incomplete": [],
+      "members_unread": [
+        "hub:owner/billing#5"
+      ],
+      "items": [
+        {
+          "input": "hub",
+          "item": {
+            "id": "owner/billing#7",
+            "last_touched": "2030-06-15T07:00:00Z",
+            "state": "open",
+            "links": [
+              {
+                "rel": "self",
+                "href": "https://github.com/owner/billing/pull/7"
+              }
+            ],
+            "attrs": {},
+            "title": "Export invoices as CSV",
+            "started_at": "2030-06-06T12:00:00Z"
+          }
+        },
+        {
+          "input": "code",
+          "item": {
+            "id": "owner/billing:fix/rounding",
+            "last_touched": "2030-06-15T05:00:00Z",
+            "state": "open",
+            "links": [],
+            "attrs": {},
+            "started_at": "2030-06-12T12:00:00Z"
+          }
+        }
+      ]
+    },
+    {
+      "name": "release-train",
+      "last_touched": "2030-06-13T12:00:00Z",
+      "idle_seconds": 172800,
+      "started_at": "2030-06-03T12:00:00Z",
+      "age_seconds": 1036800,
+      "events": [
+        {
+          "input": "tracker",
+          "id": "ABC-40",
+          "at": "2030-06-13T12:00:00Z",
+          "title": "June release"
+        },
+        {
+          "input": "hub",
+          "id": "owner/app#50",
+          "at": "2030-06-13T09:00:00Z",
+          "title": "ABC-40 release notes",
+          "joined": {
+            "by": "key",
+            "member": "tracker:ABC-40"
+          }
+        }
+      ],
+      "inputs_incomplete": [
+        "tracker",
+        "chat"
+      ],
+      "members_unread": [],
+      "items": [
+        {
+          "input": "tracker",
+          "item": {
+            "id": "ABC-40",
+            "last_touched": "2030-06-13T12:00:00Z",
+            "state": "In Progress",
+            "links": [],
+            "attrs": {},
+            "title": "June release",
+            "started_at": "2030-06-03T12:00:00Z"
+          }
+        },
+        {
+          "input": "hub",
+          "item": {
+            "id": "owner/app#50",
+            "last_touched": "2030-06-13T09:00:00Z",
+            "state": "open",
+            "links": [],
+            "attrs": {},
+            "title": "ABC-40 release notes",
+            "started_at": "2030-06-10T12:00:00Z"
+          },
+          "joined": {
+            "by": "key",
+            "member": "tracker:ABC-40"
+          }
+        }
+      ]
+    },
+    {
+      "name": "infra-upgrade",
+      "last_touched": "2030-06-14T16:00:00Z",
+      "idle_seconds": 72000,
+      "started_at": "2030-06-07T12:00:00Z",
+      "age_seconds": 691200,
+      "events": [
+        {
+          "input": "hub",
+          "id": "owner/infra#3",
+          "at": "2030-06-14T16:00:00Z",
+          "title": "Upgrade the runtime"
+        },
+        {
+          "input": "hub",
+          "id": "owner/infra#4",
+          "at": "2030-06-14T14:00:00Z",
+          "title": "Pin the base image",
+          "joined": {
+            "by": "milestone",
+            "member": "hub:owner/infra#3"
+          }
+        }
+      ],
+      "inputs_incomplete": [],
+      "members_unread": [],
+      "items": [
+        {
+          "input": "hub",
+          "item": {
+            "id": "owner/infra#3",
+            "last_touched": "2030-06-14T16:00:00Z",
+            "state": "open",
+            "links": [],
+            "attrs": {},
+            "title": "Upgrade the runtime",
+            "started_at": "2030-06-07T12:00:00Z"
+          }
+        },
+        {
+          "input": "hub",
+          "item": {
+            "id": "owner/infra#4",
+            "last_touched": "2030-06-14T14:00:00Z",
+            "state": "open",
+            "links": [],
+            "attrs": {},
+            "title": "Pin the base image",
+            "started_at": "2030-06-07T12:00:00Z"
+          },
+          "joined": {
+            "by": "milestone",
+            "member": "hub:owner/infra#3"
+          }
+        }
+      ]
+    },
+    {
+      "name": "docs-site",
+      "last_touched": "2030-06-06T12:00:00Z",
+      "idle_seconds": 777600,
+      "started_at": "2030-05-16T12:00:00Z",
+      "age_seconds": 2592000,
+      "events": [],
+      "inputs_incomplete": [],
+      "members_unread": [],
+      "items": [
+        {
+          "input": "code",
+          "item": {
+            "id": "owner/docs:draft/guides",
+            "last_touched": "2030-06-06T12:00:00Z",
+            "state": "open",
+            "links": [],
+            "attrs": {},
+            "started_at": "2030-05-16T12:00:00Z"
+          }
+        }
+      ]
+    },
+    {
+      "name": "onboarding",
+      "last_touched": null,
+      "idle_seconds": null,
+      "started_at": null,
+      "age_seconds": null,
+      "events": [],
+      "inputs_incomplete": [
+        "tracker"
+      ],
+      "members_unread": [
+        "tracker:ABC-55"
+      ],
+      "items": []
+    }
+  ],
+  "unplaced": [
+    {
+      "input": "code",
+      "item": {
+        "id": "owner/app:spike/cache",
+        "last_touched": "2030-06-15T09:00:00Z",
+        "state": "open",
+        "links": [],
+        "attrs": {},
+        "started_at": "2030-06-15T09:00:00Z"
+      }
+    },
+    {
+      "input": "hub",
+      "item": {
+        "id": "owner/app#60",
+        "last_touched": "2030-06-15T04:00:00Z",
+        "state": "open",
+        "links": [],
+        "attrs": {},
+        "title": "Bump the linter"
+      }
+    },
+    {
+      "input": "sessions",
+      "item": {
+        "id": "owner/tools:main",
+        "last_touched": "2030-06-15T11:30:00Z",
+        "state": "open",
+        "links": [],
+        "attrs": {}
+      }
+    }
+  ],
+  "health": [
+    {
+      "input": "code",
+      "status": "ok",
+      "reasons": [],
+      "fetched_at": "2030-06-15T11:55:00Z",
+      "record_count": 14,
+      "missing_fields": [],
+      "schema_violations": [],
+      "supplier_reason": null,
+      "details": [],
+      "excluded_count": 0
+    },
+    {
+      "input": "hub",
+      "status": "ok",
+      "reasons": [],
+      "fetched_at": "2030-06-15T11:55:00Z",
+      "record_count": 9,
+      "missing_fields": [],
+      "schema_violations": [],
+      "supplier_reason": null,
+      "details": [],
+      "excluded_count": 0
+    },
+    {
+      "input": "sessions",
+      "status": "ok",
+      "reasons": [],
+      "fetched_at": "2030-06-15T11:55:00Z",
+      "record_count": 6,
+      "missing_fields": [],
+      "schema_violations": [],
+      "supplier_reason": null,
+      "details": [],
+      "excluded_count": 0
+    },
+    {
+      "input": "tracker",
+      "status": "degraded",
+      "reasons": [
+        "stale",
+        "missing_fields"
+      ],
+      "fetched_at": "2030-06-15T11:55:00Z",
+      "record_count": 11,
+      "missing_fields": [
+        "due"
+      ],
+      "schema_violations": [],
+      "supplier_reason": null,
+      "details": [
+        "tracker.json was written 30h ago; max_age is 24h"
+      ],
+      "excluded_count": 0
+    },
+    {
+      "input": "chat",
+      "status": "error",
+      "reasons": [
+        "missing"
+      ],
+      "fetched_at": "2030-06-15T11:55:00Z",
+      "record_count": 0,
+      "missing_fields": [],
+      "schema_violations": [],
+      "supplier_reason": null,
+      "details": [
+        "chat.json does not exist"
+      ],
+      "excluded_count": 0
+    },
+    {
+      "input": "calendar",
+      "status": "absent_by_design",
+      "reasons": [],
+      "fetched_at": null,
+      "record_count": 0,
+      "missing_fields": [],
+      "schema_violations": [],
+      "supplier_reason": null,
+      "details": [],
+      "excluded_count": 0
+    }
+  ],
+  "dismissed_count": 2,
+  "completed_count": 1
+}
