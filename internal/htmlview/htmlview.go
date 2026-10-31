@@ -150,8 +150,8 @@ type mark struct {
 	Label  string
 }
 
-// CX is the mark's horizontal place on a lane drawn a thousand units wide.
-func (m mark) CX() string { return fmt.Sprintf("%.1f", m.X*1000) }
+// Left is the mark's place across its lane, as a CSS percentage.
+func (m mark) Left() string { return fmt.Sprintf("%.2f%%", m.X*100) }
 
 // Render writes the page for data, a readout.v1 document, to w.
 func Render(w io.Writer, data []byte) error {

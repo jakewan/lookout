@@ -51,11 +51,14 @@ code, .id { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 1
 .badge { display: inline-block; border-radius: 4px; padding: 0 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
 .badge.stale { background: var(--warn-bg); color: var(--warn); }
 .badge.unread { border: 1px solid var(--muted); color: var(--muted); }
-svg.lane { width: 100%; height: 26px; display: block; }
-.lane .axis { stroke: var(--rule); stroke-width: 2; }
-.lane .member { fill: var(--mark); }
-.lane .joined { fill: none; stroke: var(--join); stroke-width: 2; }
-.lanekey { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
+.lane { position: relative; height: 22px; margin: 0 6px; background: linear-gradient(var(--rule), var(--rule)) center / 100% 2px no-repeat; }
+.lane .mark { position: absolute; top: 5px; margin-left: -6px; }
+.mark { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: -1px; }
+.mark.member { background: var(--mark); }
+.mark.joined { border: 2px solid var(--join); background: var(--panel); }
+.lanekey { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 11px; margin: 0 6px; }
+.row.key { margin: 4px 13px -4px; }
+.lane .empty { position: absolute; left: 0; top: 2px; padding-right: 6px; background: var(--panel); color: var(--muted); font-size: 11px; }
 .warnband { margin: 8px 0 0; padding: 4px 8px; border-radius: 4px; background: var(--warn-bg); color: var(--warn); font-size: 12px; }
 details { margin-top: 6px; }
 summary { cursor: pointer; color: var(--muted); font-size: 12px; }
@@ -98,29 +101,29 @@ footer.flagged { color: var(--warn); font-weight: 600; }
 {{- end}}{{end}}
 </ul>{{end}}
 
-{{if not .Workstreams}}<p>No workstreams{{if .Completed}} ({{.Completed}} completed){{end}}.</p>{{end}}
+{{if not .Workstreams}}<p>No workstreams{{if .Completed}} ({{.Completed}} completed){{end}}.</p>{{else}}
+<div class="row key"><span></span><div class="lanekey"><span>{{.Window}} ago</span><span>each item's last touch &middot; <span class="mark member"></span> member &middot; <span class="mark joined"></span> joined</span><span>now</span></div></div>
+{{end}}
 {{- range .Workstreams}}
 <section class="ws{{if .Incomplete}} incomplete{{end}}">
   <div class="row">
     <div>
       <div class="name"><bdi>{{.Name}}</bdi>{{if .Marker}} <span class="badge {{.Marker}}">{{.Marker}}</span>{{end}}</div>
-      <div class="stats">last touched <span class="idle">{{.Idle}}</span> ago &middot; started {{.Age}} ago</div>
+      <div class="stats">{{if eq .Marker "unread"}}nothing read for it on this read{{else}}last touched <span class="idle">{{.Idle}}</span> ago{{end}}{{if ne .Age "--"}} &middot; started {{.Age}} ago{{end}}</div>
     </div>
-    <div>
-      <svg class="lane" viewBox="0 0 1000 26" preserveAspectRatio="none" role="img" aria-label="last touch per item">
-        <line class="axis" x1="0" y1="13" x2="1000" y2="13"/>
-        {{- range .Lane}}
-        <circle class="{{if .Joined}}joined{{else}}member{{end}}" cx="{{.CX}}" cy="13" r="6"><title>{{.Label}}</title></circle>
-        {{- end}}
-      </svg>
-      <div class="lanekey"><span>{{$.Window}} ago</span><span>last touch per item &middot; filled: member, ring: joined</span><span>now</span></div>
+    <div class="lane" role="img" aria-label="last touch per item">
+      {{- range .Lane}}
+      <span class="mark {{if .Joined}}joined{{else}}member{{end}}" style="left: {{.Left}}" title="{{.Label}}"></span>
+      {{- else}}
+      <span class="empty">no touch within {{$.Window}}</span>
+      {{- end}}
     </div>
   </div>
   {{- if .Incomplete}}
   <div class="warnband">may be incomplete: draws on {{range $i, $in := .Incomplete}}{{if $i}}, {{end}}<bdi>{{$in}}</bdi>{{end}}</div>
   {{- end}}
   {{- if .Groups}}
-  <details>
+  <details open>
     <summary>{{len .Groups}} input{{if gt (len .Groups) 1}}s{{end}}: {{range $i, $g := .Groups}}{{if $i}}, {{end}}<bdi>{{$g.Input}}</bdi> {{len $g.Items}}{{end}}</summary>
     <div class="groups">
     {{- range .Groups}}
