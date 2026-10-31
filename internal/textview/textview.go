@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/jakewan/lookout/internal/viewrules"
 )
 
 const (
@@ -94,7 +96,11 @@ func writeWorkstreams(b *strings.Builder, v view) {
 		names = append(names, n)
 		nameWidth = max(nameWidth, utf8.RuneCountInString(n))
 	}
-	order := inputOrder(v.Health)
+	inputs := make([]string, 0, len(v.Health))
+	for _, h := range v.Health {
+		inputs = append(inputs, h.Input)
+	}
+	order := viewrules.NewOrder(inputs)
 	for i, ws := range v.Workstreams {
 		// A workstream fed by an input that is failing may understate, so its
 		// row says so where it is read, not only in the warnings below.
@@ -102,18 +108,12 @@ func writeWorkstreams(b *strings.Builder, v view) {
 		if len(ws.InputsIncomplete) > 0 {
 			flag = "! "
 		}
-		lead := fmt.Sprintf("%s%-*s  %*s  %-*s  ", flag, nameWidth, names[i], ageWidth, age(ws.IdleSeconds), markerWidth, marker(ws, v.EventWindowSeconds))
+		lead := fmt.Sprintf("%s%-*s  %*s  %-*s  ", flag, nameWidth, names[i], ageWidth, viewrules.Age(ws.IdleSeconds), markerWidth, viewrules.Marker(ws.IdleSeconds, v.EventWindowSeconds))
 		b.WriteString(wrap(counts(ws, order), lead, strings.Repeat(" ", utf8.RuneCountInString(lead))))
 	}
 }
 
-// unhealthy reports whether an input's health is worth a warning.
-// absent_by_design is a setting expecting the input to be absent, which the
-// vision shows as nothing at all rather than as a fault. Any other status but
-// ok, including one a later version adds, is worth a look.
-func unhealthy(h health) bool {
-	return h.Status != "ok" && h.Status != "absent_by_design"
-}
+func unhealthy(h health) bool { return viewrules.Unhealthy(h.Status) }
 
 func writeWarnings(b *strings.Builder, v view) {
 	// Each warning is a list of units to wrap. A name is one unit, so the
@@ -180,20 +180,10 @@ func footer(v view) string {
 	return wrap(parts, flag, "  ")
 }
 
-// inputOrder ranks each input by its place in health, which readout.v1 keeps
-// in the configuration's order, so every row lists its inputs the same way.
-func inputOrder(hs []health) map[string]int {
-	order := make(map[string]int, len(hs))
-	for i, h := range hs {
-		order[h.Input] = i
-	}
-	return order
-}
-
 // counts is a workstream's items per input, as the units a row wraps between:
 // its members read and unread, and apart from them the items it joined, so a
 // join never reads as a membership.
-func counts(ws workstream, order map[string]int) []string {
+func counts(ws workstream, order viewrules.Order) []string {
 	type tally struct{ read, unread, joined int }
 	tallies := map[string]*tally{}
 	var inputs []string
@@ -220,15 +210,8 @@ func counts(ws workstream, order map[string]int) []string {
 	if len(inputs) == 0 {
 		return []string{"no members"}
 	}
-	// An input health does not list sorts after those it does, in the order
-	// the members first named it.
-	rank := func(in string) int {
-		if i, ok := order[in]; ok {
-			return i
-		}
-		return len(order)
-	}
-	slices.SortStableFunc(inputs, func(a, b string) int { return rank(a) - rank(b) })
+	// Inputs health does not list keep the order the members first named them.
+	slices.SortStableFunc(inputs, func(a, b string) int { return order.Rank(a) - order.Rank(b) })
 	units := make([]string, 0, len(inputs))
 	for i, in := range inputs {
 		t := tallies[in]
@@ -247,34 +230,6 @@ func counts(ws workstream, order map[string]int) []string {
 	return units
 }
 
-func marker(ws workstream, window int64) string {
-	switch {
-	case ws.IdleSeconds == nil:
-		// Nothing was read for it on this read; that says nothing of its past.
-		return "unread"
-	case *ws.IdleSeconds > window:
-		return "stale"
-	}
-	return ""
-}
-
-// age is idle seconds in the largest whole unit, floored.
-func age(idle *int64) string {
-	if idle == nil {
-		return "--"
-	}
-	s := *idle
-	switch {
-	case s < 60:
-		return strconv.FormatInt(s, 10) + "s"
-	case s < 60*60:
-		return strconv.FormatInt(s/60, 10) + "m"
-	case s < 24*60*60:
-		return strconv.FormatInt(s/(60*60), 10) + "h"
-	}
-	return strconv.FormatInt(s/(24*60*60), 10) + "d"
-}
-
 // name is a name from the readout made safe to print and cut to nameCap.
 func name(s string) string {
 	s = clean(s)
@@ -287,17 +242,8 @@ func name(s string) string {
 }
 
 // clean keeps text from the readout from breaking its line or driving the
-// terminal. Tabs and line breaks become spaces, as unplaced prints them; any
-// other rune Go does not count as printable, a control, a bidirectional
-// override or a zero-width character among them, quotes the whole string so
-// it is shown, not obeyed.
-func clean(s string) string {
-	s = strings.NewReplacer("\t", " ", "\r", " ", "\n", " ").Replace(s)
-	if strings.ContainsFunc(s, func(r rune) bool { return !strconv.IsPrint(r) }) {
-		return strconv.Quote(s)
-	}
-	return s
-}
+// terminal.
+func clean(s string) string { return viewrules.Clean(s) }
 
 // wrap lays units out after first, separated by spaces, continuing on lines
 // that start with cont whenever the next unit would pass width. A unit too
