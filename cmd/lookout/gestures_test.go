@@ -1032,8 +1032,36 @@ func TestAMalformedQuotedTokenIsShownEscaped(t *testing.T) {
 	f := newFixture(t)
 	f.write("personal.yml", handWritten)
 	code, _, stderr := f.run("dismiss", "\"tracker:\x1b[2J\\q")
-	if code != exitUsage || strings.Contains(stderr, "\x1b") {
-		t.Errorf("exit code = %d, stderr = %q, want a usage error that never drives the terminal", code, stderr)
+	if code != exitUsage || strings.Contains(stderr, "\x1b") || !strings.Contains(stderr, `\x1b[2J`) {
+		t.Errorf("exit code = %d, stderr = %q, want a usage error showing the argument escaped", code, stderr)
+	}
+}
+
+// A quoted token decodes any Go escape, so plain text on the command line can
+// name an id holding control characters; every refusal naming the item shows
+// it escaped rather than letting it drive the terminal.
+func TestARefusalShowsAnItemEscaped(t *testing.T) {
+	quoted := `"tracker:ABC-\x1b[2J"`
+	withMember := strings.Replace(handWritten, "      - tracker:ABC-2\n", "      - \"tracker:ABC-\\e[2J\"\n", 1)
+	for name, c := range map[string]struct {
+		config string
+		args   []string
+	}{
+		"remove of an item no workstream holds":    {handWritten, []string{"remove", quoted}},
+		"move of an item no live workstream holds": {handWritten, []string{"move", quoted, "onboarding"}},
+		"adopt of an item a workstream holds":      {withMember, []string{"adopt", quoted, "onboarding"}},
+		"adopt into the workstream holding it":     {withMember, []string{"adopt", quoted, "billing"}},
+		"move into the workstream holding it":      {withMember, []string{"move", quoted, "billing"}},
+		"dismiss of an item a workstream holds":    {withMember, []string{"dismiss", quoted}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.write("personal.yml", c.config)
+			code, _, stderr := f.run(c.args...)
+			if code != exitFailure || strings.Contains(stderr, "\x1b") || !strings.Contains(stderr, `\x1b[2J`) {
+				t.Errorf("exit code = %d, stderr = %q, want a refusal showing the item escaped", code, stderr)
+			}
+		})
 	}
 }
 
