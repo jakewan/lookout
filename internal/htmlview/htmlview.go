@@ -80,14 +80,17 @@ type rawHealth struct {
 	ExcludedCount  int        `json:"excluded_count"`
 }
 
-// page is what the template draws, every string in it already made safe to
-// show by viewrules.Clean.
+// page is what the template draws. Every string in it taken from the readout
+// has been made safe to show by viewrules.Clean, except an item's link
+// address, which is admitted only as a web address and left to the
+// template's URL escaping.
 type page struct {
 	Setting string
 	AsOf    string
 	Window  string
-	// Active counts workstreams touched within the event window, the measure
-	// the vision sets beside a work-in-progress limit.
+	// Active counts the workstreams with an event within the event window,
+	// as snapshot does, the measure the vision sets beside a
+	// work-in-progress limit.
 	Active       int
 	Health       []input
 	Workstreams  []workstream
@@ -117,11 +120,14 @@ type workstream struct {
 	// Anchor links the workstream's overview lane to its detail.
 	Anchor string
 	// Behind marks a workstream quieter than one ranked below it.
-	Behind     bool
-	Name       string
-	Idle       string
-	Age        string
-	Marker     string
+	Behind bool
+	Name   string
+	Idle   string
+	Age    string
+	// Unread and Stale are viewrules.Marker's verdicts, so the template
+	// branches on them rather than on the marker's spelling.
+	Unread     bool
+	Stale      bool
 	Incomplete []string
 	Groups     []group
 	Lane       []mark
@@ -181,7 +187,7 @@ func build(data []byte) (page, error) {
 	p := page{
 		Setting:   viewrules.Clean(r.Setting),
 		AsOf:      stamp(r.GeneratedAt),
-		Window:    viewrules.Age(&window),
+		Window:    viewrules.Span(window),
 		Unplaced:  len(r.Unplaced),
 		Dismissed: r.DismissedCount,
 		Completed: r.CompletedCount,
@@ -190,9 +196,7 @@ func build(data []byte) (page, error) {
 	for _, h := range r.Health {
 		names = append(names, h.Input)
 		p.AnyUnhealthy = p.AnyUnhealthy || viewrules.Unhealthy(h.Status)
-		// The vision shows an input the setting expects to be absent as
-		// nothing at all, so a setting without one leaves no gap for it.
-		if h.Status == "absent_by_design" {
+		if viewrules.Hidden(h.Status) {
 			continue
 		}
 		p.Health = append(p.Health, healthOf(h))
@@ -202,7 +206,7 @@ func build(data []byte) (page, error) {
 		shown := workstreamOf(ws, order, r.GeneratedAt, window)
 		shown.Anchor = fmt.Sprintf("ws-%d", i+1)
 		shown.Behind = behind(r.Workstreams, i)
-		if ws.IdleSeconds != nil && *ws.IdleSeconds <= window {
+		if len(ws.Events) > 0 {
 			p.Active++
 		}
 		p.Workstreams = append(p.Workstreams, shown)
@@ -251,11 +255,13 @@ func healthOf(h rawHealth) input {
 }
 
 func workstreamOf(ws rawStream, order viewrules.Order, generated time.Time, window int64) workstream {
+	marker := viewrules.Marker(ws.IdleSeconds, window)
 	out := workstream{
 		Name:       viewrules.Clean(ws.Name),
 		Idle:       viewrules.Age(ws.IdleSeconds),
 		Age:        viewrules.Age(ws.AgeSeconds),
-		Marker:     viewrules.Marker(ws.IdleSeconds, window),
+		Unread:     marker == viewrules.Unread,
+		Stale:      marker == viewrules.Stale,
 		Incomplete: cleanAll(ws.InputsIncomplete),
 	}
 	// Each input's members come first, in the configuration's order, then the

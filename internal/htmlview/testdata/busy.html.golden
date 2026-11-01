@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
+<meta http-equiv="x-dns-prefetch-control" content="off">
+<meta name="referrer" content="no-referrer">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lookout</title>
+<style>
+:root {
+  --bg: #fbfbfa; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --rule: #e4e3df;
+  --ok: #4f7a5a; --warn: #a86a00; --warn-bg: #fff4dd; --bad: #b3261e; --bad-bg: #fde8e6;
+  --mark: #33332f; --join: #6a5acd;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --muted: #9b9a93; --rule: #34332f;
+    --ok: #7fb58c; --warn: #f0b04a; --warn-bg: #3a2c10; --bad: #ff8a80; --bad-bg: #3d1a17;
+    --mark: #ecebe6; --join: #a99cff;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 12px; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 13px; margin: 22px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.asof { font-size: 16px; font-weight: 600; }
+.note { color: var(--muted); font-size: 12px; }
+.id { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+a { color: inherit; }
+
+ 
+.health { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px; padding: 0; list-style: none; }
+.chip { border: 1px solid var(--rule); border-radius: 999px; padding: 2px 10px; background: var(--panel); font-size: 12px; }
+.chip.ok { color: var(--muted); }
+.chip.ok::before { content: "\25CF  "; color: var(--ok); }
+.chip.degraded { border-color: var(--warn); background: var(--warn-bg); color: var(--warn); font-weight: 600; }
+.chip.degraded::before { content: "\25B2  "; }
+.chip.error, .chip.fault { border-color: var(--bad); background: var(--bad-bg); color: var(--bad); font-weight: 600; }
+.chip.error::before { content: "\2716  "; }
+.chip.fault { border-style: dashed; }
+.chip.fault::before { content: "?  "; }
+.faults { margin: 0 0 14px; padding: 0; list-style: none; font-size: 13px; }
+.faults li { margin: 3px 0; padding: 4px 10px; border-left: 3px solid var(--bad); background: var(--panel); }
+.faults li.degraded { border-left-color: var(--warn); }
+.faults .why { color: var(--muted); }
+
+ 
+.overview { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 12px; }
+.ovrow { display: grid; grid-template-columns: minmax(130px, 210px) 1fr minmax(120px, 170px); gap: 12px; align-items: center; min-height: 26px; }
+.ovrow + .ovrow { border-top: 1px solid var(--rule); }
+.ovrow.key { color: var(--muted); font-size: 11px; min-height: 18px; }
+.ovname { font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+.ovname:hover { text-decoration: underline; }
+.bang { color: var(--warn); font-weight: 800; margin-right: 4px; }
+.ovstat { font-size: 12px; color: var(--muted); }
+.idle { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.behind { color: var(--warn); white-space: nowrap; }
+.badge { display: inline-block; border-radius: 4px; padding: 0 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+.badge.stale { background: var(--warn-bg); color: var(--warn); }
+.badge.unread { border: 1px solid var(--muted); color: var(--muted); }
+.lane { position: relative; height: 20px; margin: 0 6px; background: linear-gradient(var(--rule), var(--rule)) center / 100% 2px no-repeat; }
+.lane .mark { position: absolute; top: 4px; margin-left: -6px; }
+.lane .empty { position: absolute; left: 0; top: 1px; padding-right: 6px; background: var(--panel); color: var(--muted); font-size: 11px; }
+.mark { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: -1px; }
+.mark.member { background: var(--mark); }
+.mark.joined { border: 2px solid var(--join); background: var(--panel); }
+.lanekey { display: flex; justify-content: space-between; gap: 8px; margin: 0 6px; }
+
+ 
+.ws { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; margin: 6px 0; padding: 6px 12px; }
+.ws.incomplete { border-color: var(--warn); }
+.ws:target { outline: 2px solid var(--join); }
+summary { cursor: pointer; }
+.name { font-weight: 600; }
+.stats { color: var(--muted); font-size: 12px; margin-left: 8px; }
+.warnband { display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 4px; background: var(--warn-bg); color: var(--warn); font-size: 12px; }
+.groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 16px; margin: 8px 0 4px; }
+.group h3 { margin: 0 0 2px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.group ul { margin: 0; padding: 0; list-style: none; }
+.group li { padding: 2px 0; border-top: 1px dashed var(--rule); }
+.group li.join { padding-left: 10px; border-left: 2px solid var(--join); }
+.group li.unread { color: var(--muted); font-style: italic; }
+.joinbadge { color: var(--join); font-size: 11px; font-weight: 600; }
+.state { color: var(--muted); font-size: 11px; }
+
+footer { margin-top: 16px; font-size: 13px; }
+footer.flagged { color: var(--warn); font-weight: 600; }
+@media (max-width: 640px) {
+  .ovrow { grid-template-columns: 1fr; gap: 2px; padding: 4px 0; }
+  .ovrow.key > span:first-child { display: none; }
+}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>lookout &middot; <bdi>example</bdi></h1>
+  <span class="asof">as of 2030-06-15 12:00 UTC</span>
+  <span class="note">a snapshot: run lookout view again to refresh it</span>
+</header>
+
+<ul class="health">
+  <li class="chip ok"><bdi>code</bdi> ok</li>
+  <li class="chip ok"><bdi>hub</bdi> ok</li>
+  <li class="chip ok"><bdi>sessions</bdi> ok</li>
+  <li class="chip degraded"><bdi>tracker</bdi> degraded</li>
+  <li class="chip error"><bdi>chat</bdi> error</li>
+</ul>
+<ul class="faults">
+  <li class="degraded"><strong><bdi>tracker</bdi> is degraded</strong>: stale, missing_fields <span class="why">&middot; tracker.json was written 30h ago; max_age is 24h</span> <span class="why">&middot; could not fill: due</span>
+    <span class="why">&middot; 11 records, read 2030-06-15 11:55 UTC</span>
+  </li>
+  <li class="error"><strong><bdi>chat</bdi> is error</strong>: missing <span class="why">&middot; chat.json does not exist</span>
+    <span class="why">&middot; 0 records, read 2030-06-15 11:55 UTC</span>
+  </li>
+</ul>
+
+
+<section class="overview" aria-label="every workstream, in stated order">
+  <div class="ovrow key"><span>4 active within 7d</span><div class="lanekey"><span>7d ago</span><span><span class="mark member"></span> member &middot; <span class="mark joined"></span> joined: each item's last touch</span><span>now</span></div><span>last touched</span></div>
+  <div class="ovrow">
+    <a class="ovname" href="#ws-1"><span class="bang" title="draws on a failing input">!</span><bdi>search-revamp</bdi></a>
+    <div class="lane" role="img" aria-label="8 items touched within 7d, the latest 40m ago">
+      <span class="mark joined" style="left: 99.60%" title="hub:owner/app#41 2030-06-15 11:20 UTC"></span>
+      <span class="mark joined" style="left: 99.58%" title="sessions:owner/app:feature/result-filters 2030-06-15 11:18 UTC"></span>
+      <span class="mark joined" style="left: 99.55%" title="code:owner/app:feature/result-filters 2030-06-15 11:15 UTC"></span>
+      <span class="mark member" style="left: 99.50%" title="tracker:ABC-13 2030-06-15 11:10 UTC"></span>
+      <span class="mark joined" style="left: 98.81%" title="tracker:WORK-7 2030-06-15 10:00 UTC"></span>
+      <span class="mark member" style="left: 98.21%" title="tracker:ABC-12 2030-06-15 09:00 UTC"></span>
+      <span class="mark joined" style="left: 96.43%" title="hub:owner/app#42 2030-06-15 06:00 UTC"></span>
+      <span class="mark member" style="left: 42.86%" title="tracker:ABC-14 2030-06-11 12:00 UTC"></span>
+    </div>
+    <span class="ovstat"><span class="idle">40m</span> ago</span>
+  </div>
+  <div class="ovrow">
+    <a class="ovname" href="#ws-2"><bdi>billing-export</bdi></a>
+    <div class="lane" role="img" aria-label="2 items touched within 7d, the latest 5h ago">
+      <span class="mark member" style="left: 97.02%" title="hub:owner/billing#7 2030-06-15 07:00 UTC"></span>
+      <span class="mark member" style="left: 95.83%" title="code:owner/billing:fix/rounding 2030-06-15 05:00 UTC"></span>
+    </div>
+    <span class="ovstat"><span class="idle">5h</span> ago</span>
+  </div>
+  <div class="ovrow">
+    <a class="ovname" href="#ws-3"><span class="bang" title="draws on a failing input">!</span><bdi>release-train</bdi></a>
+    <div class="lane" role="img" aria-label="2 items touched within 7d, the latest 2d ago">
+      <span class="mark member" style="left: 71.43%" title="tracker:ABC-40 2030-06-13 12:00 UTC"></span>
+      <span class="mark joined" style="left: 69.64%" title="hub:owner/app#50 2030-06-13 09:00 UTC"></span>
+    </div>
+    <span class="ovstat"><span class="idle">2d</span> ago <span class="behind" title="quieter than a workstream ranked below it">&darr; behind its rank</span></span>
+  </div>
+  <div class="ovrow">
+    <a class="ovname" href="#ws-4"><bdi>infra-upgrade</bdi></a>
+    <div class="lane" role="img" aria-label="2 items touched within 7d, the latest 20h ago">
+      <span class="mark member" style="left: 88.10%" title="hub:owner/infra#3 2030-06-14 16:00 UTC"></span>
+      <span class="mark joined" style="left: 86.90%" title="hub:owner/infra#4 2030-06-14 14:00 UTC"></span>
+    </div>
+    <span class="ovstat"><span class="idle">20h</span> ago</span>
+  </div>
+  <div class="ovrow">
+    <a class="ovname" href="#ws-5"><bdi>docs-site</bdi></a>
+    <div class="lane" role="img" aria-label="0 items touched within 7d, the latest 9d ago">
+      <span class="empty">no touch within 7d</span>
+    </div>
+    <span class="ovstat"><span class="idle">9d</span> ago <span class="badge stale">stale</span></span>
+  </div>
+  <div class="ovrow">
+    <a class="ovname" href="#ws-6"><span class="bang" title="draws on a failing input">!</span><bdi>onboarding</bdi></a>
+    <div class="lane" role="img" aria-label="0 items touched within 7d">
+      <span class="empty">nothing read</span>
+    </div>
+    <span class="ovstat"><span class="badge unread">unread</span></span>
+  </div>
+</section>
+
+<h2>Workstreams</h2>
+<section class="ws incomplete" id="ws-1">
+  <details>
+    <summary>
+      <span class="name"><bdi>search-revamp</bdi></span>
+      <span class="stats">last touched 40m ago &middot; started 20d ago &middot; <bdi>code</bdi> 1, <bdi>hub</bdi> 2, <bdi>sessions</bdi> 1, <bdi>tracker</bdi> 4</span>
+      <span class="warnband">may be incomplete: draws on <bdi>tracker</bdi>, <bdi>chat</bdi></span>
+    </summary>
+    <div class="groups">
+      <div class="group">
+        <h3><bdi>code</bdi></h3>
+        <ul>
+          <li class="join"><span class="id"><bdi>owner/app:feature/result-filters</bdi></span> <span class="state">open</span><br><span class="joinbadge">joined by pull_request &rarr; <bdi>tracker:ABC-13</bdi> via <bdi>hub:owner/app#41</bdi></span>
+          </li>
+        </ul>
+      </div>
+      <div class="group">
+        <h3><bdi>hub</bdi></h3>
+        <ul>
+          <li class="join"><a href="https://github.com/owner/app/pull/41" rel="noreferrer noopener"><span class="id"><bdi>owner/app#41</bdi></span></a> <bdi>ABC-13: add result filters</bdi> <span class="state">open</span><br><span class="joinbadge">joined by key &rarr; <bdi>tracker:ABC-13</bdi></span>
+          </li>
+          <li class="join"><a href="https://github.com/owner/app/pull/42" rel="noreferrer noopener"><span class="id"><bdi>owner/app#42</bdi></span></a> <bdi>Tidy the search index job</bdi> <span class="state">merged</span><br><span class="joinbadge">joined by description &rarr; <bdi>tracker:ABC-12</bdi></span>
+          </li>
+        </ul>
+      </div>
+      <div class="group">
+        <h3><bdi>sessions</bdi></h3>
+        <ul>
+          <li class="join"><span class="id"><bdi>owner/app:feature/result-filters</bdi></span> <span class="state">open</span><br><span class="joinbadge">joined by pull_request &rarr; <bdi>tracker:ABC-13</bdi> via <bdi>hub:owner/app#41</bdi></span>
+          </li>
+        </ul>
+      </div>
+      <div class="group">
+        <h3><bdi>tracker</bdi></h3>
+        <ul>
+          <li class=""><a href="https://tracker.example.com/ABC-12" rel="noreferrer noopener"><span class="id"><bdi>ABC-12</bdi></span></a> <bdi>Search revamp</bdi> <span class="state">In Progress</span>
+          </li>
+          <li class=""><a href="https://tracker.example.com/ABC-13" rel="noreferrer noopener"><span class="id"><bdi>ABC-13</bdi></span></a> <bdi>Filters for search results</bdi> <span class="state">In Review</span>
+          </li>
+          <li class=""><span class="id"><bdi>ABC-14</bdi></span> <bdi>Ranking tweaks</bdi> <span class="state">To Do</span>
+          </li>
+          <li class="join"><span class="id"><bdi>WORK-7</bdi></span> <bdi>Container: search filters</bdi> <span class="state">running</span><br><span class="joinbadge">joined by notes &rarr; <bdi>tracker:ABC-12</bdi></span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </details>
+</section>
+<section class="ws" id="ws-2">
+  <details>
+    <summary>
+      <span class="name"><bdi>billing-export</bdi></span>
+      <span class="stats">last touched 5h ago &middot; started 9d ago &middot; <bdi>code</bdi> 1, <bdi>hub</bdi> 2</span>
+    </summary>
+    <div class="groups">
+      <div class="group">
+        <h3><bdi>code</bdi></h3>
+        <ul>
+          <li class=""><span class="id"><bdi>owner/billing:fix/rounding</bdi></span> <span class="state">open</span>
+          </li>
+        </ul>
+      </div>
+      <div class="group">
+        <h3><bdi>hub</bdi></h3>
+        <ul>
+          <li class=""><a href="https://github.com/owner/billing/pull/7" rel="noreferrer noopener"><span class="id"><bdi>owner/billing#7</bdi></span></a> <bdi>Export invoices as CSV</bdi> <span class="state">open</span>
+          </li>
+          <li class="unread"><span class="id"><bdi>owner/billing#5</bdi></span> <span class="state">not read: no input supplied it</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </details>
+</section>
+<section class="ws incomplete" id="ws-3">
+  <details>
+    <summary>
+      <span class="name"><bdi>release-train</bdi></span>
+      <span class="stats">last touched 2d ago &middot; started 12d ago &middot; <bdi>hub</bdi> 1, <bdi>tracker</bdi> 1</span>
+      <span class="warnband">may be incomplete: draws on <bdi>tracker</bdi>, <bdi>chat</bdi></span>
+    </summary>
+    <div class="groups">
+      <div class="group">
+        <h3><bdi>hub</bdi></h3>
+        <ul>
+          <li class="join"><span class="id"><bdi>owner/app#50</bdi></span> <bdi>ABC-40 release notes</bdi> <span class="state">open</span><br><span class="joinbadge">joined by key &rarr; <bdi>tracker:ABC-40</bdi></span>
+          </li>
+        </ul>
+      </div>
+      <div class="group">
+        <h3><bdi>tracker</bdi></h3>
+        <ul>
+          <li class=""><span class="id"><bdi>ABC-40</bdi></span> <bdi>June release</bdi> <span class="state">In Progress</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </details>
+</section>
+<section class="ws" id="ws-4">
+  <details>
+    <summary>
+      <span class="name"><bdi>infra-upgrade</bdi></span>
+      <span class="stats">last touched 20h ago &middot; started 8d ago &middot; <bdi>hub</bdi> 2</span>
+    </summary>
+    <div class="groups">
+      <div class="group">
+        <h3><bdi>hub</bdi></h3>
+        <ul>
+          <li class=""><span class="id"><bdi>owner/infra#3</bdi></span> <bdi>Upgrade the runtime</bdi> <span class="state">open</span>
+          </li>
+          <li class="join"><span class="id"><bdi>owner/infra#4</bdi></span> <bdi>Pin the base image</bdi> <span class="state">open</span><br><span class="joinbadge">joined by milestone &rarr; <bdi>hub:owner/infra#3</bdi></span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </details>
+</section>
+<section class="ws" id="ws-5">
+  <details>
+    <summary>
+      <span class="name"><bdi>docs-site</bdi></span>
+      <span class="stats">last touched 9d ago &middot; started 30d ago &middot; <bdi>code</bdi> 1</span>
+    </summary>
+    <div class="groups">
+      <div class="group">
+        <h3><bdi>code</bdi></h3>
+        <ul>
+          <li class=""><span class="id"><bdi>owner/docs:draft/guides</bdi></span> <span class="state">open</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </details>
+</section>
+<section class="ws incomplete" id="ws-6">
+  <details>
+    <summary>
+      <span class="name"><bdi>onboarding</bdi></span>
+      <span class="stats">nothing read for it on this read &middot; <bdi>tracker</bdi> 1</span>
+      <span class="warnband">may be incomplete: draws on <bdi>tracker</bdi></span>
+    </summary>
+    <div class="groups">
+      <div class="group">
+        <h3><bdi>tracker</bdi></h3>
+        <ul>
+          <li class="unread"><span class="id"><bdi>ABC-55</bdi></span> <span class="state">not read: no input supplied it</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </details>
+</section>
+
+<footer class="flagged">
+  &#9650; inputs are failing, so these counts may be short: 3 unplaced, 2 dismissed, 1 workstream completed
+</footer>
+</main>
+</body>
+</html>

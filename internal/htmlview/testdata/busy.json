@@ -1,6 +1,6 @@
 {
   "schema": "readout.v1",
-  "setting": "work",
+  "setting": "example",
   "generated_at": "2030-06-15T12:00:00Z",
   "event_window_seconds": 604800,
   "workstreams": [

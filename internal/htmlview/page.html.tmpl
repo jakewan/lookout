@@ -125,14 +125,14 @@ footer.flagged { color: var(--warn); font-weight: 600; }
   {{- range .Workstreams}}
   <div class="ovrow">
     <a class="ovname" href="#{{.Anchor}}">{{if .Incomplete}}<span class="bang" title="draws on a failing input">!</span>{{end}}<bdi>{{.Name}}</bdi></a>
-    <div class="lane" role="img" aria-label="last touch per item">
+    <div class="lane" role="img" aria-label="{{len .Lane}} items touched within {{$.Window}}{{if not .Unread}}, the latest {{.Idle}} ago{{end}}">
       {{- range .Lane}}
       <span class="mark {{if .Joined}}joined{{else}}member{{end}}" style="left: {{.Left}}" title="{{.Label}}"></span>
       {{- else}}
-      <span class="empty">{{if eq .Marker "unread"}}nothing read{{else}}no touch within {{$.Window}}{{end}}</span>
+      <span class="empty">{{if .Unread}}nothing read{{else}}no touch within {{$.Window}}{{end}}</span>
       {{- end}}
     </div>
-    <span class="ovstat">{{if eq .Marker "unread"}}<span class="badge unread">unread</span>{{else}}<span class="idle">{{.Idle}}</span> ago{{if eq .Marker "stale"}} <span class="badge stale">stale</span>{{end}}{{end}}{{if .Behind}} <span class="behind" title="quieter than a workstream ranked below it">&darr; behind its rank</span>{{end}}</span>
+    <span class="ovstat">{{if .Unread}}<span class="badge unread">unread</span>{{else}}<span class="idle">{{.Idle}}</span> ago{{if .Stale}} <span class="badge stale">stale</span>{{end}}{{end}}{{if .Behind}} <span class="behind" title="quieter than a workstream ranked below it">&darr; behind its rank</span>{{end}}</span>
   </div>
   {{- end}}
 </section>
@@ -144,7 +144,7 @@ footer.flagged { color: var(--warn); font-weight: 600; }
   <details>
     <summary>
       <span class="name"><bdi>{{.Name}}</bdi></span>
-      <span class="stats">{{if eq .Marker "unread"}}nothing read for it on this read{{else}}last touched {{.Idle}} ago{{end}}{{if ne .Age "--"}} &middot; started {{.Age}} ago{{end}} &middot; {{range $i, $g := .Groups}}{{if $i}}, {{end}}<bdi>{{$g.Input}}</bdi> {{len $g.Items}}{{else}}no members{{end}}</span>
+      <span class="stats">{{if .Unread}}nothing read for it on this read{{else}}last touched {{.Idle}} ago{{end}}{{if ne .Age "--"}} &middot; started {{.Age}} ago{{end}} &middot; {{range $i, $g := .Groups}}{{if $i}}, {{end}}<bdi>{{$g.Input}}</bdi> {{len $g.Items}}{{else}}no members{{end}}</span>
       {{- if .Incomplete}}
       <span class="warnband">may be incomplete: draws on {{range $i, $in := .Incomplete}}{{if $i}}, {{end}}<bdi>{{$in}}</bdi>{{end}}</span>
       {{- end}}

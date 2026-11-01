@@ -56,6 +56,31 @@ func Unhealthy(status string) bool {
 	return status != "ok" && status != "absent_by_design"
 }
 
+// Hidden reports whether a view leaves an input out altogether: the vision
+// shows an input the setting expects to be absent as nothing at all, so a
+// setting without it leaves no gap where it would be.
+func Hidden(status string) bool { return status == "absent_by_design" }
+
+// Span is a length of seconds written exactly in days, hours, minutes and
+// seconds, leaving out the units it does not need, for labelling a window
+// rather than estimating an age.
+func Span(seconds int64) string {
+	if seconds == 0 {
+		return "0s"
+	}
+	var b strings.Builder
+	for _, u := range []struct {
+		size int64
+		name string
+	}{{24 * 60 * 60, "d"}, {60 * 60, "h"}, {60, "m"}, {1, "s"}} {
+		if n := seconds / u.size; n > 0 {
+			b.WriteString(strconv.FormatInt(n, 10) + u.name)
+			seconds -= n * u.size
+		}
+	}
+	return b.String()
+}
+
 // Order ranks inputs by their place in a readout's health list, which
 // readout.v1 keeps in the configuration's order, so every view lists a
 // workstream's inputs the same way.

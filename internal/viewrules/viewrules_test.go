@@ -58,6 +58,40 @@ func TestUnhealthyIsAnyStatusButOkAndAbsentByDesign(t *testing.T) {
 	}
 }
 
+func TestHiddenIsOnlyAbsentByDesign(t *testing.T) {
+	for status, want := range map[string]bool{
+		"absent_by_design": true,
+		"ok":               false,
+		"error":            false,
+		"a later status":   false,
+	} {
+		if got := Hidden(status); got != want {
+			t.Errorf("Hidden(%q) = %v, want %v", status, got, want)
+		}
+	}
+}
+
+// A span labels a whole window, so unlike Age it never rounds: a scale
+// labelled 1d over a 36-hour window would misstate it by half.
+func TestSpanIsExact(t *testing.T) {
+	for _, tc := range []struct {
+		seconds int64
+		want    string
+	}{
+		{0, "0s"},
+		{45, "45s"},
+		{90 * 60, "1h30m"},
+		{24 * 60 * 60, "1d"},
+		{36 * 60 * 60, "1d12h"},
+		{7 * 24 * 60 * 60, "7d"},
+		{14*24*60*60 + 61, "14d1m1s"},
+	} {
+		if got := Span(tc.seconds); got != tc.want {
+			t.Errorf("Span(%d) = %q, want %q", tc.seconds, got, tc.want)
+		}
+	}
+}
+
 func TestRankPutsUnlistedInputsLast(t *testing.T) {
 	order := NewOrder([]string{"tracker", "code"})
 	if order.Rank("tracker") >= order.Rank("code") {

@@ -119,8 +119,8 @@ func withStatus(h any, s string) any       { record(h)["status"] = s; return h }
 
 func TestHeaderSaysWhichSettingAndWhenItWasRead(t *testing.T) {
 	p := pageOf(t, busy(t))
-	if p.Setting != "work" {
-		t.Errorf("setting = %q, want work", p.Setting)
+	if p.Setting != "example" {
+		t.Errorf("setting = %q, want example", p.Setting)
 	}
 	if p.AsOf != "2030-06-15 12:00 UTC" {
 		t.Errorf("as of = %q, want 2030-06-15 12:00 UTC", p.AsOf)
@@ -141,14 +141,17 @@ func TestWorkstreamsKeepTheStatedOrder(t *testing.T) {
 
 func TestAgeAndMarkerTellFreshStaleAndUnread(t *testing.T) {
 	p := pageOf(t, busy(t))
-	for _, tc := range []struct{ name, idle, started, marker string }{
-		{"search-revamp", "40m", "20d", ""},
-		{"docs-site", "9d", "30d", "stale"},
-		{"onboarding", "--", "--", "unread"},
+	for _, tc := range []struct {
+		name, idle, started string
+		stale, unread       bool
+	}{
+		{"search-revamp", "40m", "20d", false, false},
+		{"docs-site", "9d", "30d", true, false},
+		{"onboarding", "--", "--", false, true},
 	} {
 		ws := lane(t, p, tc.name)
-		if ws.Idle != tc.idle || ws.Age != tc.started || ws.Marker != tc.marker {
-			t.Errorf("%s: idle %q, age %q, marker %q; want %q, %q, %q", tc.name, ws.Idle, ws.Age, ws.Marker, tc.idle, tc.started, tc.marker)
+		if ws.Idle != tc.idle || ws.Age != tc.started || ws.Stale != tc.stale || ws.Unread != tc.unread {
+			t.Errorf("%s: idle %q, age %q, stale %v, unread %v; want %q, %q, %v, %v", tc.name, ws.Idle, ws.Age, ws.Stale, ws.Unread, tc.idle, tc.started, tc.stale, tc.unread)
 		}
 	}
 }
@@ -344,20 +347,31 @@ func TestAWorkstreamTouchedLessRecentlyThanOneRankedBelowItIsBehind(t *testing.T
 	}
 }
 
-func TestActiveCountsWorkstreamsTouchedWithinTheWindow(t *testing.T) {
+// Active is the count snapshot records as the workstreams that moved within
+// the event window: those with an event there. idle_seconds is floored, so a
+// touch just past the window's start can read as exactly a window ago with
+// no event left to draw; counting by events keeps the count and the lanes in
+// agreement.
+func TestActiveCountsWorkstreamsWithAnEventInTheWindow(t *testing.T) {
 	doc := busy(t)
 	// search-revamp, billing-export, release-train and infra-upgrade; docs-site
 	// is stale and onboarding unread.
 	if got := pageOf(t, doc).Active; got != 4 {
 		t.Errorf("active = %d, want 4", got)
 	}
-	setIdle(doc, 0, 604800)
-	if got := pageOf(t, doc).Active; got != 4 {
-		t.Errorf("a workstream touched exactly a window ago: active = %d, want 4", got)
-	}
-	setIdle(doc, 0, 604801)
+	billing := record(workstreams(doc)[1])
+	billing["events"] = []any{}
+	setIdle(doc, 1, 604800)
 	if got := pageOf(t, doc).Active; got != 3 {
-		t.Errorf("active = %d, want 3", got)
+		t.Errorf("a workstream with no event in the window: active = %d, want 3", got)
+	}
+}
+
+func TestTheWindowIsLabelledExactly(t *testing.T) {
+	doc := busy(t)
+	doc["event_window_seconds"] = 36 * 60 * 60
+	if got := pageOf(t, doc).Window; got != "1d12h" {
+		t.Errorf("window = %q, want 1d12h", got)
 	}
 }
 
@@ -481,5 +495,19 @@ func TestItemLinksAreOnlyWebAddresses(t *testing.T) {
 	}
 	if !strings.Contains(out, `href="https://github.com/owner/app/pull/41"`) {
 		t.Error("a web address was not linked")
+	}
+}
+
+// The model specs above pin what the page computes; the golden pins what the
+// template draws from it, such as each marker, flag, join badge and mark
+// position, which no model spec sees.
+func TestRenderMatchesTheGoldenPage(t *testing.T) {
+	out := render(t, busy(t))
+	want, err := os.ReadFile(filepath.Join("testdata", "busy.html.golden"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != string(want) {
+		t.Errorf("page differs from testdata/busy.html.golden:\n%s", out)
 	}
 }
