@@ -304,6 +304,20 @@ func TestShowLeadsWithTheTitleAndEndsWithTheID(t *testing.T) {
 	}
 }
 
+func TestShowWarnsUnderTheLabelTheRowLeadsWith(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", titledConfig)
+	stdout := f.mustRun("show")
+	for _, want := range []string{
+		"\n  workstream Billing export rework: tracker may be incomplete\n",
+		"\n  workstream onboarding: tracker may be incomplete\n",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout =\n%s\nwant it to contain %q", stdout, want)
+		}
+	}
+}
+
 func TestShowKeepsALongIDWhole(t *testing.T) {
 	long := "onboarding-for-the-spring-2030-cohort"
 	for name, config := range map[string]string{

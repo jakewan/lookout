@@ -95,11 +95,7 @@ func writeWorkstreams(b *strings.Builder, v view) {
 	ids := make([]string, 0, len(v.Workstreams))
 	nameWidth := 0
 	for _, ws := range v.Workstreams {
-		label := ws.Title
-		if label == "" {
-			label = ws.Name
-		}
-		n := name(label)
+		n := label(ws)
 		names = append(names, n)
 		nameWidth = max(nameWidth, utf8.RuneCountInString(n))
 		// Commands take the id, so wherever the row's label is not the whole id,
@@ -179,7 +175,9 @@ func writeWarnings(b *strings.Builder, v view) {
 		for _, in := range ws.InputsIncomplete {
 			inputs = append(inputs, name(in))
 		}
-		units := []string{"workstream", name(ws.Name) + ":"}
+		// A warning names the workstream as its row does, so the two read together;
+		// the row carries the whole id.
+		units := []string{"workstream", label(ws) + ":"}
 		units = append(units, strings.Fields(strings.Join(inputs, ", ")+" may be incomplete")...)
 		lines = append(lines, units)
 	}
@@ -266,6 +264,15 @@ func counts(ws workstream, order viewrules.Order) []string {
 		units = append(units, u)
 	}
 	return units
+}
+
+// label is what a workstream is shown as: its title, or its id where it has
+// none, made safe to print and cut to nameCap.
+func label(ws workstream) string {
+	if ws.Title != "" {
+		return name(ws.Title)
+	}
+	return name(ws.Name)
 }
 
 // name is a name from the readout made safe to print and cut to nameCap.
