@@ -167,6 +167,10 @@ func writeWarnings(b *strings.Builder, v view) {
 		}
 		lines = append(lines, units)
 	}
+	labels := map[string]int{}
+	for _, ws := range v.Workstreams {
+		labels[label(ws)]++
+	}
 	for _, ws := range v.Workstreams {
 		if len(ws.InputsIncomplete) == 0 {
 			continue
@@ -176,8 +180,12 @@ func writeWarnings(b *strings.Builder, v view) {
 			inputs = append(inputs, name(in))
 		}
 		// A warning names the workstream as its row does, so the two read together;
-		// the row carries the whole id.
+		// the row carries the whole id. Where rows share a label, the warning
+		// carries the id too, or it could belong to either.
 		units := []string{"workstream", label(ws) + ":"}
+		if labels[label(ws)] > 1 {
+			units = []string{"workstream", label(ws), "[" + clean(ws.Name) + "]:"}
+		}
 		units = append(units, strings.Fields(strings.Join(inputs, ", ")+" may be incomplete")...)
 		lines = append(lines, units)
 	}

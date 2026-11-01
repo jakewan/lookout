@@ -333,6 +333,21 @@ func TestShowWarnsUnderTheLabelTheRowLeadsWith(t *testing.T) {
 	}
 }
 
+func TestShowWarnsWithTheIDWhereTwoWorkstreamsShareALabel(t *testing.T) {
+	f := newFixture(t)
+	both := strings.Replace(handWritten, "  - name: onboarding\n", "  - name: onboarding\n    title: Spring work\n", 1)
+	f.write("personal.yml", strings.Replace(both, "  - name: billing\n", "  - name: billing\n    title: Spring work\n", 1))
+	stdout := f.mustRun("show")
+	for _, want := range []string{
+		"\n  workstream Spring work [billing]: tracker may be incomplete\n",
+		"\n  workstream Spring work [onboarding]: tracker may be incomplete\n",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout =\n%s\nwant it to contain %q", stdout, want)
+		}
+	}
+}
+
 func TestShowKeepsALongIDWhole(t *testing.T) {
 	long := "onboarding-for-the-spring-2030-cohort"
 	for name, config := range map[string]string{
