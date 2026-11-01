@@ -30,6 +30,8 @@ type fixture struct {
 	clock time.Time
 	// api is where the invocation sends GitHub queries.
 	api string
+	// stdin is what the invocation reads as its standard input.
+	stdin string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -76,6 +78,7 @@ func (f *fixture) runIn(ctx context.Context, args ...string) (int, string, strin
 		getenv: func(k string) string { return f.env[k] },
 		now:    func() time.Time { return f.clock },
 		github: f.api,
+		stdin:  strings.NewReader(f.stdin),
 	}
 	code := run(ctx, args, e, &stdout, &stderr)
 	return code, stdout.String(), stderr.String()

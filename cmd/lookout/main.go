@@ -24,6 +24,7 @@ const (
 const usage = `usage:
   lookout read --json [--setting <name>]
   lookout show [--setting <name>]
+  lookout view [--setting <name> | --readout <file|->]
   lookout unplaced [--setting <name>]
   lookout adopt [--setting <name>] [--new] <input>:<id> <workstream>
   lookout dismiss [--setting <name>] <input>:<id>
@@ -43,6 +44,8 @@ type environment struct {
 	// read from the environment or the configuration, where one line could
 	// send the github.com token to another host.
 	github string
+	// stdin is read only where a command's arguments name it, as `-`.
+	stdin io.Reader
 }
 
 func main() {
@@ -51,7 +54,7 @@ func main() {
 	// end the process even where lookout is waiting on something it cannot
 	// cancel, such as another invocation's hold on the state.
 	context.AfterFunc(ctx, stop)
-	code := run(ctx, os.Args[1:], environment{getenv: os.Getenv, now: time.Now, github: "https://api.github.com/graphql"}, os.Stdout, os.Stderr)
+	code := run(ctx, os.Args[1:], environment{getenv: os.Getenv, now: time.Now, github: "https://api.github.com/graphql", stdin: os.Stdin}, os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)
 }
@@ -68,6 +71,7 @@ func run(ctx context.Context, args []string, env environment, stdout, stderr io.
 	commands := map[string]func(context.Context, []string, environment, io.Writer, *log.Logger) int{
 		"read":     read,
 		"show":     show,
+		"view":     view,
 		"unplaced": unplaced,
 		"adopt":    adopt,
 		"dismiss":  dismiss,

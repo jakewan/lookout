@@ -1,0 +1,513 @@
+package htmlview
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/jakewan/lookout/schema"
+	"github.com/santhosh-tekuri/jsonschema/v6"
+)
+
+// busy is an invented readout shaped like a busy work setting: an epic with
+// children, joins of every kind, a degraded and a failing supplied input, one
+// absent by design, a stale workstream and an unread one.
+func busy(t *testing.T) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", "busy.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc
+}
+
+// encode marshals a fixture readout, failing the spec where it breaks
+// readout.v1 or the facts the contract leaves to lookout: last_touched and
+// idle_seconds are null together, and an incomplete input is unhealthy.
+func encode(t *testing.T, doc map[string]any) []byte {
+	t.Helper()
+	data, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sch, err := schema.Compile("readout.v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sch.Validate(inst); err != nil {
+		t.Fatalf("fixture violates readout.v1: %v", err)
+	}
+	var r struct {
+		Workstreams []struct {
+			Name             string   `json:"name"`
+			LastTouched      *string  `json:"last_touched"`
+			IdleSeconds      *int64   `json:"idle_seconds"`
+			InputsIncomplete []string `json:"inputs_incomplete"`
+		} `json:"workstreams"`
+		Health []struct {
+			Input  string `json:"input"`
+			Status string `json:"status"`
+		} `json:"health"`
+	}
+	if err := json.Unmarshal(data, &r); err != nil {
+		t.Fatal(err)
+	}
+	status := map[string]string{}
+	for _, h := range r.Health {
+		status[h.Input] = h.Status
+	}
+	for _, w := range r.Workstreams {
+		if (w.LastTouched == nil) != (w.IdleSeconds == nil) {
+			t.Fatalf("fixture workstream %q: last_touched and idle_seconds disagree on null", w.Name)
+		}
+		for _, in := range w.InputsIncomplete {
+			if s := status[in]; s != "error" && s != "degraded" {
+				t.Fatalf("fixture workstream %q: incomplete input %q is %q, not error or degraded", w.Name, in, s)
+			}
+		}
+	}
+	return data
+}
+
+func pageOf(t *testing.T, doc map[string]any) page {
+	t.Helper()
+	p, err := build(encode(t, doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func render(t *testing.T, doc map[string]any) string {
+	t.Helper()
+	var b bytes.Buffer
+	if err := Render(&b, encode(t, doc)); err != nil {
+		t.Fatal(err)
+	}
+	return b.String()
+}
+
+func lane(t *testing.T, p page, name string) workstream {
+	t.Helper()
+	for _, ws := range p.Workstreams {
+		if ws.Name == name {
+			return ws
+		}
+	}
+	t.Fatalf("no workstream %q", name)
+	return workstream{}
+}
+
+func health(doc map[string]any) []any      { return doc["health"].([]any) }
+func workstreams(doc map[string]any) []any { return doc["workstreams"].([]any) }
+func record(v any) map[string]any          { return v.(map[string]any) }
+func withStatus(h any, s string) any       { record(h)["status"] = s; return h }
+
+func TestHeaderSaysWhichSettingAndWhenItWasRead(t *testing.T) {
+	p := pageOf(t, busy(t))
+	if p.Setting != "example" {
+		t.Errorf("setting = %q, want example", p.Setting)
+	}
+	if p.AsOf != "2030-06-15 12:00 UTC" {
+		t.Errorf("as of = %q, want 2030-06-15 12:00 UTC", p.AsOf)
+	}
+}
+
+func TestWorkstreamsKeepTheStatedOrder(t *testing.T) {
+	p := pageOf(t, busy(t))
+	var got []string
+	for _, ws := range p.Workstreams {
+		got = append(got, ws.Name)
+	}
+	want := []string{"search-revamp", "billing-export", "release-train", "infra-upgrade", "docs-site", "onboarding"}
+	if !slices.Equal(got, want) {
+		t.Errorf("order = %v, want %v", got, want)
+	}
+}
+
+func TestAgeAndMarkerTellFreshStaleAndUnread(t *testing.T) {
+	p := pageOf(t, busy(t))
+	for _, tc := range []struct {
+		name, idle, started string
+		stale, unread       bool
+	}{
+		{"search-revamp", "40m", "20d", false, false},
+		{"docs-site", "9d", "30d", true, false},
+		{"onboarding", "--", "--", false, true},
+	} {
+		ws := lane(t, p, tc.name)
+		if ws.Idle != tc.idle || ws.Age != tc.started || ws.Stale != tc.stale || ws.Unread != tc.unread {
+			t.Errorf("%s: idle %q, age %q, stale %v, unread %v; want %q, %q, %v, %v", tc.name, ws.Idle, ws.Age, ws.Stale, ws.Unread, tc.idle, tc.started, tc.stale, tc.unread)
+		}
+	}
+}
+
+func TestHealthShowsEachExpectedStateDistinctlyAndHidesAbsentByDesign(t *testing.T) {
+	p := pageOf(t, busy(t))
+	got := map[string]string{}
+	var order []string
+	for _, h := range p.Health {
+		got[h.Input] = h.Class
+		order = append(order, h.Input)
+	}
+	want := map[string]string{"code": "ok", "hub": "ok", "sessions": "ok", "tracker": "degraded", "chat": "error"}
+	for in, class := range want {
+		if got[in] != class {
+			t.Errorf("input %s class = %q, want %q", in, got[in], class)
+		}
+	}
+	if _, shown := got["calendar"]; shown {
+		t.Error("an input absent by design is shown; the vision hides it")
+	}
+	if !slices.Equal(order, []string{"code", "hub", "sessions", "tracker", "chat"}) {
+		t.Errorf("health order = %v, want the readout's", order)
+	}
+}
+
+func TestAnUnknownHealthStatusIsAFaultNeverOk(t *testing.T) {
+	doc := busy(t)
+	// readout.v1 lists today's statuses, so a later one cannot pass encode.
+	withStatus(health(doc)[0], "a_later_status")
+	data, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := build(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := p.Health[0]
+	if h.Class != "fault" || h.Label != "a_later_status" {
+		t.Errorf("class %q label %q, want fault and the status itself", h.Class, h.Label)
+	}
+	if !p.AnyUnhealthy {
+		t.Error("an unknown status does not count as unhealthy")
+	}
+}
+
+func TestAnUnhealthyInputSaysWhy(t *testing.T) {
+	doc := busy(t)
+	tracker := record(health(doc)[3])
+	tracker["supplier_reason"] = "export timed out"
+	tracker["excluded_count"] = 4
+	tracker["reasons"] = append(tracker["reasons"].([]any), "a_later_reason")
+	p := pageOf(t, doc)
+	var h input
+	for _, x := range p.Health {
+		if x.Input == "tracker" {
+			h = x
+		}
+	}
+	for _, want := range []string{"stale", "missing_fields", "a_later_reason"} {
+		if !slices.Contains(h.Reasons, want) {
+			t.Errorf("reasons = %v, want %q", h.Reasons, want)
+		}
+	}
+	if !slices.Contains(h.Details, "tracker.json was written 30h ago; max_age is 24h") {
+		t.Errorf("details = %v", h.Details)
+	}
+	if !slices.Contains(h.MissingFields, "due") {
+		t.Errorf("missing fields = %v, want due", h.MissingFields)
+	}
+	if h.SupplierReason != "export timed out" || h.Excluded != 4 {
+		t.Errorf("supplier reason %q, excluded %d", h.SupplierReason, h.Excluded)
+	}
+	if h.FetchedAt != "2030-06-15 11:55 UTC" {
+		t.Errorf("fetched at = %q", h.FetchedAt)
+	}
+}
+
+func TestItemsAreGroupedByInputMembersFirstThenUnreadThenJoins(t *testing.T) {
+	p := pageOf(t, busy(t))
+	ws := lane(t, p, "search-revamp")
+	var inputs []string
+	for _, g := range ws.Groups {
+		inputs = append(inputs, g.Input)
+	}
+	if !slices.Equal(inputs, []string{"code", "hub", "sessions", "tracker"}) {
+		t.Errorf("groups = %v, want health's order", inputs)
+	}
+	tracker := ws.Groups[3]
+	var ids []string
+	for _, it := range tracker.Items {
+		ids = append(ids, it.ID)
+	}
+	if !slices.Equal(ids, []string{"ABC-12", "ABC-13", "ABC-14", "WORK-7"}) {
+		t.Errorf("tracker items = %v, want members then the join", ids)
+	}
+	if tracker.Items[3].Join == nil || tracker.Items[0].Join != nil {
+		t.Error("a member reads as a join, or a join as a member")
+	}
+
+	billing := lane(t, p, "billing-export")
+	hub := billing.Groups[1]
+	if hub.Input != "hub" || len(hub.Items) != 2 || hub.Items[1].ID != "owner/billing#5" || !hub.Items[1].Unread {
+		t.Errorf("billing's hub group = %+v, want its member then the unread one", hub)
+	}
+
+	onboarding := lane(t, p, "onboarding")
+	if len(onboarding.Groups) != 1 || onboarding.Groups[0].Input != "tracker" || !onboarding.Groups[0].Items[0].Unread {
+		t.Errorf("onboarding groups = %+v, want its unread member", onboarding.Groups)
+	}
+}
+
+func TestAJoinSaysHowAndThroughWhat(t *testing.T) {
+	p := pageOf(t, busy(t))
+	find := func(ws, input, id string) item {
+		for _, g := range lane(t, p, ws).Groups {
+			for _, it := range g.Items {
+				if g.Input == input && it.ID == id {
+					return it
+				}
+			}
+		}
+		t.Fatalf("no %s:%s in %s", input, id, ws)
+		return item{}
+	}
+	for _, tc := range []struct {
+		ws, input, id string
+		want          join
+	}{
+		{"search-revamp", "hub", "owner/app#41", join{By: "key", Member: "tracker:ABC-13"}},
+		{"search-revamp", "hub", "owner/app#42", join{By: "description", Member: "tracker:ABC-12"}},
+		{"search-revamp", "tracker", "WORK-7", join{By: "notes", Member: "tracker:ABC-12"}},
+		{"search-revamp", "code", "owner/app:feature/result-filters", join{By: "pull_request", Member: "tracker:ABC-13", Via: "hub:owner/app#41"}},
+		{"search-revamp", "sessions", "owner/app:feature/result-filters", join{By: "pull_request", Member: "tracker:ABC-13", Via: "hub:owner/app#41"}},
+		{"infra-upgrade", "hub", "owner/infra#4", join{By: "milestone", Member: "hub:owner/infra#3"}},
+	} {
+		it := find(tc.ws, tc.input, tc.id)
+		if it.Join == nil || *it.Join != tc.want {
+			t.Errorf("%s:%s join = %+v, want %+v", tc.input, tc.id, it.Join, tc.want)
+		}
+	}
+}
+
+func TestAWorkstreamOnAFailingInputSaysWhichInputs(t *testing.T) {
+	p := pageOf(t, busy(t))
+	if got := lane(t, p, "search-revamp").Incomplete; !slices.Equal(got, []string{"tracker", "chat"}) {
+		t.Errorf("incomplete = %v", got)
+	}
+	if got := lane(t, p, "billing-export").Incomplete; len(got) != 0 {
+		t.Errorf("billing incomplete = %v, want none", got)
+	}
+}
+
+// setIdle gives the workstream at index i an idle time, or none where idle is
+// negative, keeping last_touched in step as readout.v1 does.
+func setIdle(doc map[string]any, i int, idle int64) {
+	w := record(workstreams(doc)[i])
+	if idle < 0 {
+		w["idle_seconds"], w["last_touched"] = nil, nil
+		return
+	}
+	w["idle_seconds"] = idle
+	w["last_touched"] = time.Date(2030, 6, 15, 12, 0, 0, 0, time.UTC).Add(-time.Duration(idle) * time.Second).Format(time.RFC3339)
+}
+
+func TestAWorkstreamTouchedLessRecentlyThanOneRankedBelowItIsBehind(t *testing.T) {
+	for name, tc := range map[string]struct {
+		idles []int64
+		want  []bool
+	}{
+		"freshest first":      {[]int64{10, 20, 30, 40, 50, 60}, []bool{false, false, false, false, false, false}},
+		"one overtaken":       {[]int64{10, 50, 20, 30, 40, 60}, []bool{false, true, false, false, false, false}},
+		"the top one quiet":   {[]int64{90, 10, 20, 30, 40, 60}, []bool{true, false, false, false, false, false}},
+		"a tie is not behind": {[]int64{10, 20, 20, 30, 40, 60}, []bool{false, false, false, false, false, false}},
+		// An unread workstream has no touch to compare, so it neither falls
+		// behind nor puts another behind.
+		"unread on either side": {[]int64{-1, 20, 10, -1, 40, 60}, []bool{false, true, false, false, false, false}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			doc := busy(t)
+			for i, idle := range tc.idles {
+				setIdle(doc, i, idle)
+			}
+			var got []bool
+			for _, ws := range pageOf(t, doc).Workstreams {
+				got = append(got, ws.Behind)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("behind = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// Active is the count snapshot records as the workstreams that moved within
+// the event window: those with an event there. idle_seconds is floored, so a
+// touch just past the window's start can read as exactly a window ago with
+// no event left to draw; counting by events keeps the count and the lanes in
+// agreement.
+func TestActiveCountsWorkstreamsWithAnEventInTheWindow(t *testing.T) {
+	doc := busy(t)
+	// search-revamp, billing-export, release-train and infra-upgrade; docs-site
+	// is stale and onboarding unread.
+	if got := pageOf(t, doc).Active; got != 4 {
+		t.Errorf("active = %d, want 4", got)
+	}
+	billing := record(workstreams(doc)[1])
+	billing["events"] = []any{}
+	setIdle(doc, 1, 604800)
+	if got := pageOf(t, doc).Active; got != 3 {
+		t.Errorf("a workstream with no event in the window: active = %d, want 3", got)
+	}
+}
+
+func TestTheWindowIsLabelledExactly(t *testing.T) {
+	doc := busy(t)
+	doc["event_window_seconds"] = 36 * 60 * 60
+	if got := pageOf(t, doc).Window; got != "1d12h" {
+		t.Errorf("window = %q, want 1d12h", got)
+	}
+}
+
+func TestCountsAreFlaggedWhileAnyInputIsUnhealthy(t *testing.T) {
+	doc := busy(t)
+	p := pageOf(t, doc)
+	if p.Unplaced != 3 || p.Dismissed != 2 || p.Completed != 1 || !p.AnyUnhealthy {
+		t.Errorf("counts %d/%d/%d flagged %v", p.Unplaced, p.Dismissed, p.Completed, p.AnyUnhealthy)
+	}
+	for _, h := range health(doc) {
+		if record(h)["status"] != "absent_by_design" {
+			withStatus(h, "ok")
+			record(h)["reasons"] = []any{}
+		}
+	}
+	for _, w := range workstreams(doc) {
+		record(w)["inputs_incomplete"] = []any{}
+	}
+	if pageOf(t, doc).AnyUnhealthy {
+		t.Error("counts flagged with every input healthy or absent by design")
+	}
+}
+
+func TestTheLanePlotsEachItemsLastTouchAcrossTheWindow(t *testing.T) {
+	p := pageOf(t, busy(t))
+	marks := lane(t, p, "search-revamp").Lane
+	if len(marks) != 8 {
+		t.Fatalf("%d marks, want one per event", len(marks))
+	}
+	// The newest touch, 40 minutes before a week's window ends.
+	if got, want := marks[0].X, 1-2400.0/604800; got != want {
+		t.Errorf("x = %v, want %v", got, want)
+	}
+	if !marks[0].Joined || marks[3].Joined {
+		t.Error("joined events are not told from member events")
+	}
+	if got := lane(t, p, "docs-site").Lane; len(got) != 0 {
+		t.Errorf("a workstream with no events in the window has marks %v", got)
+	}
+}
+
+func TestTheLaneHoldsEveryMarkInsideIt(t *testing.T) {
+	for name, tc := range map[string]struct {
+		window int64
+		at     string
+		want   float64
+	}{
+		"a zero window":                 {0, "2030-06-15T11:00:00Z", 1},
+		"a touch after the readout":     {604800, "2030-06-15T13:00:00Z", 1},
+		"a touch at the window's start": {3600, "2030-06-15T11:00:00Z", 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			doc := busy(t)
+			doc["event_window_seconds"] = tc.window
+			w := record(workstreams(doc)[1])
+			w["events"] = []any{map[string]any{"input": "hub", "id": "owner/billing#7", "at": tc.at}}
+			marks := lane(t, pageOf(t, doc), "billing-export").Lane
+			if len(marks) != 1 || marks[0].X != tc.want {
+				t.Errorf("marks = %+v, want one at %v", marks, tc.want)
+			}
+		})
+	}
+}
+
+// fetchers are markup that would make a browser reach the network on its own
+// when the page opens. An anchor is absent on purpose: it is followed only
+// when clicked.
+var fetchers = regexp.MustCompile(`(?i)<script|<link|<iframe|<object|<embed|<form|<image|<use|<img|<video|<audio|<source|\ssrc=|srcset|@import|url\(|http-equiv="?refresh`)
+
+func TestThePageCannotFetchAnything(t *testing.T) {
+	out := render(t, busy(t))
+	head := out[strings.Index(out, "<head>")+len("<head>"):]
+	head = strings.TrimLeft(head, " \n\t")
+	const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">`
+	if !strings.HasPrefix(head, csp) {
+		t.Errorf("the head does not open with the content security policy:\n%.300s", head)
+	}
+	for _, want := range []string{
+		`<meta http-equiv="x-dns-prefetch-control" content="off">`,
+		`<meta name="referrer" content="no-referrer">`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("page lacks %s", want)
+		}
+	}
+	if m := fetchers.FindString(out); m != "" {
+		t.Errorf("page holds %q, which fetches when the page opens", m)
+	}
+}
+
+func TestTheTitleNamesNoSettingOrWorkstream(t *testing.T) {
+	out := render(t, busy(t))
+	if !strings.Contains(out, "<title>lookout</title>") {
+		t.Error("the title is not the generic one")
+	}
+}
+
+func TestNamesAreShownNotObeyed(t *testing.T) {
+	doc := busy(t)
+	w := record(workstreams(doc)[0])
+	w["name"] = "<b>bold</b>\u202eevil"
+	out := render(t, doc)
+	if strings.Contains(out, "<b>bold</b>") {
+		t.Error("markup in a name reached the page unescaped")
+	}
+	if strings.Contains(out, "\u202e") {
+		t.Error("a bidirectional override in a name reached the page")
+	}
+	if !strings.Contains(out, `<bdi>&#34;&lt;b&gt;bold&lt;/b&gt;\u202eevil&#34;</bdi>`) {
+		t.Error("the name is not shown escaped and isolated")
+	}
+}
+
+func TestItemLinksAreOnlyWebAddresses(t *testing.T) {
+	doc := busy(t)
+	it := record(record(record(workstreams(doc)[1])["items"].([]any)[0])["item"])
+	it["links"] = []any{map[string]any{"rel": "self", "href": "javascript:alert(1)"}}
+	out := render(t, doc)
+	if strings.Contains(out, "javascript:") {
+		t.Error("a script address reached the page")
+	}
+	if !strings.Contains(out, `href="https://github.com/owner/app/pull/41"`) {
+		t.Error("a web address was not linked")
+	}
+}
+
+// The model specs above pin what the page computes; the golden pins what the
+// template draws from it, such as each marker, flag, join badge and mark
+// position, which no model spec sees.
+func TestRenderMatchesTheGoldenPage(t *testing.T) {
+	out := render(t, busy(t))
+	want, err := os.ReadFile(filepath.Join("testdata", "busy.html.golden"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != string(want) {
+		t.Errorf("page differs from testdata/busy.html.golden:\n%s", out)
+	}
+}
