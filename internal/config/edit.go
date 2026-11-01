@@ -86,9 +86,9 @@ func (d *Document) Adopt(member Member, workstream string, create bool) ([]strin
 		}
 		switch {
 		case w.Name == workstream:
-			return nil, Refuse("%s is already a member of workstream %q", token, w.Name)
+			return nil, Refuse("%q is already a member of workstream %q", token, w.Name)
 		case w.Completed == "":
-			return nil, Refuse("%s already belongs to workstream %q: use lookout move to move it", token, w.Name)
+			return nil, Refuse("%q already belongs to workstream %q: use lookout move to move it", token, w.Name)
 		}
 		from = append(from, i)
 	}
@@ -162,9 +162,9 @@ func (d *Document) Move(member Member, workstream string, create bool) ([]string
 	}
 	switch {
 	case !live:
-		return nil, Refuse("%s is not in a live workstream: use lookout adopt to place it", token)
+		return nil, Refuse("%q is not in a live workstream: use lookout adopt to place it", token)
 	case inTarget && len(from) == 0:
-		return nil, Refuse("%s is already a member of workstream %q", token, workstream)
+		return nil, Refuse("%q is already a member of workstream %q", token, workstream)
 	case idx < 0 && !create:
 		return nil, Refuse("no workstream %q: pass --new to add it at the end of the order", workstream)
 	case idx >= 0 && create:
@@ -221,7 +221,7 @@ func (d *Document) Remove(member Member) ([]string, error) {
 		}
 	}
 	if len(from) == 0 {
-		return nil, Refuse("%s:%s is not in any workstream", member.Input, member.ID)
+		return nil, Refuse("%q is not in any workstream", member.Input+":"+member.ID)
 	}
 	text, names, err := d.removed(member, from)
 	if err != nil {
@@ -968,7 +968,7 @@ func (l *layout) removeMember(idx int, token string) (string, error) {
 		}
 		return l.join(l.lines[:at], l.lines[at+1:]), nil
 	}
-	return "", fmt.Errorf("workstream %q does not list %s", it.nameValue.Value, token)
+	return "", fmt.Errorf("workstream %q does not list %q", it.nameValue.Value, token)
 }
 
 // replaceValue replaces the text of a one-line mapping value, such as a

@@ -897,6 +897,32 @@ func TestUnplacedKeepsAnAwkwardIDOnOneLine(t *testing.T) {
 	}
 }
 
+// A supplier's id and title reach the listing as it wrote them, so neither may
+// drive the terminal: both are shown escaped, and the token still selects the
+// item.
+func TestUnplacedShowsSuppliedTextEscaped(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.supplied("tracker.json", suppliedDoc("tracker", []any{
+		item("ABC-\x1b[2J", time.Hour, map[string]any{"title": "red\x1b[31m and \u202eevil"}),
+	}, nil))
+	out := f.mustRun("unplaced")
+	if strings.ContainsAny(out, "\x1b\u202e") {
+		t.Fatalf("unplaced output = %q, want no control or bidi character reaching the terminal", out)
+	}
+	token, _, ok := strings.Cut(out, "\t")
+	if !ok || token != `"tracker:ABC-\x1b[2J"` {
+		t.Fatalf("token = %q, want the id quoted with its escape spelled out", token)
+	}
+	if strings.Count(out, "\n") != 1 || strings.Count(out, "\t") != 2 {
+		t.Errorf("unplaced output = %q, want one line of three fields", out)
+	}
+	f.mustRun("dismiss", token)
+	if out := f.mustRun("unplaced"); out != "" {
+		t.Errorf("unplaced after dismissing by the printed token = %q, want nothing", out)
+	}
+}
+
 func TestADoubleDashEndsTheFlags(t *testing.T) {
 	f := newFixture(t)
 	f.write("personal.yml", "inputs: []\nworkstreams:\n  - name: a\n  - name: -b\n  - name: -c\n")
@@ -1025,6 +1051,43 @@ func TestAMalformedQuotedTokenIsAUsageError(t *testing.T) {
 	f.write("personal.yml", handWritten)
 	if code, _, stderr := f.run("dismiss", `"tracker:two\qpart"`); code != exitUsage || !strings.Contains(stderr, "quoted") {
 		t.Errorf("exit code = %d, stderr = %q, want a usage error about the quoting", code, stderr)
+	}
+}
+
+func TestAMalformedQuotedTokenIsShownEscaped(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	code, _, stderr := f.run("dismiss", "\"tracker:\x1b[2J\\q")
+	if code != exitUsage || strings.Contains(stderr, "\x1b") || !strings.Contains(stderr, `\x1b[2J`) {
+		t.Errorf("exit code = %d, stderr = %q, want a usage error showing the argument escaped", code, stderr)
+	}
+}
+
+// A quoted token decodes any Go escape, so plain text on the command line can
+// name an id holding control characters; every refusal naming the item shows
+// it escaped rather than letting it drive the terminal.
+func TestARefusalShowsAnItemEscaped(t *testing.T) {
+	quoted := `"tracker:ABC-\x1b[2J"`
+	withMember := strings.Replace(handWritten, "      - tracker:ABC-2\n", "      - \"tracker:ABC-\\e[2J\"\n", 1)
+	for name, c := range map[string]struct {
+		config string
+		args   []string
+	}{
+		"remove of an item no workstream holds":    {handWritten, []string{"remove", quoted}},
+		"move of an item no live workstream holds": {handWritten, []string{"move", quoted, "onboarding"}},
+		"adopt of an item a workstream holds":      {withMember, []string{"adopt", quoted, "onboarding"}},
+		"adopt into the workstream holding it":     {withMember, []string{"adopt", quoted, "billing"}},
+		"move into the workstream holding it":      {withMember, []string{"move", quoted, "billing"}},
+		"dismiss of an item a workstream holds":    {withMember, []string{"dismiss", quoted}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.write("personal.yml", c.config)
+			code, _, stderr := f.run(c.args...)
+			if code != exitFailure || strings.Contains(stderr, "\x1b") || !strings.Contains(stderr, `\x1b[2J`) {
+				t.Errorf("exit code = %d, stderr = %q, want a refusal showing the item escaped", code, stderr)
+			}
+		})
 	}
 }
 

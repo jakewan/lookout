@@ -202,7 +202,7 @@ func dismiss(_ context.Context, args []string, env environment, _ io.Writer, dia
 		// only a live workstream's claim rules a dismissal out.
 		for _, w := range cfg.Workstreams {
 			if w.Completed == "" && slices.Contains(w.Members, m) {
-				return config.Refuse("%s belongs to workstream %q, so it is never unplaced", g.Item, w.Name)
+				return config.Refuse("%q belongs to workstream %q, so it is never unplaced", g.Item, w.Name)
 			}
 		}
 		return nil
@@ -211,12 +211,14 @@ func dismiss(_ context.Context, args []string, env environment, _ io.Writer, dia
 
 // memberArg reads an <input>:<id> argument. A token lookout unplaced printed
 // quoted, because its id holds a tab or line break, is decoded; an input name
-// never starts with a quote, so a quoted token cannot be read as another.
+// never starts with a quote, so a quoted token cannot be read as another. The
+// decoding takes any Go escape, so a decoded id can hold control characters,
+// and every message naming the item shows it escaped.
 func memberArg(cmd, arg string, diag *log.Logger) (config.Member, bool) {
 	if strings.HasPrefix(arg, `"`) {
 		decoded, err := strconv.Unquote(arg)
 		if err != nil {
-			diag.Printf("lookout %s: %s is quoted but not as lookout unplaced quotes it: %v\n%s", cmd, arg, err, usage)
+			diag.Printf("lookout %s: %q is quoted but not as lookout unplaced quotes it: %v\n%s", cmd, arg, err, usage)
 			return config.Member{}, false
 		}
 		arg = decoded
