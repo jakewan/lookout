@@ -897,6 +897,32 @@ func TestUnplacedKeepsAnAwkwardIDOnOneLine(t *testing.T) {
 	}
 }
 
+// A supplier's id and title reach the listing as it wrote them, so neither may
+// drive the terminal: both are shown escaped, and the token still selects the
+// item.
+func TestUnplacedShowsSuppliedTextEscaped(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.supplied("tracker.json", suppliedDoc("tracker", []any{
+		item("ABC-\x1b[2J", time.Hour, map[string]any{"title": "red\x1b[31m and \u202eevil"}),
+	}, nil))
+	out := f.mustRun("unplaced")
+	if strings.ContainsAny(out, "\x1b\u202e") {
+		t.Fatalf("unplaced output = %q, want no control or bidi character reaching the terminal", out)
+	}
+	token, _, ok := strings.Cut(out, "\t")
+	if !ok || token != `"tracker:ABC-\x1b[2J"` {
+		t.Fatalf("token = %q, want the id quoted with its escape spelled out", token)
+	}
+	if strings.Count(out, "\n") != 1 || strings.Count(out, "\t") != 2 {
+		t.Errorf("unplaced output = %q, want one line of three fields", out)
+	}
+	f.mustRun("dismiss", token)
+	if out := f.mustRun("unplaced"); out != "" {
+		t.Errorf("unplaced after dismissing by the printed token = %q, want nothing", out)
+	}
+}
+
 func TestADoubleDashEndsTheFlags(t *testing.T) {
 	f := newFixture(t)
 	f.write("personal.yml", "inputs: []\nworkstreams:\n  - name: a\n  - name: -b\n  - name: -c\n")

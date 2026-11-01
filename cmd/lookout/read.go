@@ -8,6 +8,9 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"unicode/utf8"
+
+	"github.com/jakewan/lookout/internal/viewrules"
 )
 
 // read writes one setting's readout to stdout. A readout whose inputs are
@@ -60,8 +63,6 @@ func unplaced(ctx context.Context, args []string, env environment, stdout io.Wri
 		diag.Printf("lookout unplaced: %v", err)
 		return exitFailure
 	}
-	// Tabs and line breaks in a title would split its line.
-	flat := strings.NewReplacer("\t", " ", "\r", " ", "\n", " ")
 	for _, p := range out.Unplaced {
 		var it struct {
 			ID          string `json:"id"`
@@ -72,11 +73,15 @@ func unplaced(ctx context.Context, args []string, env environment, stdout io.Wri
 			diag.Printf("lookout unplaced: reading an item of %s: %v", p.Input, err)
 			return exitFailure
 		}
+		// A supplier writes ids and titles, so either can hold text that would
+		// split the line or drive the terminal. A token holding anything not
+		// printable is quoted, which adopt and dismiss decode; a title is shown
+		// as the views show names.
 		token := p.Input + ":" + it.ID
-		if strings.ContainsAny(token, "\t\r\n") {
+		if !utf8.ValidString(token) || strings.ContainsFunc(token, func(r rune) bool { return !strconv.IsPrint(r) }) {
 			token = strconv.Quote(token)
 		}
-		if _, err := fmt.Fprintf(stdout, "%s\t%s\t%s\n", token, flat.Replace(it.Title), it.LastTouched); err != nil {
+		if _, err := fmt.Fprintf(stdout, "%s\t%s\t%s\n", token, viewrules.Clean(it.Title), it.LastTouched); err != nil {
 			diag.Printf("lookout unplaced: %v", err)
 			return exitFailure
 		}
