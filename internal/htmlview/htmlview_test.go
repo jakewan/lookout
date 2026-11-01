@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jakewan/lookout/schema"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -299,6 +300,64 @@ func TestAWorkstreamOnAFailingInputSaysWhichInputs(t *testing.T) {
 	}
 	if got := lane(t, p, "billing-export").Incomplete; len(got) != 0 {
 		t.Errorf("billing incomplete = %v, want none", got)
+	}
+}
+
+// setIdle gives the workstream at index i an idle time, or none where idle is
+// negative, keeping last_touched in step as readout.v1 does.
+func setIdle(doc map[string]any, i int, idle int64) {
+	w := record(workstreams(doc)[i])
+	if idle < 0 {
+		w["idle_seconds"], w["last_touched"] = nil, nil
+		return
+	}
+	w["idle_seconds"] = idle
+	w["last_touched"] = time.Date(2030, 6, 15, 12, 0, 0, 0, time.UTC).Add(-time.Duration(idle) * time.Second).Format(time.RFC3339)
+}
+
+func TestAWorkstreamTouchedLessRecentlyThanOneRankedBelowItIsBehind(t *testing.T) {
+	for name, tc := range map[string]struct {
+		idles []int64
+		want  []bool
+	}{
+		"freshest first":      {[]int64{10, 20, 30, 40, 50, 60}, []bool{false, false, false, false, false, false}},
+		"one overtaken":       {[]int64{10, 50, 20, 30, 40, 60}, []bool{false, true, false, false, false, false}},
+		"the top one quiet":   {[]int64{90, 10, 20, 30, 40, 60}, []bool{true, false, false, false, false, false}},
+		"a tie is not behind": {[]int64{10, 20, 20, 30, 40, 60}, []bool{false, false, false, false, false, false}},
+		// An unread workstream has no touch to compare, so it neither falls
+		// behind nor puts another behind.
+		"unread on either side": {[]int64{-1, 20, 10, -1, 40, 60}, []bool{false, true, false, false, false, false}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			doc := busy(t)
+			for i, idle := range tc.idles {
+				setIdle(doc, i, idle)
+			}
+			var got []bool
+			for _, ws := range pageOf(t, doc).Workstreams {
+				got = append(got, ws.Behind)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("behind = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestActiveCountsWorkstreamsTouchedWithinTheWindow(t *testing.T) {
+	doc := busy(t)
+	// search-revamp, billing-export, release-train and infra-upgrade; docs-site
+	// is stale and onboarding unread.
+	if got := pageOf(t, doc).Active; got != 4 {
+		t.Errorf("active = %d, want 4", got)
+	}
+	setIdle(doc, 0, 604800)
+	if got := pageOf(t, doc).Active; got != 4 {
+		t.Errorf("a workstream touched exactly a window ago: active = %d, want 4", got)
+	}
+	setIdle(doc, 0, 604801)
+	if got := pageOf(t, doc).Active; got != 3 {
+		t.Errorf("active = %d, want 3", got)
 	}
 }
 

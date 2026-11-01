@@ -83,9 +83,12 @@ type rawHealth struct {
 // page is what the template draws, every string in it already made safe to
 // show by viewrules.Clean.
 type page struct {
-	Setting      string
-	AsOf         string
-	Window       string
+	Setting string
+	AsOf    string
+	Window  string
+	// Active counts workstreams touched within the event window, the measure
+	// the vision sets beside a work-in-progress limit.
+	Active       int
 	Health       []input
 	Workstreams  []workstream
 	Unplaced     int
@@ -111,6 +114,10 @@ type input struct {
 }
 
 type workstream struct {
+	// Anchor links the workstream's overview lane to its detail.
+	Anchor string
+	// Behind marks a workstream quieter than one ranked below it.
+	Behind     bool
 	Name       string
 	Idle       string
 	Age        string
@@ -191,10 +198,30 @@ func build(data []byte) (page, error) {
 		p.Health = append(p.Health, healthOf(h))
 	}
 	order := viewrules.NewOrder(names)
-	for _, ws := range r.Workstreams {
-		p.Workstreams = append(p.Workstreams, workstreamOf(ws, order, r.GeneratedAt, window))
+	for i, ws := range r.Workstreams {
+		shown := workstreamOf(ws, order, r.GeneratedAt, window)
+		shown.Anchor = fmt.Sprintf("ws-%d", i+1)
+		shown.Behind = behind(r.Workstreams, i)
+		if ws.IdleSeconds != nil && *ws.IdleSeconds <= window {
+			p.Active++
+		}
+		p.Workstreams = append(p.Workstreams, shown)
 	}
 	return p, nil
+}
+
+// behind reports whether the workstream at i has gone quieter than one the
+// stated order ranks below it. The vision ranks by stated order and lets
+// observed staleness flag a workstream falling behind it; a workstream with
+// nothing read has no touch to compare either way.
+func behind(all []rawStream, i int) bool {
+	idle := all[i].IdleSeconds
+	if idle == nil {
+		return false
+	}
+	return slices.ContainsFunc(all[i+1:], func(below rawStream) bool {
+		return below.IdleSeconds != nil && *below.IdleSeconds < *idle
+	})
 }
 
 func healthOf(h rawHealth) input {

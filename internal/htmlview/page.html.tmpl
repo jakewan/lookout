@@ -23,11 +23,15 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 14px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 12px; }
 h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 13px; margin: 22px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .asof { font-size: 16px; font-weight: 600; }
 .note { color: var(--muted); font-size: 12px; }
-code, .id { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+.id { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+a { color: inherit; }
+
+/* Inputs: healthy ones stay grey; color is spent only on a fault. */
 .health { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px; padding: 0; list-style: none; }
 .chip { border: 1px solid var(--rule); border-radius: 999px; padding: 2px 10px; background: var(--panel); font-size: 12px; }
 .chip.ok { color: var(--muted); }
@@ -38,31 +42,42 @@ code, .id { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 1
 .chip.error::before { content: "\2716  "; }
 .chip.fault { border-style: dashed; }
 .chip.fault::before { content: "?  "; }
-.faults { margin: 0 0 18px; padding: 0; list-style: none; }
-.faults li { margin: 4px 0; padding: 6px 10px; border-left: 3px solid var(--bad); background: var(--panel); }
+.faults { margin: 0 0 14px; padding: 0; list-style: none; font-size: 13px; }
+.faults li { margin: 3px 0; padding: 4px 10px; border-left: 3px solid var(--bad); background: var(--panel); }
 .faults li.degraded { border-left-color: var(--warn); }
 .faults .why { color: var(--muted); }
-.ws { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; margin: 10px 0; padding: 10px 12px; }
-.ws.incomplete { border-color: var(--warn); }
-.row { display: grid; grid-template-columns: minmax(150px, 230px) 1fr; gap: 6px 16px; align-items: center; }
-.name { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
-.stats { color: var(--muted); font-size: 12px; }
+
+/* Overview: every workstream as one lane on a shared time axis. */
+.overview { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 12px; }
+.ovrow { display: grid; grid-template-columns: minmax(130px, 210px) 1fr minmax(120px, 170px); gap: 12px; align-items: center; min-height: 26px; }
+.ovrow + .ovrow { border-top: 1px solid var(--rule); }
+.ovrow.key { color: var(--muted); font-size: 11px; min-height: 18px; }
+.ovname { font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+.ovname:hover { text-decoration: underline; }
+.bang { color: var(--warn); font-weight: 800; margin-right: 4px; }
+.ovstat { font-size: 12px; color: var(--muted); }
 .idle { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.behind { color: var(--warn); white-space: nowrap; }
 .badge { display: inline-block; border-radius: 4px; padding: 0 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
 .badge.stale { background: var(--warn-bg); color: var(--warn); }
 .badge.unread { border: 1px solid var(--muted); color: var(--muted); }
-.lane { position: relative; height: 22px; margin: 0 6px; background: linear-gradient(var(--rule), var(--rule)) center / 100% 2px no-repeat; }
-.lane .mark { position: absolute; top: 5px; margin-left: -6px; }
+.lane { position: relative; height: 20px; margin: 0 6px; background: linear-gradient(var(--rule), var(--rule)) center / 100% 2px no-repeat; }
+.lane .mark { position: absolute; top: 4px; margin-left: -6px; }
+.lane .empty { position: absolute; left: 0; top: 1px; padding-right: 6px; background: var(--panel); color: var(--muted); font-size: 11px; }
 .mark { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: -1px; }
 .mark.member { background: var(--mark); }
 .mark.joined { border: 2px solid var(--join); background: var(--panel); }
-.lanekey { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 11px; margin: 0 6px; }
-.row.key { margin: 4px 13px -4px; }
-.lane .empty { position: absolute; left: 0; top: 2px; padding-right: 6px; background: var(--panel); color: var(--muted); font-size: 11px; }
-.warnband { margin: 8px 0 0; padding: 4px 8px; border-radius: 4px; background: var(--warn-bg); color: var(--warn); font-size: 12px; }
-details { margin-top: 6px; }
-summary { cursor: pointer; color: var(--muted); font-size: 12px; }
-.groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 16px; margin-top: 6px; }
+.lanekey { display: flex; justify-content: space-between; gap: 8px; margin: 0 6px; }
+
+/* Detail on demand: one collapsed section per workstream. */
+.ws { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; margin: 6px 0; padding: 6px 12px; }
+.ws.incomplete { border-color: var(--warn); }
+.ws:target { outline: 2px solid var(--join); }
+summary { cursor: pointer; }
+.name { font-weight: 600; }
+.stats { color: var(--muted); font-size: 12px; margin-left: 8px; }
+.warnband { display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 4px; background: var(--warn-bg); color: var(--warn); font-size: 12px; }
+.groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 16px; margin: 8px 0 4px; }
 .group h3 { margin: 0 0 2px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .group ul { margin: 0; padding: 0; list-style: none; }
 .group li { padding: 2px 0; border-top: 1px dashed var(--rule); }
@@ -70,10 +85,13 @@ summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .group li.unread { color: var(--muted); font-style: italic; }
 .joinbadge { color: var(--join); font-size: 11px; font-weight: 600; }
 .state { color: var(--muted); font-size: 11px; }
-a { color: inherit; }
-footer { margin-top: 18px; font-size: 13px; }
+
+footer { margin-top: 16px; font-size: 13px; }
 footer.flagged { color: var(--warn); font-weight: 600; }
-@media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
+@media (max-width: 640px) {
+  .ovrow { grid-template-columns: 1fr; gap: 2px; padding: 4px 0; }
+  .ovrow.key > span:first-child { display: none; }
+}
 </style>
 </head>
 <body>
@@ -92,39 +110,45 @@ footer.flagged { color: var(--warn); font-weight: 600; }
 <ul class="faults">
 {{- range .Health}}{{if .Unhealthy}}
   <li class="{{.Class}}"><strong><bdi>{{.Input}}</bdi> is {{.Label}}</strong>{{if .Reasons}}: {{range $i, $r := .Reasons}}{{if $i}}, {{end}}{{$r}}{{end}}{{end}}
-    {{- if .SupplierReason}}<div class="why">supplier says: {{.SupplierReason}}</div>{{end}}
-    {{- range .Details}}<div class="why">{{.}}</div>{{end}}
-    {{- if .MissingFields}}<div class="why">fields it could not fill: {{range $i, $f := .MissingFields}}{{if $i}}, {{end}}{{$f}}{{end}}</div>{{end}}
-    {{- if .Excluded}}<div class="why">{{.Excluded}} records left out</div>{{end}}
-    <div class="why">{{.Records}} records{{if .FetchedAt}}, read {{.FetchedAt}}{{end}}</div>
+    {{- if .SupplierReason}} <span class="why">&middot; supplier says: {{.SupplierReason}}</span>{{end}}
+    {{- range .Details}} <span class="why">&middot; {{.}}</span>{{end}}
+    {{- if .MissingFields}} <span class="why">&middot; could not fill: {{range $i, $f := .MissingFields}}{{if $i}}, {{end}}{{$f}}{{end}}</span>{{end}}
+    {{- if .Excluded}} <span class="why">&middot; {{.Excluded}} records left out</span>{{end}}
+    <span class="why">&middot; {{.Records}} records{{if .FetchedAt}}, read {{.FetchedAt}}{{end}}</span>
   </li>
 {{- end}}{{end}}
 </ul>{{end}}
 
 {{if not .Workstreams}}<p>No workstreams{{if .Completed}} ({{.Completed}} completed){{end}}.</p>{{else}}
-<div class="row key"><span></span><div class="lanekey"><span>{{.Window}} ago</span><span>each item's last touch &middot; <span class="mark member"></span> member &middot; <span class="mark joined"></span> joined</span><span>now</span></div></div>
-{{end}}
-{{- range .Workstreams}}
-<section class="ws{{if .Incomplete}} incomplete{{end}}">
-  <div class="row">
-    <div>
-      <div class="name"><bdi>{{.Name}}</bdi>{{if .Marker}} <span class="badge {{.Marker}}">{{.Marker}}</span>{{end}}</div>
-      <div class="stats">{{if eq .Marker "unread"}}nothing read for it on this read{{else}}last touched <span class="idle">{{.Idle}}</span> ago{{end}}{{if ne .Age "--"}} &middot; started {{.Age}} ago{{end}}</div>
-    </div>
+<section class="overview" aria-label="every workstream, in stated order">
+  <div class="ovrow key"><span>{{.Active}} active within {{.Window}}</span><div class="lanekey"><span>{{.Window}} ago</span><span><span class="mark member"></span> member &middot; <span class="mark joined"></span> joined: each item's last touch</span><span>now</span></div><span>last touched</span></div>
+  {{- range .Workstreams}}
+  <div class="ovrow">
+    <a class="ovname" href="#{{.Anchor}}">{{if .Incomplete}}<span class="bang" title="draws on a failing input">!</span>{{end}}<bdi>{{.Name}}</bdi></a>
     <div class="lane" role="img" aria-label="last touch per item">
       {{- range .Lane}}
       <span class="mark {{if .Joined}}joined{{else}}member{{end}}" style="left: {{.Left}}" title="{{.Label}}"></span>
       {{- else}}
-      <span class="empty">no touch within {{$.Window}}</span>
+      <span class="empty">{{if eq .Marker "unread"}}nothing read{{else}}no touch within {{$.Window}}{{end}}</span>
       {{- end}}
     </div>
+    <span class="ovstat">{{if eq .Marker "unread"}}<span class="badge unread">unread</span>{{else}}<span class="idle">{{.Idle}}</span> ago{{if eq .Marker "stale"}} <span class="badge stale">stale</span>{{end}}{{end}}{{if .Behind}} <span class="behind" title="quieter than a workstream ranked below it">&darr; behind its rank</span>{{end}}</span>
   </div>
-  {{- if .Incomplete}}
-  <div class="warnband">may be incomplete: draws on {{range $i, $in := .Incomplete}}{{if $i}}, {{end}}<bdi>{{$in}}</bdi>{{end}}</div>
   {{- end}}
-  {{- if .Groups}}
-  <details open>
-    <summary>{{len .Groups}} input{{if gt (len .Groups) 1}}s{{end}}: {{range $i, $g := .Groups}}{{if $i}}, {{end}}<bdi>{{$g.Input}}</bdi> {{len $g.Items}}{{end}}</summary>
+</section>
+
+<h2>Workstreams</h2>
+{{- end}}
+{{- range .Workstreams}}
+<section class="ws{{if .Incomplete}} incomplete{{end}}" id="{{.Anchor}}">
+  <details>
+    <summary>
+      <span class="name"><bdi>{{.Name}}</bdi></span>
+      <span class="stats">{{if eq .Marker "unread"}}nothing read for it on this read{{else}}last touched {{.Idle}} ago{{end}}{{if ne .Age "--"}} &middot; started {{.Age}} ago{{end}} &middot; {{range $i, $g := .Groups}}{{if $i}}, {{end}}<bdi>{{$g.Input}}</bdi> {{len $g.Items}}{{else}}no members{{end}}</span>
+      {{- if .Incomplete}}
+      <span class="warnband">may be incomplete: draws on {{range $i, $in := .Incomplete}}{{if $i}}, {{end}}<bdi>{{$in}}</bdi>{{end}}</span>
+      {{- end}}
+    </summary>
     <div class="groups">
     {{- range .Groups}}
       <div class="group">
@@ -144,7 +168,6 @@ footer.flagged { color: var(--warn); font-weight: 600; }
     {{- end}}
     </div>
   </details>
-  {{- end}}
 </section>
 {{- end}}
 
