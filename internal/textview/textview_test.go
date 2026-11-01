@@ -284,6 +284,22 @@ var cases = map[string]fixture{
 		},
 		health: []map[string]any{input("tracker", "error", "missing")},
 	},
+	"titles": {
+		window: 7 * day,
+		lanes: []lane{
+			{name: "billing", idle: hour, items: []string{"tracker:ABC-1"}, extra: map[string]any{"title": "Billing export"}},
+			{name: "q3", idle: 2 * hour, items: []string{"tracker:ABC-2"}, extra: map[string]any{"title": "Quarterly reconciliation, third pass"}},
+			{name: "own", idle: 3 * hour, items: []string{"tracker:ABC-3"}, extra: map[string]any{"title": "own"}},
+			{name: "untitled", idle: 4 * hour, items: []string{"tracker:ABC-4"}},
+			{name: "esc", idle: 5 * hour, items: []string{"tracker:ABC-5"}, extra: map[string]any{"title": "esc\x1b[31mred"}},
+			{
+				name: "the-onboarding-for-the-spring-2030-cohort-of-new-starters-in-every-office", idle: 6 * hour,
+				items: []string{"tracker:ABC-6", "github:owner/repo#1", "git:owner/repo:onboarding"}, incomplete: []string{"github"},
+				extra: map[string]any{"title": "Onboarding"},
+			},
+		},
+		health: append(ok("tracker", "git"), input("github", "degraded", "truncated")),
+	},
 	"unknown-fields": {
 		window: 7 * day,
 		lanes:  []lane{{name: "billing", idle: minute, items: []string{"tracker:ABC-1"}, extra: map[string]any{"lane_color": "blue"}}},
@@ -368,6 +384,11 @@ func TestEveryViewFitsEightyColumnsAndKeepsEveryReason(t *testing.T) {
 				t.Fatalf("Render: %v", err)
 			}
 			requireFits(t, name, out.String())
+			for _, id := range []string{name, name + "-twin"} {
+				if utf8.RuneCountInString(id) > nameCap && !strings.Contains(out.String(), "["+id+"]") {
+					t.Errorf("names %d long: id %q is not whole in the view\n%s", n, id, out.String())
+				}
+			}
 			flat := strings.Join(strings.Fields(out.String()), "")
 			for _, r := range reasons {
 				if !strings.Contains(flat, r) {
@@ -381,7 +402,11 @@ func TestEveryViewFitsEightyColumnsAndKeepsEveryReason(t *testing.T) {
 func requireFits(t *testing.T, name, view string) {
 	t.Helper()
 	for i, line := range strings.Split(strings.TrimSuffix(view, "\n"), "\n") {
-		if n := utf8.RuneCountInString(line); n > 80 {
+		// A workstream id is never broken, so one too long for a line after its
+		// indent is the only thing that may pass the width.
+		wholeID := strings.HasPrefix(line, idIndent+"[") && strings.HasSuffix(line, "]") &&
+			!strings.Contains(line[len(idIndent):], " ") && utf8.RuneCountInString(line) > 80
+		if n := utf8.RuneCountInString(line); n > 80 && !wholeID {
 			t.Errorf("%s: line %d is %d columns: %q", name, i+1, n, line)
 		}
 		if strings.TrimRightFunc(line, unicode.IsSpace) != line {

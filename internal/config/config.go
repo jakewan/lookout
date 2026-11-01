@@ -107,10 +107,12 @@ type Input struct {
 }
 
 // Workstream is one user-defined line of work and the items that belong to it.
-// Completed is the local date, as YYYY-MM-DD, the user marked it finished, or
-// empty while it is live.
+// Name is its id, which commands and the state key on; Title is what a person
+// reads, or empty. Completed is the local date, as YYYY-MM-DD, the user marked
+// it finished, or empty while it is live.
 type Workstream struct {
 	Name      string
+	Title     string
 	Members   []Member
 	Completed string
 }
@@ -129,6 +131,34 @@ func (w Workstream) CompletedThrough(loc *time.Location) time.Time {
 		return time.Time{}
 	}
 	return day.AddDate(0, 0, 1)
+}
+
+// checkTitle reports a title a person could not read as a label: one with no
+// visible text, or one that would break the line it is shown on.
+func checkTitle(title string) error {
+	switch {
+	case strings.TrimSpace(title) == "":
+		return Refuse("a title needs visible text: to show the id instead, use lookout rename --clear")
+	case strings.ContainsAny(title, "\r\n"):
+		return Refuse("%q contains a line break, which a title cannot hold", title)
+	}
+	return nil
+}
+
+// titleClash reports the workstream other than self whose id is title. Views
+// show titles where they would show ids, so such a title would point a reader,
+// or an agent they are talking to, at the wrong workstream. A workstream may
+// carry its own id as its title.
+func titleClash(ws []Workstream, self, title string) (string, bool) {
+	if title == "" {
+		return "", false
+	}
+	for _, w := range ws {
+		if w.Name != self && w.Name == title {
+			return w.Name, true
+		}
+	}
+	return "", false
 }
 
 // MemberIDs is the ids of input's items that a live workstream names. A
@@ -487,9 +517,12 @@ type fileShape struct {
 	KeyPattern      string      `yaml:"key_pattern"`
 	Inputs          []inputFile `yaml:"inputs"`
 	Workstreams     []struct {
-		Name      string   `yaml:"name"`
-		Members   []string `yaml:"members"`
-		Completed string   `yaml:"completed"`
+		Name string `yaml:"name"`
+		// Title is a node so a value that is not text, such as a list, is
+		// refused rather than read as one.
+		Title     yaml.Node `yaml:"title"`
+		Members   []string  `yaml:"members"`
+		Completed string    `yaml:"completed"`
 	} `yaml:"workstreams"`
 }
 
@@ -658,6 +691,15 @@ func parse(data []byte, path string) (*Config, error) {
 			return nil, fmt.Errorf("workstream %q is listed twice", ws.Name)
 		}
 		w := Workstream{Name: ws.Name, Completed: ws.Completed}
+		if ws.Title.Kind != 0 {
+			if ws.Title.Kind != yaml.ScalarNode || ws.Title.Tag != "!!str" {
+				return nil, fmt.Errorf("workstream %q title must be text, such as title: Billing export", ws.Name)
+			}
+			if titleErr := checkTitle(ws.Title.Value); titleErr != nil {
+				return nil, fmt.Errorf("workstream %q title: %w", ws.Name, titleErr)
+			}
+			w.Title = ws.Title.Value
+		}
 		if ws.Completed != "" {
 			if _, dateErr := time.Parse(dateLayout, ws.Completed); dateErr != nil {
 				return nil, fmt.Errorf("workstream %q completed %q is not a date such as 2030-06-15", ws.Name, ws.Completed)
@@ -678,6 +720,11 @@ func parse(data []byte, path string) (*Config, error) {
 			w.Members = append(w.Members, member)
 		}
 		cfg.Workstreams = append(cfg.Workstreams, w)
+	}
+	for _, w := range cfg.Workstreams {
+		if other, clash := titleClash(cfg.Workstreams, w.Name, w.Title); clash {
+			return nil, fmt.Errorf("workstream %q title %q is the id of workstream %q: choose a title no other workstream has as its id", w.Name, w.Title, other)
+		}
 	}
 
 	cfg.implyExpectations()

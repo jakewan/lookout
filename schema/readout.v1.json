@@ -80,6 +80,12 @@
       ],
       "properties": {
         "name": {
+          "description": "The workstream's id, which lookout's commands take.",
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "description": "The label the user gave the workstream for people to read, present only where one was given. A renderer showing it should keep name in reach, since commands take the id.",
           "type": "string",
           "minLength": 1
         },

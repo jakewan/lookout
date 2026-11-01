@@ -19,7 +19,8 @@ import (
 )
 
 const (
-	// width is the terminal width every line fits, counted in runes.
+	// width is the terminal width lines wrap at, counted in runes; only a
+	// workstream id too long for a line of its own passes it.
 	width = 80
 	// nameCap is the most runes any name takes, so a long workstream or input
 	// name cannot crowd out the figures beside it.
@@ -45,6 +46,7 @@ type view struct {
 
 type workstream struct {
 	Name             string   `json:"name"`
+	Title            string   `json:"title"`
 	IdleSeconds      *int64   `json:"idle_seconds"`
 	InputsIncomplete []string `json:"inputs_incomplete"`
 	MembersUnread    []string `json:"members_unread"`
@@ -90,11 +92,23 @@ func writeWorkstreams(b *strings.Builder, v view) {
 		return
 	}
 	names := make([]string, 0, len(v.Workstreams))
+	ids := make([]string, 0, len(v.Workstreams))
 	nameWidth := 0
 	for _, ws := range v.Workstreams {
-		n := name(ws.Name)
+		label := ws.Title
+		if label == "" {
+			label = ws.Name
+		}
+		n := name(label)
 		names = append(names, n)
 		nameWidth = max(nameWidth, utf8.RuneCountInString(n))
+		// Commands take the id, so wherever the row's label is not the whole id,
+		// the id follows it whole.
+		id := ""
+		if n != clean(ws.Name) {
+			id = "[" + clean(ws.Name) + "]"
+		}
+		ids = append(ids, id)
 	}
 	inputs := make([]string, 0, len(v.Health))
 	for _, h := range v.Health {
@@ -109,8 +123,32 @@ func writeWorkstreams(b *strings.Builder, v view) {
 			flag = "! "
 		}
 		lead := fmt.Sprintf("%s%-*s  %*s  %-*s  ", flag, nameWidth, names[i], ageWidth, viewrules.Age(ws.IdleSeconds), markerWidth, viewrules.Marker(ws.IdleSeconds, v.EventWindowSeconds))
-		b.WriteString(wrap(counts(ws, order), lead, strings.Repeat(" ", utf8.RuneCountInString(lead))))
+		cont := strings.Repeat(" ", utf8.RuneCountInString(lead))
+		b.WriteString(whole(wrap(counts(ws, order), lead, cont), ids[i], cont))
 	}
+}
+
+// idIndent starts a line that holds only an id too long to follow the figures.
+const idIndent = "    "
+
+// whole ends the wrapped text with unit, never broken, since a workstream's id
+// is copied into commands: on the last line where it fits, else on a line of
+// its own after cont, else after idIndent, and past width only when it is
+// longer than a line after idIndent.
+func whole(wrapped, unit, cont string) string {
+	if unit == "" {
+		return wrapped
+	}
+	body := strings.TrimSuffix(wrapped, "\n")
+	last := body[strings.LastIndex(body, "\n")+1:]
+	n := utf8.RuneCountInString(unit)
+	switch {
+	case utf8.RuneCountInString(last)+1+n <= width:
+		return body + " " + unit + "\n"
+	case utf8.RuneCountInString(cont)+n <= width:
+		return body + "\n" + cont + unit + "\n"
+	}
+	return body + "\n" + idIndent + unit + "\n"
 }
 
 func unhealthy(h health) bool { return viewrules.Unhealthy(h.Status) }

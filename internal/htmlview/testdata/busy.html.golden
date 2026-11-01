@@ -75,6 +75,8 @@ a { color: inherit; }
 .ws:target { outline: 2px solid var(--join); }
 summary { cursor: pointer; }
 .name { font-weight: 600; }
+ 
+.wsid { font-family: ui-monospace, monospace; font-size: 11px; font-weight: 400; color: var(--muted); }
 .stats { color: var(--muted); font-size: 12px; margin-left: 8px; }
 .warnband { display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 4px; background: var(--warn-bg); color: var(--warn); font-size: 12px; }
 .groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 16px; margin: 8px 0 4px; }
@@ -135,7 +137,7 @@ footer.flagged { color: var(--warn); font-weight: 600; }
     <span class="ovstat"><span class="idle">40m</span> ago</span>
   </div>
   <div class="ovrow">
-    <a class="ovname" href="#ws-2"><bdi>billing-export</bdi></a>
+    <a class="ovname" href="#ws-2"><bdi>Billing export to the ledger</bdi> <span class="wsid"><bdi>billing-export</bdi></span></a>
     <div class="lane" role="img" aria-label="2 items touched within 7d, the latest 5h ago">
       <span class="mark member" style="left: 97.02%" title="hub:owner/billing#7 2030-06-15 07:00 UTC"></span>
       <span class="mark member" style="left: 95.83%" title="code:owner/billing:fix/rounding 2030-06-15 05:00 UTC"></span>
@@ -225,7 +227,7 @@ footer.flagged { color: var(--warn); font-weight: 600; }
 <section class="ws" id="ws-2">
   <details>
     <summary>
-      <span class="name"><bdi>billing-export</bdi></span>
+      <span class="name"><bdi>Billing export to the ledger</bdi></span> <span class="wsid"><bdi>billing-export</bdi></span>
       <span class="stats">last touched 5h ago &middot; started 9d ago &middot; <bdi>code</bdi> 1, <bdi>hub</bdi> 2</span>
     </summary>
     <div class="groups">

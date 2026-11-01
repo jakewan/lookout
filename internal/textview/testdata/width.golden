@@ -2,7 +2,9 @@ a-very-long-setting-nam~ - 2030-06-15 12:00 UTC
 
 Workstreams
   the-quarterly-reconcili~    1h          tracker 1
+                                          [the-quarterly-reconciliation-project]
   the-quarterly-reconcili~    2h          tracker 1
+                                          [the-quarterly-reconciling-rerun]
 ! wide                        1m          tracker 3, github 2, git 1,
                                           sessions 1, notes 1,
                                           an-input-with-a-name-fa~ 1 (2 unread)

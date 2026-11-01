@@ -390,7 +390,16 @@ func TestSnapshotFindsEditsNoGestureExplains(t *testing.T) {
 		"a move, a remove and a rename": {handWritten, func(f *fixture) {
 			f.mustRun("move", "tracker:ABC-2", "onboarding")
 			f.mustRun("remove", "tracker:ABC-9")
-			f.mustRun("rename", "billing", "ledger")
+			f.mustRun("rename", "--id", "billing", "ledger")
+		}, false},
+		"titles set, changed and cleared by command": {handWritten, func(f *fixture) {
+			f.mustRun("rename", "billing", "Billing export")
+			f.mustRun("rename", "billing", "Billing export, phase two")
+			f.mustRun("rename", "--clear", "billing")
+			f.mustRun("adopt", "--new", "--title", "Infrastructure", "tracker:ABC-4", "infra")
+		}, false},
+		"a title by hand": {handWritten, func(f *fixture) {
+			f.write("personal.yml", strings.Replace(handWritten, "  - name: billing\n", "  - name: billing\n    title: Billing export\n", 1))
 		}, false},
 		"a rename by hand": {handWritten, func(f *fixture) {
 			f.write("personal.yml", strings.Replace(handWritten, "  - name: billing\n", "  - name: ledger\n", 1))
@@ -886,8 +895,8 @@ func TestSnapshotPlacesNothingForALoggedMoveOrRename(t *testing.T) {
 
 	f.nextDay()
 	f.mustRun("move", "tracker:ABC-1", "onboarding")
-	f.mustRun("rename", "done", "archive")
-	f.mustRun("rename", "onboarding", "setup")
+	f.mustRun("rename", "--id", "done", "archive")
+	f.mustRun("rename", "--id", "onboarding", "setup")
 	f.tracker(map[string]time.Time{"ABC-1": now})
 
 	b := f.snapshot()
@@ -910,7 +919,7 @@ func TestSnapshotCountsALoggedRenameOfACompletedWorkstreamOnce(t *testing.T) {
 	}
 
 	f.nextDay()
-	f.mustRun("rename", "onboarding", "onboarding-2030")
+	f.mustRun("rename", "--id", "onboarding", "onboarding-2030")
 	f.tracker(map[string]time.Time{"ABC-1": now})
 	if b := f.snapshot(); b.CompletedSincePrevious != 0 {
 		t.Errorf("completed_since_previous = %d, want a renamed completed workstream not counted again", b.CompletedSincePrevious)
@@ -940,7 +949,7 @@ func TestSnapshotCountsACompletionUnderANameARenameFreed(t *testing.T) {
 	f.snapshot()
 
 	f.nextDay()
-	f.mustRun("rename", "onboarding", "onboarding-2029")
+	f.mustRun("rename", "--id", "onboarding", "onboarding-2029")
 	f.mustRun("adopt", "--new", "tracker:ABC-3", "onboarding")
 	f.mustRun("complete", "onboarding")
 	f.tracker(map[string]time.Time{"ABC-1": now})

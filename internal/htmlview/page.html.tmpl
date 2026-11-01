@@ -75,6 +75,8 @@ a { color: inherit; }
 .ws:target { outline: 2px solid var(--join); }
 summary { cursor: pointer; }
 .name { font-weight: 600; }
+/* The id commands take, beside a title: there to copy, quieter than the label. */
+.wsid { font-family: ui-monospace, monospace; font-size: 11px; font-weight: 400; color: var(--muted); }
 .stats { color: var(--muted); font-size: 12px; margin-left: 8px; }
 .warnband { display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 4px; background: var(--warn-bg); color: var(--warn); font-size: 12px; }
 .groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 16px; margin: 8px 0 4px; }
@@ -123,7 +125,7 @@ footer.flagged { color: var(--warn); font-weight: 600; }
   <div class="ovrow key"><span>{{.Active}} active within {{.Window}}</span><div class="lanekey"><span>{{.Window}} ago</span><span><span class="mark member"></span> member &middot; <span class="mark joined"></span> joined: each item's last touch</span><span>now</span></div><span>last touched</span></div>
   {{- range .Workstreams}}
   <div class="ovrow">
-    <a class="ovname" href="#{{.Anchor}}">{{if .Incomplete}}<span class="bang" title="draws on a failing input">!</span>{{end}}<bdi>{{.Name}}</bdi></a>
+    <a class="ovname" href="#{{.Anchor}}">{{if .Incomplete}}<span class="bang" title="draws on a failing input">!</span>{{end}}<bdi>{{if .Title}}{{.Title}}{{else}}{{.Name}}{{end}}</bdi>{{if .Title}} <span class="wsid"><bdi>{{.Name}}</bdi></span>{{end}}</a>
     <div class="lane" role="img" aria-label="{{len .Lane}} items touched within {{$.Window}}{{if not .Unread}}, the latest {{.Idle}} ago{{end}}">
       {{- range .Lane}}
       <span class="mark {{if .Joined}}joined{{else}}member{{end}}" style="left: {{.Left}}" title="{{.Label}}"></span>
@@ -142,7 +144,7 @@ footer.flagged { color: var(--warn); font-weight: 600; }
 <section class="ws{{if .Incomplete}} incomplete{{end}}" id="{{.Anchor}}">
   <details>
     <summary>
-      <span class="name"><bdi>{{.Name}}</bdi></span>
+      <span class="name"><bdi>{{if .Title}}{{.Title}}{{else}}{{.Name}}{{end}}</bdi></span>{{if .Title}} <span class="wsid"><bdi>{{.Name}}</bdi></span>{{end}}
       <span class="stats">{{if .Unread}}nothing read for it on this read{{else}}last touched {{.Idle}} ago{{end}}{{if ne .Age "--"}} &middot; started {{.Age}} ago{{end}} &middot; {{range $i, $g := .Groups}}{{if $i}}, {{end}}<bdi>{{$g.Input}}</bdi> {{len $g.Items}}{{else}}no members{{end}}</span>
       {{- if .Incomplete}}
       <span class="warnband">may be incomplete: draws on {{range $i, $in := .Incomplete}}{{if $i}}, {{end}}<bdi>{{$in}}</bdi>{{end}}</span>

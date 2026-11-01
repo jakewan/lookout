@@ -44,7 +44,9 @@ type Gesture struct {
 	// From names the workstreams an item was taken out of: the completed ones
 	// an adopt moved it from, or every one a move or remove took it from.
 	From []string `json:"from,omitempty"`
-	// To is the name a rename gave the workstream it names.
+	// To is the id a rename gave the workstream it names, or the title a
+	// retitle, or an adopt or move with --new and --title, gave it; a retitle
+	// that cleared the title leaves it empty.
 	To string `json:"to,omitempty"`
 	// Date is the local date a complete wrote, which its UTC time alone cannot
 	// recover once the zone has changed.
