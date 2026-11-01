@@ -1028,6 +1028,15 @@ func TestAMalformedQuotedTokenIsAUsageError(t *testing.T) {
 	}
 }
 
+func TestAMalformedQuotedTokenIsShownEscaped(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	code, _, stderr := f.run("dismiss", "\"tracker:\x1b[2J\\q")
+	if code != exitUsage || strings.Contains(stderr, "\x1b") {
+		t.Errorf("exit code = %d, stderr = %q, want a usage error that never drives the terminal", code, stderr)
+	}
+}
+
 func TestAOneLineNameThatLooksLikeADocumentMarkerIsEditable(t *testing.T) {
 	head := "inputs:\n  - name: tracker\n    kind: supplied\n    supplied: tracker.json\n    max_age: 24h\nworkstreams:\n"
 	for _, name := range []string{"---", "...", "--- parked"} {

@@ -216,7 +216,7 @@ func memberArg(cmd, arg string, diag *log.Logger) (config.Member, bool) {
 	if strings.HasPrefix(arg, `"`) {
 		decoded, err := strconv.Unquote(arg)
 		if err != nil {
-			diag.Printf("lookout %s: %s is quoted but not as lookout unplaced quotes it: %v\n%s", cmd, arg, err, usage)
+			diag.Printf("lookout %s: %q is quoted but not as lookout unplaced quotes it: %v\n%s", cmd, arg, err, usage)
 			return config.Member{}, false
 		}
 		arg = decoded
