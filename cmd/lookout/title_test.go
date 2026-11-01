@@ -152,6 +152,36 @@ func TestRenameClearRemovesTheTitle(t *testing.T) {
 	}
 }
 
+// titleFirst writes billing's title before its name, on the line its "- "
+// starts, which YAML allows and a person may write.
+var titleFirst = strings.Replace(handWritten, "  - name: billing\n", "  - title: Billing export\n    name: billing\n", 1)
+
+func TestATitleWrittenFirstLeavesEveryOtherEditWorking(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", titleFirst)
+
+	f.mustRun("adopt", "tracker:ABC-3", "onboarding")
+	f.mustRun("rename", "billing", "Billing export, phase two")
+
+	want := strings.Replace(titleFirst, "Billing export\n", "Billing export, phase two\n", 1)
+	want = strings.Replace(want, "      - tracker:ABC-9\n", "      - tracker:ABC-9\n      - tracker:ABC-3\n", 1)
+	if got := f.config("personal.yml"); got != want {
+		t.Errorf("configuration:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestClearingATitleWrittenFirstIsRefusedNotBroken(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", titleFirst)
+	code, _, stderr := f.run("rename", "--clear", "billing")
+	if code != exitFailure || !strings.Contains(stderr, "move name: to the first line") {
+		t.Errorf("exit code = %d, stderr = %q, want a refusal saying how to make the title removable", code, stderr)
+	}
+	if got := f.config("personal.yml"); got != titleFirst {
+		t.Errorf("configuration changed:\n%s", got)
+	}
+}
+
 func TestRenameClearOfAnUntitledWorkstreamChangesNothing(t *testing.T) {
 	f := newFixture(t)
 	f.write("personal.yml", handWritten)

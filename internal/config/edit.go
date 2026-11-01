@@ -326,6 +326,9 @@ func (d *Document) ClearTitle(workstream string) error {
 	if it.titleValue == nil {
 		return nil
 	}
+	if !l.lineHoldsOnly(it.titleKey) {
+		return Refuse("the title at line %d shares its line with the start of the workstream: move name: to the first line, then run the command again", it.titleKey.Line)
+	}
 	want := d.cfg.clone()
 	want.Workstreams = Titled(d.cfg.Workstreams, workstream, "")
 	at := it.titleKey.Line - 1
@@ -784,8 +787,8 @@ func (l *layout) item(n *yaml.Node) (wsItem, error) {
 			}
 			it.nameValue = v
 		case "title":
-			if v.Kind != yaml.ScalarNode || v.Line != k.Line || !l.onOneLine(v, false) || !l.lineHoldsOnly(k) {
-				return wsItem{}, Refuse("the workstream title at line %d must be written on one line of its own, on the same line as title:", k.Line)
+			if v.Kind != yaml.ScalarNode || v.Line != k.Line || !l.onOneLine(v, false) {
+				return wsItem{}, Refuse("the workstream title at line %d must be written on one line, on the same line as title:", k.Line)
 			}
 			it.titleKey, it.titleValue = k, v
 		case "completed":
@@ -830,8 +833,8 @@ func (l *layout) onOneLine(n *yaml.Node, inSequence bool) bool {
 }
 
 // lineHoldsOnly reports whether the line holding key starts with it, after
-// spaces, so the whole line is the entry and deleting it removes nothing else.
-// The value is on the same line and one line long, as the caller checks.
+// spaces, so that, with its value on that line alone, deleting the line
+// removes nothing else, as it would a workstream's "- " written before it.
 func (l *layout) lineHoldsOnly(key *yaml.Node) bool {
 	line := l.lines[key.Line-1]
 	return key.Column-1 <= len(line) && strings.TrimLeft(line[:key.Column-1], " ") == ""
