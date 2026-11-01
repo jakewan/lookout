@@ -2,7 +2,7 @@
 
 What a graphical view of one person's concurrent workstreams has to show, why it has to be graphical, the design decisions already settled, and the questions they leave open.
 
-lookout is the data layer of this dashboard: it gathers the activity, groups it into workstreams, and reports the health of every input. The renderer that draws the view is not chosen, and this document is where its requirements are kept until it is. Until then, `lookout show` prints a plain-text view of the readout for reading the data now. It reads the readout as any renderer would, and it is a stopgap, not the graphical view this document describes.
+lookout is the data layer of this dashboard: it gathers the activity, groups it into workstreams, and reports the health of every input. Which renderer draws the dashboard is not settled, and this document is where its requirements are kept until it is. `lookout view` writes a graphical page of the readout and `lookout show` prints a plain-text one. Each reads the readout as any renderer would, so either can be replaced without touching the data layer.
 
 ## Purpose
 
@@ -95,10 +95,11 @@ Together these give **two levels of loudness**. Only stop-the-line items take fo
 
 ## Renderer candidates
 
-Not chosen. Each would read lookout's readout, never the sources behind it. The plain-text view `lookout show` prints is not one of them: it draws no lanes and no history, so it does not settle the question below.
+Not chosen. Each reads lookout's readout, never the sources behind it. The plain-text view `lookout show` prints is not one of them: it draws no lanes and no history, so it does not settle the question below.
 
-- **Grafana OSS with the Infinity data source** (<https://grafana.com/docs/plugins/yesoreyeram-infinity-datasource/latest/>). The State timeline panel draws lanes, and dashboards and data sources are provisioned from files. A panel's "No data" stays quiet, so the health record would need generated alert rules or a health panel.
-- **Observable Framework.** Data loaders in any language, Plot or D3 charts, a static site. A cached loader result can be served stale without notice (<https://github.com/observablehq/framework/issues/1148>), so freshness is the data layer's to enforce.
+- **A self-contained page lookout writes** (`lookout view`). One HTML file per setting under the user's cache directory, with its style and drawings inline and no script, and a content security policy that blocks every fetch, so opening it reaches no network. It draws every workstream as one lane on a shared time axis in stated order, flags a workstream quieter than one ranked below it, counts the workstreams active within the event window, and keeps each workstream's items beneath the overview. It is a snapshot of one read, not live, and offers no cue inside Claude Code. Its lanes are drawn by hand rather than by a chart library, so they carry no axis ticks or zoom. It lives in lookout's own binary but reads only the published readout, and shares its age, staleness and health rules with `lookout show`.
+- **Grafana OSS with the Infinity data source** (<https://grafana.com/docs/plugins/yesoreyeram-infinity-datasource/latest/>). The State timeline panel draws lanes, and dashboards and data sources are provisioned from files. Infinity reads REST endpoints or inline data, so the readout would be served on a local port for it, beside Grafana's own server process. A panel's "No data" stays quiet, so the health record would need generated alert rules or a health panel.
+- **Observable Framework.** Data loaders in any language, Plot or D3 charts, a static site. Plot draws the lanes with a real time axis and tooltips in a few lines. A build self-hosts its `npm:` imports (<https://observablehq.com/framework/imports>), but the default theme loads its font from Google Fonts unless `globalStylesheets` is overridden (<https://observablehq.com/framework/config>), the command line sends telemetry unless `OBSERVABLE_TELEMETRY_DISABLE` is set (<https://github.com/observablehq/framework/blob/main/src/telemetry.ts>), and the built site needs an HTTP server to view. The view's staleness, ranking and health rules are written again in JavaScript, beside lookout's own. A cached loader result can be served stale without notice (<https://github.com/observablehq/framework/issues/1148>), so freshness is the data layer's to enforce.
 - **A claude.ai Artifact, with a Claude Code mod as the cue.** The Artifact draws the graphical view; the mod puts critical items and stale lanes above the prompt, where attention already is. An Artifact reaches local MCP servers, and so a readout served by one, only when opened in the Claude desktop app, and putting work data into a page hosted under one account raises the question of which accounts may hold that data.
 
 Backstage is too heavy for one person; Homepage, Glance and Dashy offer no general-purpose charting over custom data.
@@ -117,7 +118,11 @@ A configuration file that has to be edited by hand goes stale the way a hand-mai
 
 The candidates differ on lanes without chart code, on the absent-versus-degraded line, on footprint, and on whether the cue can sit inside Claude Code.
 
-**What would settle it:** the data layer's actual output shape, and which candidate renders the health states without a second configuration system kept in sync by hand.
+The page lookout writes and an Observable Framework site both draw every health state straight from the readout's health records, with no second configuration kept in sync by hand, so that line does not separate them. Grafana is where a second configuration would enter, as the rules or panel that keep its "No data" from passing for health. Between the first two the difference is the rest: Observable draws lanes with real axes in little chart code but brings a Node toolchain, a server to view, a font fetch and telemetry to switch off, and a second copy of the view's rules; the page lookout writes needs nothing beyond lookout and fetches nothing, at the cost of lanes drawn by hand. Neither puts a cue inside Claude Code.
+
+The readout shapes what any of them can draw. A workstream's `events` hold each item's latest touch, not its history, so a lane shows where each item last moved rather than how much it moved; a busy item and an idle one each leave a single mark. A join names the member it joined through and any item it followed, which is enough for the relation map of item 4 to show joins; how one tracker item belongs to another, such as an epic's children, reaches the readout only in a supplier's free-form `attrs`, which no renderer can rely on.
+
+**What would settle it:** whether the lanes need what only a chart library gives, such as real axes, zoom, and history once the readout carries it; and whether the cue inside Claude Code, which no candidate built so far provides, is wanted before the graphical view.
 
 ### How are work sources read?
 
