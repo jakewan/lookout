@@ -229,6 +229,10 @@ func TestTitleRefusals(t *testing.T) {
 		"blank title":                {handWritten, []string{"rename", "billing", "   "}, "retitle", "title"},
 		"title with a line break":    {handWritten, []string{"rename", "billing", "a\nb"}, "retitle", "line break"},
 		"title not UTF-8":            {handWritten, []string{"rename", "billing", "bill\xffing"}, "retitle", "UTF-8"},
+		"only invisible characters":  {handWritten, []string{"rename", "billing", "\u200b\u2060"}, "retitle", "visible text"},
+		"a line separator":           {handWritten, []string{"rename", "billing", "a b"}, "retitle", "line break"},
+		"a vertical tab":             {handWritten, []string{"rename", "billing", "a\vb"}, "retitle", "line break"},
+		"an empty title for a new":   {handWritten, []string{"adopt", "--new", "--title", "", "tracker:ABC-3", "support"}, "adopt", "drop --title"},
 		"unknown workstream":         {handWritten, []string{"rename", "support", "Support"}, "retitle", "support"},
 		"title is another id":        {handWritten, []string{"rename", "billing", "onboarding"}, "retitle", "onboarding"},
 		"clear an unknown":           {handWritten, []string{"rename", "--clear", "support"}, "retitle", "support"},
@@ -261,13 +265,15 @@ func TestTitleRefusals(t *testing.T) {
 
 func TestAHandWrittenTitleMustBeUsable(t *testing.T) {
 	for name, c := range map[string]struct{ title, mention string }{
-		"blank":           {`"   "`, "visible text"},
-		"empty":           {`""`, "visible text"},
-		"line break":      {`"a\nb"`, "line break"},
-		"another's id":    {"onboarding", `is the id of workstream "onboarding"`},
-		"not a string":    {"[a, b]", "must be text"},
-		"a mapping value": {"{a: b}", "must be text"},
-		"a number":        {"42", "must be text"},
+		"blank":            {`"   "`, "visible text"},
+		"empty":            {`""`, "visible text"},
+		"line break":       {`"a\nb"`, "line break"},
+		"another's id":     {"onboarding", `is the id of workstream "onboarding"`},
+		"not a string":     {"[a, b]", "must be text"},
+		"a mapping value":  {"{a: b}", "must be text"},
+		"a number":         {"42", "quote it"},
+		"nothing":          {"", "visible text"},
+		"a line separator": {`"a b"`, "line break"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
@@ -277,6 +283,15 @@ func TestAHandWrittenTitleMustBeUsable(t *testing.T) {
 				t.Errorf("exit code = %d, stdout = %q, stderr = %q, want the billing title refused mentioning %q", code, stdout, stderr, c.mention)
 			}
 		})
+	}
+}
+
+func TestAnIDMayChangeToTheWorkstreamsOwnTitle(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", strings.Replace(handWritten, "  - name: billing\n", "  - name: billing\n    title: ledger\n", 1))
+	f.mustRun("rename", "--id", "billing", "ledger")
+	if names := workstreamNames(f.read()); !slices.Equal(names, []string{"ledger", "onboarding"}) {
+		t.Errorf("workstreams = %v, want billing's id changed to its own title", names)
 	}
 }
 

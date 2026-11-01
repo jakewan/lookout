@@ -102,7 +102,7 @@ func (d *Document) Adopt(member Member, workstream string, create bool) ([]strin
 		return nil, Refuse("workstream %q is complete, since %s: delete its completed line to reopen it first", workstream, d.cfg.Workstreams[idx].Completed)
 	}
 	if idx < 0 {
-		if err := d.idFree(workstream); err != nil {
+		if err := d.idFree(workstream, ""); err != nil {
 			return nil, err
 		}
 	}
@@ -173,7 +173,7 @@ func (d *Document) Move(member Member, workstream string, create bool) ([]string
 		return nil, Refuse("workstream %q is complete, since %s: delete its completed line to reopen it first", workstream, d.cfg.Workstreams[idx].Completed)
 	}
 	if idx < 0 {
-		if err := d.idFree(workstream); err != nil {
+		if err := d.idFree(workstream, ""); err != nil {
 			return nil, err
 		}
 	}
@@ -265,7 +265,7 @@ func (d *Document) Rename(workstream, name string) error {
 	case slices.ContainsFunc(d.cfg.Workstreams, func(w Workstream) bool { return w.Name == name }):
 		return Refuse("workstream %q already exists: choose another name", name)
 	}
-	if err := d.idFree(name); err != nil {
+	if err := d.idFree(name, workstream); err != nil {
 		return err
 	}
 	scalar, err := scalarText(name)
@@ -292,7 +292,9 @@ func (d *Document) SetTitle(workstream, title string) error {
 	if err != nil {
 		return err
 	}
-	if titleErr := checkTitle(title); titleErr != nil {
+	if titleErr := CheckTitle(title); errors.Is(titleErr, ErrNoVisibleText) {
+		return Refuse("%v: to show the id instead, use lookout rename --clear", titleErr)
+	} else if titleErr != nil {
 		return titleErr
 	}
 	if other, clash := titleClash(d.cfg.Workstreams, workstream, title); clash {
@@ -347,11 +349,12 @@ func (d *Document) titleTarget(workstream string) (int, *layout, error) {
 	return idx, l, nil
 }
 
-// idFree refuses an id that another workstream already carries as its title,
-// which a reader of a view could not tell apart from it.
-func (d *Document) idFree(id string) error {
+// idFree refuses an id that a workstream other than self already carries as
+// its title, which a reader of a view could not tell apart from it; self is
+// the workstream taking the id, or empty for one being created.
+func (d *Document) idFree(id, self string) error {
 	for _, w := range d.cfg.Workstreams {
-		if w.Title == id && w.Name != id {
+		if w.Title == id && w.Name != id && w.Name != self {
 			return Refuse("workstream %q has the title %q, so an id %q would read as that workstream: choose another id", w.Name, id, id)
 		}
 	}

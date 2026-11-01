@@ -133,14 +133,23 @@ func (w Workstream) CompletedThrough(loc *time.Location) time.Time {
 	return day.AddDate(0, 0, 1)
 }
 
-// checkTitle reports a title a person could not read as a label: one with no
-// visible text, or one that would break the line it is shown on.
-func checkTitle(title string) error {
-	switch {
-	case strings.TrimSpace(title) == "":
-		return Refuse("a title needs visible text: to show the id instead, use lookout rename --clear")
-	case strings.ContainsAny(title, "\r\n"):
+// ErrNoVisibleText is CheckTitle's refusal of a title nothing in which would
+// show, so a caller can add how to do without one.
+var ErrNoVisibleText = Refuse("a title needs visible text")
+
+// lineBreaks are the characters Unicode treats as ending a line, any of which
+// would break a title across the line it is shown on.
+const lineBreaks = "\n\v\f\r\u0085  "
+
+// CheckTitle reports a title a person could not read as a label: one with no
+// character that shows, such as one of only spaces or zero-width characters,
+// or one holding a line break.
+func CheckTitle(title string) error {
+	if strings.ContainsAny(title, lineBreaks) {
 		return Refuse("%q contains a line break, which a title cannot hold", title)
+	}
+	if !strings.ContainsFunc(title, func(r rune) bool { return unicode.IsGraphic(r) && !unicode.IsSpace(r) }) {
+		return ErrNoVisibleText
 	}
 	return nil
 }
@@ -692,10 +701,18 @@ func parse(data []byte, path string) (*Config, error) {
 		}
 		w := Workstream{Name: ws.Name, Completed: ws.Completed}
 		if ws.Title.Kind != 0 {
-			if ws.Title.Kind != yaml.ScalarNode || ws.Title.Tag != "!!str" {
+			switch {
+			case ws.Title.Kind == yaml.ScalarNode && ws.Title.Tag == "!!null":
+				return nil, fmt.Errorf("workstream %q title: %w: give it some, or remove the title line", ws.Name, ErrNoVisibleText)
+			case ws.Title.Kind == yaml.ScalarNode && ws.Title.Tag != "!!str":
+				return nil, fmt.Errorf("workstream %q title must be text: quote it, such as title: %q", ws.Name, ws.Title.Value)
+			case ws.Title.Kind != yaml.ScalarNode:
 				return nil, fmt.Errorf("workstream %q title must be text, such as title: Billing export", ws.Name)
 			}
-			if titleErr := checkTitle(ws.Title.Value); titleErr != nil {
+			if titleErr := CheckTitle(ws.Title.Value); titleErr != nil {
+				if errors.Is(titleErr, ErrNoVisibleText) {
+					return nil, fmt.Errorf("workstream %q title: %w: give it some, or remove the title line", ws.Name, titleErr)
+				}
 				return nil, fmt.Errorf("workstream %q title: %w", ws.Name, titleErr)
 			}
 			w.Title = ws.Title.Value

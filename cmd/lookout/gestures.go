@@ -47,6 +47,9 @@ func place(name string, args []string, env environment, diag *log.Logger, put fu
 	g := state.Gesture{Gesture: name, Item: m.Input + ":" + m.ID, Workstream: pos[1], New: *create, To: *title}
 	return record(env, diag, fs.Name(), *setting, g, func(path string, g *state.Gesture) error {
 		return edit(path, func(d *config.Document) error {
+			if titled && errors.Is(config.CheckTitle(*title), config.ErrNoVisibleText) {
+				return config.Refuse("%v: give the new workstream one with --title, or drop --title to show its id", config.ErrNoVisibleText)
+			}
 			from, err := put(d, m, pos[1], *create)
 			g.From = from
 			if err != nil || !titled {
