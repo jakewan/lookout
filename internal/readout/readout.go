@@ -72,6 +72,7 @@ type Readout struct {
 // Workstream is one workstream's figures.
 type Workstream struct {
 	Name             string     `json:"name"`
+	Title            string     `json:"title,omitempty"`
 	LastTouched      *time.Time `json:"last_touched"`
 	IdleSeconds      *int64     `json:"idle_seconds"`
 	StartedAt        *time.Time `json:"started_at"`
@@ -272,7 +273,7 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 		if ws.Completed != "" {
 			continue
 		}
-		w := Workstream{Name: ws.Name, Events: make([]Event, 0), InputsIncomplete: make([]string, 0), MembersUnread: make([]string, 0), Items: make([]Placed, 0, len(ws.Members))}
+		w := Workstream{Name: ws.Name, Title: ws.Title, Events: make([]Event, 0), InputsIncomplete: make([]string, 0), MembersUnread: make([]string, 0), Items: make([]Placed, 0, len(ws.Members))}
 		incomplete := func(input string) {
 			status := readings[input].Health.Status
 			if (status == health.Error || status == health.Degraded) && !slices.Contains(w.InputsIncomplete, input) {

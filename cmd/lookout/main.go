@@ -26,13 +26,15 @@ const usage = `usage:
   lookout show [--setting <name>]
   lookout view [--setting <name> | --readout <file|->]
   lookout unplaced [--setting <name>]
-  lookout adopt [--setting <name>] [--new] <input>:<id> <workstream>
+  lookout adopt [--setting <name>] [--new [--title <title>]] <input>:<id> <workstream>
   lookout dismiss [--setting <name>] <input>:<id>
   lookout order [--setting <name>] <workstream>...
   lookout complete [--setting <name>] <workstream>
-  lookout move [--setting <name>] [--new] <input>:<id> <workstream>
+  lookout move [--setting <name>] [--new [--title <title>]] <input>:<id> <workstream>
   lookout remove [--setting <name>] <input>:<id>
-  lookout rename [--setting <name>] <workstream> <new-name>
+  lookout rename [--setting <name>] <workstream> <title>
+  lookout rename [--setting <name>] --clear <workstream>
+  lookout rename [--setting <name>] --id <workstream> <new-id>
   lookout snapshot [--setting <name>]`
 
 // environment is what an invocation reads from the process beyond its

@@ -121,7 +121,9 @@ type readoutDoc struct {
 	Setting            string `json:"setting"`
 	EventWindowSeconds int64  `json:"event_window_seconds"`
 	Workstreams        []struct {
-		Name             string      `json:"name"`
+		Name string `json:"name"`
+		// Title is a pointer so a spec can tell an omitted title from an empty one.
+		Title            *string     `json:"title"`
 		LastTouched      *string     `json:"last_touched"`
 		IdleSeconds      *int64      `json:"idle_seconds"`
 		StartedAt        *string     `json:"started_at"`

@@ -39,6 +39,7 @@ type readout struct {
 
 type rawStream struct {
 	Name             string      `json:"name"`
+	Title            string      `json:"title"`
 	IdleSeconds      *int64      `json:"idle_seconds"`
 	AgeSeconds       *int64      `json:"age_seconds"`
 	Events           []rawEvent  `json:"events"`
@@ -121,9 +122,12 @@ type workstream struct {
 	Anchor string
 	// Behind marks a workstream quieter than one ranked below it.
 	Behind bool
-	Name   string
-	Idle   string
-	Age    string
+	// Name is the id commands take; Title is what the user called it, or
+	// empty, in which case the id is the label.
+	Name  string
+	Title string
+	Idle  string
+	Age   string
 	// Unread and Stale are viewrules.Marker's verdicts, so the template
 	// branches on them rather than on the marker's spelling.
 	Unread     bool
@@ -258,6 +262,7 @@ func workstreamOf(ws rawStream, order viewrules.Order, generated time.Time, wind
 	marker := viewrules.Marker(ws.IdleSeconds, window)
 	out := workstream{
 		Name:       viewrules.Clean(ws.Name),
+		Title:      viewrules.Clean(ws.Title),
 		Idle:       viewrules.Age(ws.IdleSeconds),
 		Age:        viewrules.Age(ws.AgeSeconds),
 		Unread:     marker == viewrules.Unread,

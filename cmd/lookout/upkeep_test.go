@@ -221,13 +221,13 @@ func TestRemovingTheLastMemberEndsTheExpectationItImplied(t *testing.T) {
 	}
 }
 
-func TestRenameKeepsTheWorkstreamInPlace(t *testing.T) {
+func TestRenameIDKeepsTheWorkstreamInPlace(t *testing.T) {
 	commented := strings.Replace(handWritten, "  - name: billing\n", "  - name: billing   # spring release\n", 1)
 	f := newFixture(t)
 	f.write("personal.yml", commented)
 	f.supplied("tracker.json", trackerItems())
 
-	f.mustRun("rename", "billing", "billing-2030")
+	f.mustRun("rename", "--id", "billing", "billing-2030")
 
 	want := strings.Replace(commented, "  - name: billing   # spring release\n", "  - name: billing-2030   # spring release\n", 1)
 	if got := f.config("personal.yml"); got != want {
@@ -249,18 +249,18 @@ func TestRenameKeepsTheWorkstreamInPlace(t *testing.T) {
 	}
 }
 
-func TestRenameQuotesANameThatNeedsIt(t *testing.T) {
+func TestRenameIDQuotesANameThatNeedsIt(t *testing.T) {
 	f := newFixture(t)
 	f.write("personal.yml", handWritten)
 
-	f.mustRun("rename", "onboarding", "q: #2")
+	f.mustRun("rename", "--id", "onboarding", "q: #2")
 
 	if names := workstreamNames(f.read()); !slices.Equal(names, []string{"billing", "q: #2"}) {
 		t.Errorf("workstreams = %v, want the name read back exactly", names)
 	}
 }
 
-func TestRenameRefusals(t *testing.T) {
+func TestRenameIDRefusals(t *testing.T) {
 	cases := map[string]struct {
 		args    []string
 		mention string
@@ -274,14 +274,14 @@ func TestRenameRefusals(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
 			f.write("personal.yml", handWritten)
-			f.refusedUnchanged(handWritten, "rename", c.mention, c.args...)
+			f.refusedUnchanged(handWritten, "rename", c.mention, append([]string{"--id"}, c.args...)...)
 		})
 	}
 }
 
 func TestNamesAndTokensAreRefusedWhenNotUTF8OrEmpty(t *testing.T) {
 	for name, args := range map[string][]string{
-		"rename to bytes that are not UTF-8":    {"rename", "billing", "bill\xffing"},
+		"rename to bytes that are not UTF-8":    {"rename", "--id", "billing", "bill\xffing"},
 		"move to a new unnamed workstream":      {"move", "--new", "tracker:ABC-1", ""},
 		"adopt into a new unnamed workstream":   {"adopt", "--new", "tracker:ABC-3", ""},
 		"adopt into a new non-UTF-8 workstream": {"adopt", "--new", "tracker:ABC-3", "\xff"},

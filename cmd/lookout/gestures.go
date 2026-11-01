@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -16,26 +17,45 @@ import (
 
 // adopt adds an item to a workstream in the configuration file.
 func adopt(_ context.Context, args []string, env environment, _ io.Writer, diag *log.Logger) int {
-	fs, setting := newFlags("adopt")
+	return place("adopt", args, env, diag, (*config.Document).Adopt)
+}
+
+// place runs adopt or move: each puts an item in a workstream, created at the
+// end of the order with --new, which may then be given a title.
+func place(name string, args []string, env environment, diag *log.Logger, put func(*config.Document, config.Member, string, bool) ([]string, error)) int {
+	fs, setting := newFlags(name)
 	create := fs.Bool("new", false, "")
+	title := fs.String("title", "", "")
 	pos, ok := parseFlags(fs, setting, args, diag)
 	if !ok {
 		return exitUsage
 	}
 	if len(pos) != 2 {
-		diag.Printf("lookout adopt: want an item and a workstream\n%s", usage)
+		diag.Printf("lookout %s: want an item and a workstream\n%s", name, usage)
 		return exitUsage
 	}
-	m, ok := memberArg("adopt", pos[0], diag)
+	titled := false
+	fs.Visit(func(f *flag.Flag) { titled = titled || f.Name == "title" })
+	if titled && !*create {
+		diag.Printf("lookout %s: --title applies only with --new: to title a workstream that exists, use lookout rename\n%s", name, usage)
+		return exitUsage
+	}
+	m, ok := memberArg(name, pos[0], diag)
 	if !ok {
 		return exitUsage
 	}
-	g := state.Gesture{Gesture: "adopt", Item: m.Input + ":" + m.ID, Workstream: pos[1], New: *create}
-	return record(env, diag, *setting, g, func(path string, g *state.Gesture) error {
+	g := state.Gesture{Gesture: name, Item: m.Input + ":" + m.ID, Workstream: pos[1], New: *create, To: *title}
+	return record(env, diag, fs.Name(), *setting, g, func(path string, g *state.Gesture) error {
 		return edit(path, func(d *config.Document) error {
-			from, err := d.Adopt(m, pos[1], *create)
+			if titled && errors.Is(config.CheckTitle(*title), config.ErrNoVisibleText) {
+				return config.Refuse("%v: give the new workstream one with --title, or drop --title to show its id", config.ErrNoVisibleText)
+			}
+			from, err := put(d, m, pos[1], *create)
 			g.From = from
-			return err
+			if err != nil || !titled {
+				return err
+			}
+			return d.SetTitle(pos[1], *title)
 		})
 	})
 }
@@ -52,7 +72,7 @@ func order(_ context.Context, args []string, env environment, _ io.Writer, diag 
 		return exitUsage
 	}
 	g := state.Gesture{Gesture: "order", Workstreams: pos}
-	return record(env, diag, *setting, g, func(path string, _ *state.Gesture) error {
+	return record(env, diag, fs.Name(), *setting, g, func(path string, _ *state.Gesture) error {
 		return edit(path, func(d *config.Document) error { return d.Order(pos) })
 	})
 }
@@ -70,35 +90,14 @@ func complete(_ context.Context, args []string, env environment, _ io.Writer, di
 	}
 	date := env.now().Format("2006-01-02")
 	g := state.Gesture{Gesture: "complete", Workstream: pos[0], Date: date}
-	return record(env, diag, *setting, g, func(path string, _ *state.Gesture) error {
+	return record(env, diag, fs.Name(), *setting, g, func(path string, _ *state.Gesture) error {
 		return edit(path, func(d *config.Document) error { return d.Complete(pos[0], date) })
 	})
 }
 
 // move takes an item out of its workstream and into another.
 func move(_ context.Context, args []string, env environment, _ io.Writer, diag *log.Logger) int {
-	fs, setting := newFlags("move")
-	create := fs.Bool("new", false, "")
-	pos, ok := parseFlags(fs, setting, args, diag)
-	if !ok {
-		return exitUsage
-	}
-	if len(pos) != 2 {
-		diag.Printf("lookout move: want an item and a workstream\n%s", usage)
-		return exitUsage
-	}
-	m, ok := memberArg("move", pos[0], diag)
-	if !ok {
-		return exitUsage
-	}
-	g := state.Gesture{Gesture: "move", Item: m.Input + ":" + m.ID, Workstream: pos[1], New: *create}
-	return record(env, diag, *setting, g, func(path string, g *state.Gesture) error {
-		return edit(path, func(d *config.Document) error {
-			from, err := d.Move(m, pos[1], *create)
-			g.From = from
-			return err
-		})
-	})
+	return place("move", args, env, diag, (*config.Document).Move)
 }
 
 // remove takes an item out of every workstream that lists it.
@@ -117,7 +116,7 @@ func remove(_ context.Context, args []string, env environment, _ io.Writer, diag
 		return exitUsage
 	}
 	g := state.Gesture{Gesture: "remove", Item: m.Input + ":" + m.ID}
-	return record(env, diag, *setting, g, func(path string, g *state.Gesture) error {
+	return record(env, diag, fs.Name(), *setting, g, func(path string, g *state.Gesture) error {
 		return edit(path, func(d *config.Document) error {
 			from, err := d.Remove(m)
 			g.From = from
@@ -126,21 +125,52 @@ func remove(_ context.Context, args []string, env environment, _ io.Writer, diag
 	})
 }
 
-// rename gives a workstream a new name.
+// rename gives a workstream a new title, keeping its id; with --clear it
+// removes the title, and with --id it changes the id instead.
 func rename(_ context.Context, args []string, env environment, _ io.Writer, diag *log.Logger) int {
 	fs, setting := newFlags("rename")
+	id := fs.Bool("id", false, "")
+	clearTitle := fs.Bool("clear", false, "")
 	pos, ok := parseFlags(fs, setting, args, diag)
 	if !ok {
 		return exitUsage
 	}
-	if len(pos) != 2 {
-		diag.Printf("lookout rename: want a workstream and its new name\n%s", usage)
+	switch {
+	case *id && *clearTitle:
+		diag.Printf("lookout rename: --id and --clear cannot be combined\n%s", usage)
+		return exitUsage
+	case *clearTitle && len(pos) != 1:
+		diag.Printf("lookout rename: --clear wants one workstream\n%s", usage)
+		return exitUsage
+	case *id && len(pos) != 2:
+		diag.Printf("lookout rename: want a workstream and its new id\n%s", usage)
+		return exitUsage
+	case !*id && !*clearTitle && len(pos) != 2:
+		diag.Printf("lookout rename: want a workstream and its new title\n%s", usage)
 		return exitUsage
 	}
-	g := state.Gesture{Gesture: "rename", Workstream: pos[0], To: pos[1]}
-	return record(env, diag, *setting, g, func(path string, _ *state.Gesture) error {
-		return edit(path, func(d *config.Document) error { return d.Rename(pos[0], pos[1]) })
+	if *id {
+		g := state.Gesture{Gesture: "rename", Workstream: pos[0], To: pos[1]}
+		return record(env, diag, fs.Name(), *setting, g, func(path string, _ *state.Gesture) error {
+			return edit(path, func(d *config.Document) error { return d.Rename(pos[0], pos[1]) })
+		})
+	}
+	// Title changes are logged apart from id changes, so the baseline, which
+	// follows a workstream across logged renames, never takes a title for an id.
+	g := state.Gesture{Gesture: "retitle", Workstream: pos[0]}
+	if *clearTitle {
+		return record(env, diag, fs.Name(), *setting, g, func(path string, _ *state.Gesture) error {
+			return edit(path, func(d *config.Document) error { return d.ClearTitle(pos[0]) })
+		})
+	}
+	g.To = pos[1]
+	code := record(env, diag, fs.Name(), *setting, g, func(path string, _ *state.Gesture) error {
+		return edit(path, func(d *config.Document) error { return d.SetTitle(pos[0], pos[1]) })
 	})
+	if code == 0 {
+		diag.Printf("lookout rename: set the title of %q; its id is unchanged (to change the id, use lookout rename --id)", pos[0])
+	}
+	return code
 }
 
 // dismiss hides an unplaced item until it is touched again. It writes only to
@@ -160,7 +190,7 @@ func dismiss(_ context.Context, args []string, env environment, _ io.Writer, dia
 		return exitUsage
 	}
 	g := state.Gesture{Gesture: "dismiss", Item: m.Input + ":" + m.ID}
-	return record(env, diag, *setting, g, func(path string, _ *state.Gesture) error {
+	return record(env, diag, fs.Name(), *setting, g, func(path string, _ *state.Gesture) error {
 		cfg, err := config.Load(path)
 		if err != nil {
 			return err
@@ -213,8 +243,7 @@ func edit(path string, change func(*config.Document) error) error {
 // record runs one gesture against the located setting and appends it to the
 // gesture log whatever its outcome, since a refused attempt is upkeep too. A
 // failure to find the setting records nothing: there is no log to write to.
-func record(env environment, diag *log.Logger, setting string, g state.Gesture, act func(path string, g *state.Gesture) error) int {
-	cmd := g.Gesture
+func record(env environment, diag *log.Logger, cmd, setting string, g state.Gesture, act func(path string, g *state.Gesture) error) int {
 	loc, err := locate(env, setting, state.Write)
 	if err != nil {
 		diag.Printf("lookout %s: %v", cmd, err)

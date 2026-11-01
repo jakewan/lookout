@@ -101,6 +101,11 @@ func (d *Document) Adopt(member Member, workstream string, create bool) ([]strin
 	case idx >= 0 && d.cfg.Workstreams[idx].Completed != "":
 		return nil, Refuse("workstream %q is complete, since %s: delete its completed line to reopen it first", workstream, d.cfg.Workstreams[idx].Completed)
 	}
+	if idx < 0 {
+		if err := d.idFree(workstream, ""); err != nil {
+			return nil, err
+		}
+	}
 	scalar, err := scalarText(token)
 	if err != nil {
 		return nil, err
@@ -166,6 +171,11 @@ func (d *Document) Move(member Member, workstream string, create bool) ([]string
 		return nil, Refuse("workstream %q already exists: drop --new to move to it", workstream)
 	case idx >= 0 && d.cfg.Workstreams[idx].Completed != "":
 		return nil, Refuse("workstream %q is complete, since %s: delete its completed line to reopen it first", workstream, d.cfg.Workstreams[idx].Completed)
+	}
+	if idx < 0 {
+		if err := d.idFree(workstream, ""); err != nil {
+			return nil, err
+		}
 	}
 	scalar, err := scalarText(token)
 	if err != nil {
@@ -241,7 +251,7 @@ func (d *Document) removed(member Member, from []int) (string, []string, error) 
 	return text, names, nil
 }
 
-// Rename gives the named workstream, live or completed, a new name, changing
+// Rename gives the named workstream, live or completed, a new id, changing
 // only the text of its name.
 func (d *Document) Rename(workstream, name string) error {
 	idx := slices.IndexFunc(d.cfg.Workstreams, func(w Workstream) bool { return w.Name == workstream })
@@ -255,6 +265,9 @@ func (d *Document) Rename(workstream, name string) error {
 	case slices.ContainsFunc(d.cfg.Workstreams, func(w Workstream) bool { return w.Name == name }):
 		return Refuse("workstream %q already exists: choose another name", name)
 	}
+	if err := d.idFree(name, workstream); err != nil {
+		return err
+	}
 	scalar, err := scalarText(name)
 	if err != nil {
 		return err
@@ -263,13 +276,89 @@ func (d *Document) Rename(workstream, name string) error {
 	if err != nil {
 		return err
 	}
-	text, err := l.rename(idx, scalar)
+	text, err := l.replaceValue(l.items[idx].nameValue, scalar, "workstream name")
 	if err != nil {
 		return err
 	}
 	want := d.cfg.clone()
 	want.Workstreams = Renamed(d.cfg.Workstreams, workstream, name)
 	return d.apply([]byte(text), want)
+}
+
+// SetTitle gives the named workstream, live or completed, title as the label a
+// person reads, keeping its id.
+func (d *Document) SetTitle(workstream, title string) error {
+	idx, l, err := d.titleTarget(workstream)
+	if err != nil {
+		return err
+	}
+	if titleErr := CheckTitle(title); errors.Is(titleErr, ErrNoVisibleText) {
+		return Refuse("%v: to show the id instead, use lookout rename --clear", titleErr)
+	} else if titleErr != nil {
+		return titleErr
+	}
+	if other, clash := titleClash(d.cfg.Workstreams, workstream, title); clash {
+		return Refuse("%q is the id of workstream %q, so as a title it would name the wrong workstream: choose another title", title, other)
+	}
+	scalar, err := scalarText(title)
+	if err != nil {
+		return err
+	}
+	want := d.cfg.clone()
+	want.Workstreams = Titled(d.cfg.Workstreams, workstream, title)
+	it := l.items[idx]
+	if it.titleValue == nil {
+		return d.apply([]byte(l.addKey(idx, "title: "+scalar)), want)
+	}
+	text, err := l.replaceValue(it.titleValue, scalar, "workstream title")
+	if err != nil {
+		return err
+	}
+	return d.apply([]byte(text), want)
+}
+
+// ClearTitle removes the named workstream's title, so its id is shown instead.
+// A workstream with none is left as it is.
+func (d *Document) ClearTitle(workstream string) error {
+	idx, l, err := d.titleTarget(workstream)
+	if err != nil {
+		return err
+	}
+	it := l.items[idx]
+	if it.titleValue == nil {
+		return nil
+	}
+	if !l.lineHoldsOnly(it.titleKey) {
+		return Refuse("the title at line %d shares its line with the start of the workstream: move name: to the first line, then run the command again", it.titleKey.Line)
+	}
+	want := d.cfg.clone()
+	want.Workstreams = Titled(d.cfg.Workstreams, workstream, "")
+	at := it.titleKey.Line - 1
+	return d.apply([]byte(l.join(l.lines[:at], l.lines[at+1:])), want)
+}
+
+func (d *Document) titleTarget(workstream string) (int, *layout, error) {
+	idx := slices.IndexFunc(d.cfg.Workstreams, func(w Workstream) bool { return w.Name == workstream })
+	if idx < 0 {
+		return 0, nil, Refuse("no workstream %q", workstream)
+	}
+	l, err := parseLayout(d.data)
+	if err != nil {
+		return 0, nil, err
+	}
+	return idx, l, nil
+}
+
+// idFree refuses an id that a workstream other than self already carries as
+// its title, which a reader of a view could not tell apart from it; self is
+// the workstream taking the id, or empty for one being created.
+func (d *Document) idFree(id, self string) error {
+	for _, w := range d.cfg.Workstreams {
+		if w.Title == id && w.Name != id && w.Name != self {
+			return Refuse("workstream %q has the title %q, so an id %q would read as that workstream: choose another id", w.Name, id, id)
+		}
+	}
+	return nil
 }
 
 // Order moves the named workstreams to the front, in the order given; the rest
@@ -525,6 +614,17 @@ func Renamed(ws []Workstream, workstream, name string) []Workstream {
 	return out
 }
 
+// Titled is ws with the named workstream given title, or none when it is empty.
+func Titled(ws []Workstream, workstream, title string) []Workstream {
+	out := cloneWorkstreams(ws)
+	for i := range out {
+		if out[i].Name == workstream {
+			out[i].Title = title
+		}
+	}
+	return out
+}
+
 // without is members less member; an emptied list is nil, as Parse reads a
 // members key with nothing under it.
 func without(members []Member, member Member) []Member {
@@ -569,9 +669,11 @@ type wsItem struct {
 	dash      int    // index of the line holding the item's "- "
 	prefix    string // the text before its first key, such as "  - "
 	nameValue *yaml.Node
-	members   *yaml.Node // nil when it has no members key
-	membersK  *yaml.Node
-	completed bool // it has a completed key, even an empty one
+	// titleKey and titleValue are its title entry, or nil when it has none.
+	titleKey, titleValue *yaml.Node
+	members              *yaml.Node // nil when it has no members key
+	membersK             *yaml.Node
+	completed            bool // it has a completed key, even an empty one
 }
 
 var dashPrefix = regexp.MustCompile(`^ *- +$`)
@@ -687,6 +789,11 @@ func (l *layout) item(n *yaml.Node) (wsItem, error) {
 				return wsItem{}, Refuse("the workstream name at line %d must be written on one line, on the same line as name:", k.Line)
 			}
 			it.nameValue = v
+		case "title":
+			if v.Kind != yaml.ScalarNode || v.Line != k.Line || !l.onOneLine(v, false) {
+				return wsItem{}, Refuse("the workstream title at line %d must be written on one line, on the same line as title:", k.Line)
+			}
+			it.titleKey, it.titleValue = k, v
 		case "completed":
 			it.completed = true
 		case "members":
@@ -726,6 +833,14 @@ func (l *layout) onOneLine(n *yaml.Node, inSequence bool) bool {
 	var alone map[string]string
 	err := yaml.Unmarshal(append([]byte("k: "), rest...), &alone)
 	return err == nil && len(alone) == 1 && alone["k"] == n.Value
+}
+
+// lineHoldsOnly reports whether the line holding key starts with it, after
+// spaces, so that, with its value on that line alone, deleting the line
+// removes nothing else, as it would a workstream's "- " written before it.
+func (l *layout) lineHoldsOnly(key *yaml.Node) bool {
+	line := l.lines[key.Line-1]
+	return key.Column-1 <= len(line) && strings.TrimLeft(line[:key.Column-1], " ") == ""
 }
 
 func isComment(line string) bool { return strings.HasPrefix(strings.TrimSpace(line), "#") }
@@ -856,12 +971,12 @@ func (l *layout) removeMember(idx int, token string) (string, error) {
 	return "", fmt.Errorf("workstream %q does not list %s", it.nameValue.Value, token)
 }
 
-// rename replaces the text of the workstream's name, keeping whatever follows
-// it on the line, such as a comment, as written. The value's end is the first
-// point at which the text before it reads alone as the name and only a comment
-// or nothing follows; the name is on one line, as parseLayout checks.
-func (l *layout) rename(idx int, scalar string) (string, error) {
-	v := l.items[idx].nameValue
+// replaceValue replaces the text of a one-line mapping value, such as a
+// workstream's name or title, keeping whatever follows it on the line, such as
+// a comment, as written. The value's end is the first point at which the text
+// before it reads alone as the value and only a comment or nothing follows;
+// what names the value in a refusal.
+func (l *layout) replaceValue(v *yaml.Node, scalar, what string) (string, error) {
 	at := v.Line - 1
 	line := l.lines[at]
 	body := strings.TrimRight(line, "\r\n")
@@ -878,7 +993,7 @@ func (l *layout) rename(idx int, scalar string) (string, error) {
 		renamed := body[:start] + scalar + rest + line[len(body):]
 		return l.join(l.lines[:at], []string{renamed}, l.lines[at+1:]), nil
 	}
-	return "", Refuse("the workstream name at line %d could not be told apart from what follows it on the line", v.Line)
+	return "", Refuse("the %s at line %d could not be told apart from what follows it on the line", what, v.Line)
 }
 
 func (l *layout) addWorkstream(name, scalar string) (string, error) {

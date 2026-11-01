@@ -467,6 +467,39 @@ func TestTheTitleNamesNoSettingOrWorkstream(t *testing.T) {
 	if !strings.Contains(out, "<title>lookout</title>") {
 		t.Error("the title is not the generic one")
 	}
+	// A workstream's own title is no more fit for the browser tab than its id.
+	if strings.Contains(out, "<title>Billing") {
+		t.Error("a workstream title reached the page's title")
+	}
+}
+
+func TestAWorkstreamTitleLeadsAndItsIDStaysBesideIt(t *testing.T) {
+	p := pageOf(t, busy(t))
+	billing := p.Workstreams[1]
+	if billing.Title != "Billing export to the ledger" || billing.Name != "billing-export" {
+		t.Errorf("billing = title %q, name %q, want the readout's title and id", billing.Title, billing.Name)
+	}
+	if search := p.Workstreams[0]; search.Title != "" {
+		t.Errorf("search-revamp title = %q, want none for a workstream without one", search.Title)
+	}
+	out := render(t, busy(t))
+	for _, want := range []string{`<bdi>Billing export to the ledger</bdi>`, `<span class="wsid"><bdi>billing-export</bdi></span>`} {
+		if n := strings.Count(out, want); n != 2 {
+			t.Errorf("page shows %s %d times, want once in the overview and once in the detail", want, n)
+		}
+	}
+}
+
+func TestTitlesAreShownNotObeyed(t *testing.T) {
+	doc := busy(t)
+	record(workstreams(doc)[1])["title"] = "<b>bold</b>\u202eevil"
+	out := render(t, doc)
+	if strings.Contains(out, "<b>bold</b>") || strings.Contains(out, "\u202e") {
+		t.Error("markup or a bidirectional override in a title reached the page")
+	}
+	if !strings.Contains(out, `<bdi>&#34;&lt;b&gt;bold&lt;/b&gt;\u202eevil&#34;</bdi>`) {
+		t.Error("the title is not shown escaped and isolated")
+	}
 }
 
 func TestNamesAreShownNotObeyed(t *testing.T) {

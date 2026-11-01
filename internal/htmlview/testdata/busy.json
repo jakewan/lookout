@@ -233,6 +233,7 @@
     },
     {
       "name": "billing-export",
+      "title": "Billing export to the ledger",
       "last_touched": "2030-06-15T07:00:00Z",
       "idle_seconds": 18000,
       "started_at": "2030-06-06T12:00:00Z",
