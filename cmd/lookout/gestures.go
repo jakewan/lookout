@@ -168,7 +168,7 @@ func rename(_ context.Context, args []string, env environment, _ io.Writer, diag
 		return edit(path, func(d *config.Document) error { return d.SetTitle(pos[0], pos[1]) })
 	})
 	if code == 0 {
-		diag.Printf("lookout rename: set the title of %s; its id is unchanged (to change the id, use lookout rename --id)", pos[0])
+		diag.Printf("lookout rename: set the title of %q; its id is unchanged (to change the id, use lookout rename --id)", pos[0])
 	}
 	return code
 }

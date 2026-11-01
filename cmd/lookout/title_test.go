@@ -120,6 +120,18 @@ func TestRenameSetsTheTitleAndKeepsTheID(t *testing.T) {
 	}
 }
 
+func TestTheRetitleNoteShowsTheIDEscaped(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", strings.Replace(handWritten, "  - name: billing\n", "  - name: \"billing\\e[2J\"\n", 1))
+	code, _, stderr := f.run("rename", "billing\x1b[2J", "Billing export")
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	if strings.Contains(stderr, "\x1b") || !strings.Contains(stderr, `"billing\x1b[2J"`) {
+		t.Errorf("stderr = %q, want the id shown escaped, never driving the terminal", stderr)
+	}
+}
+
 func TestRenameReplacesATitleKeepingItsComment(t *testing.T) {
 	f := newFixture(t)
 	f.write("personal.yml", titledConfig)
