@@ -322,38 +322,20 @@ func workstreamOf(ws rawStream, order viewrules.Order, generated time.Time, wind
 		Stale:      marker == viewrules.Stale,
 		Incomplete: cleanAll(ws.InputsIncomplete),
 	}
-	// Each input's members come first, in the configuration's order, then the
-	// members no input supplied, then what the workstream joined; so a join
-	// never reads as a membership.
-	members := map[string][]item{}
-	unread := map[string][]item{}
-	joins := map[string][]item{}
-	var inputs []string
-	seen := func(in string) {
-		if !slices.Contains(inputs, in) {
-			inputs = append(inputs, in)
+	// The lists and the map take what a workstream holds in one order, so
+	// the two views of it cannot come to disagree.
+	last := ""
+	for _, e := range entriesOf(ws, order) {
+		shown := item{ID: viewrules.Clean(e.id), Unread: true}
+		if e.placed != nil {
+			shown = itemOf(*e.placed)
 		}
-	}
-	for _, it := range ws.Items {
-		seen(it.Input)
-		shown := itemOf(it)
-		if it.Joined != nil {
-			joins[it.Input] = append(joins[it.Input], shown)
-			continue
+		if len(out.Groups) == 0 || e.input != last {
+			out.Groups = append(out.Groups, group{Input: viewrules.Clean(e.input)})
+			last = e.input
 		}
-		members[it.Input] = append(members[it.Input], shown)
-	}
-	for _, m := range ws.MembersUnread {
-		// readout.v1 writes a member as <input>:<id>, and an input's name
-		// holds no colon, so the first one ends it.
-		in, id, _ := strings.Cut(m, ":")
-		seen(in)
-		unread[in] = append(unread[in], item{ID: viewrules.Clean(id), Unread: true})
-	}
-	slices.SortStableFunc(inputs, func(a, b string) int { return order.Rank(a) - order.Rank(b) })
-	for _, in := range inputs {
-		items := slices.Concat(members[in], unread[in], joins[in])
-		out.Groups = append(out.Groups, group{Input: viewrules.Clean(in), Items: items})
+		g := &out.Groups[len(out.Groups)-1]
+		g.Items = append(g.Items, shown)
 	}
 	for _, e := range ws.Events {
 		out.Lane = append(out.Lane, mark{

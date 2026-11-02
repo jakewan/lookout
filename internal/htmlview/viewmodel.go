@@ -198,9 +198,10 @@ func mapOf(r readout, shown []workstream, order viewrules.Order) viewModel {
 	return m
 }
 
-// entriesOf lists what a workstream holds in its lists' order: by input in
-// health's order, each input's members, then the members nothing read, then
-// what it joined.
+// entriesOf lists what a workstream holds, in the order the lists show it and
+// the map places it: by input in health's order, each input's members in the
+// configuration's order, then the members no input supplied, then what the
+// workstream joined, so a join never reads as a membership.
 func entriesOf(ws rawStream, order viewrules.Order) []entry {
 	var inputs []string
 	members, unread, joins := map[string][]entry{}, map[string][]entry{}, map[string][]entry{}
@@ -220,6 +221,8 @@ func entriesOf(ws rawStream, order viewrules.Order) []entry {
 		members[p.Input] = append(members[p.Input], e)
 	}
 	for _, m := range ws.MembersUnread {
+		// readout.v1 writes a member as <input>:<id>, and an input's name
+		// holds no colon, so the first one ends it.
 		in, id, _ := strings.Cut(m, ":")
 		seen(in)
 		unread[in] = append(unread[in], entry{handle: m, input: in, id: id})
