@@ -248,7 +248,7 @@ test.describe("using the map", () => {
     await page.getByRole("button", { name: "Make hub" }).click();
     await expect(hubOf(page)).toHaveAttribute("data-handle", "tracker:P-2");
     const crumbs = page.getByRole("navigation", { name: "map hub" });
-    await expect(crumbs.getByRole("button")).toHaveText(["example", "Platform rework", "P-1"]);
+    await expect(crumbs.getByRole("button")).toHaveText(["example", "Platform rework", "Platform rework"]);
     await crumbs.getByRole("button", { name: "example" }).click();
     await expect(hubOf(page)).toHaveAttribute("data-handle", "");
   });

@@ -64,7 +64,7 @@ const hubReach = 56;
  * @param {number} depth
  */
 function runAt(depth) {
-  return depth === 1 ? 180 : 150;
+  return depth === 1 ? 200 : 190;
 }
 
 /**
@@ -368,7 +368,7 @@ class MapView {
     box.setAttribute("aria-hidden", "true");
     if (node.flag) box.append(el("span", node.flag, "flag"));
     box.append(el("span", node.label, "label"));
-    if (node.kind === "workstream" && node.sub) box.append(" ", el("span", node.sub, "sub"));
+    if (node.sub) box.append(" ", el("span", node.sub, "sub"));
     if (!open && node.rollup) {
       box.append(" ", el("span", node.rollup, `rollup${node.rollup_tone ? ` tone-${node.rollup_tone}` : ""}`));
     }

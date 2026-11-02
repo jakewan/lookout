@@ -62,10 +62,11 @@
       "kind": "item",
       "handle": "tracker:P-1",
       "ref": "tracker:P-1",
-      "label": "P-1",
-      "sub": "Platform rework",
-      "name": "tracker:P-1 Platform rework, In Progress",
+      "label": "Platform rework",
+      "sub": "P-1",
+      "name": "Platform rework P-1, in tracker, In Progress",
       "words": [
+        "in tracker",
         "In Progress"
       ],
       "flag": "",
@@ -88,10 +89,11 @@
       "kind": "item",
       "handle": "tracker:P-2",
       "ref": "tracker:P-2",
-      "label": "P-2",
-      "sub": "Split the scheduler",
-      "name": "tracker:P-2 Split the scheduler, In Progress",
+      "label": "Split the scheduler",
+      "sub": "P-2",
+      "name": "Split the scheduler P-2, in tracker, In Progress",
       "words": [
+        "in tracker",
         "In Progress"
       ],
       "flag": "",
@@ -115,10 +117,11 @@
       "kind": "item",
       "handle": "tracker:P-3",
       "ref": "tracker:P-3",
-      "label": "P-3",
-      "sub": "Move the queue",
-      "name": "tracker:P-3 Move the queue, To Do",
+      "label": "Move the queue",
+      "sub": "P-3",
+      "name": "Move the queue P-3, in tracker, To Do",
       "words": [
+        "in tracker",
         "To Do"
       ],
       "flag": "",
@@ -139,10 +142,11 @@
       "kind": "item",
       "handle": "tracker:P-9",
       "ref": "tracker:P-9",
-      "label": "P-9",
-      "sub": "Orphaned story",
-      "name": "tracker:P-9 Orphaned story, To Do",
+      "label": "Orphaned story",
+      "sub": "P-9",
+      "name": "Orphaned story P-9, in tracker, To Do",
       "words": [
+        "in tracker",
         "To Do"
       ],
       "flag": "",
@@ -163,10 +167,11 @@
       "kind": "item",
       "handle": "tracker:C-1",
       "ref": "tracker:C-1",
-      "label": "C-1",
-      "sub": "Cycle one",
-      "name": "tracker:C-1 Cycle one, To Do",
+      "label": "Cycle one",
+      "sub": "C-1",
+      "name": "Cycle one C-1, in tracker, To Do",
       "words": [
+        "in tracker",
         "To Do"
       ],
       "flag": "",
@@ -189,10 +194,11 @@
       "kind": "item",
       "handle": "tracker:C-2",
       "ref": "tracker:C-2",
-      "label": "C-2",
-      "sub": "Cycle two",
-      "name": "tracker:C-2 Cycle two, To Do",
+      "label": "Cycle two",
+      "sub": "C-2",
+      "name": "Cycle two C-2, in tracker, To Do",
       "words": [
+        "in tracker",
         "To Do"
       ],
       "flag": "",
@@ -213,10 +219,11 @@
       "kind": "item",
       "handle": "tracker:J-1",
       "ref": "tracker:J-1",
-      "label": "J-1",
-      "sub": "Member under its own join",
-      "name": "tracker:J-1 Member under its own join, To Do",
+      "label": "Member under its own join",
+      "sub": "J-1",
+      "name": "Member under its own join J-1, in tracker, To Do",
       "words": [
+        "in tracker",
         "To Do"
       ],
       "flag": "",
@@ -239,10 +246,11 @@
       "kind": "item",
       "handle": "tracker:J-0",
       "ref": "tracker:J-0",
-      "label": "J-0",
-      "sub": "Joined parent of its member",
-      "name": "tracker:J-0 Joined parent of its member, running, joined by notes",
+      "label": "Joined parent of its member",
+      "sub": "J-0",
+      "name": "Joined parent of its member J-0, in tracker, running, joined by notes",
       "words": [
+        "in tracker",
         "running",
         "joined by notes"
       ],
@@ -264,10 +272,11 @@
       "kind": "item",
       "handle": "hub:owner/app#10",
       "ref": "hub:owner/app#10",
-      "label": "owner/app#10",
-      "sub": "P-2: split the scheduler",
-      "name": "hub:owner/app#10 P-2: split the scheduler, open, joined by key",
+      "label": "P-2: split the scheduler",
+      "sub": "owner/app#10",
+      "name": "P-2: split the scheduler owner/app#10, in hub, open, joined by key",
       "words": [
+        "in hub",
         "open",
         "joined by key"
       ],
@@ -293,8 +302,9 @@
       "ref": "code:owner/app:feature/split",
       "label": "owner/app:feature/split",
       "sub": "",
-      "name": "code:owner/app:feature/split, open, joined by pull_request",
+      "name": "owner/app:feature/split, in code, open, joined by pull_request",
       "words": [
+        "in code",
         "open",
         "joined by pull_request"
       ],
@@ -345,10 +355,11 @@
       "kind": "item",
       "handle": "tracker:B-1",
       "ref": "tracker:B-1",
-      "label": "B-1",
-      "sub": "Invoice runs on the new scheduler",
-      "name": "tracker:B-1 Invoice runs on the new scheduler, In Progress",
+      "label": "Invoice runs on the new scheduler",
+      "sub": "B-1",
+      "name": "Invoice runs on the new scheduler B-1, in tracker, In Progress",
       "words": [
+        "in tracker",
         "In Progress"
       ],
       "flag": "",
@@ -369,10 +380,11 @@
       "kind": "item",
       "handle": "tracker:B-\u200b2",
       "ref": "\"tracker:B-\\u200b2\"",
-      "label": "\"B-\\u200b2\"",
-      "sub": "A key with a hidden character",
-      "name": "tracker:\"B-\\u200b2\" A key with a hidden character, To Do",
+      "label": "A key with a hidden character",
+      "sub": "\"B-\\u200b2\"",
+      "name": "A key with a hidden character \"B-\\u200b2\", in tracker, To Do",
       "words": [
+        "in tracker",
         "To Do"
       ],
       "flag": "",
@@ -393,10 +405,11 @@
       "kind": "item",
       "handle": "tracker:B-3",
       "ref": "tracker:B-3",
-      "label": "B-3",
-      "sub": "Joined child of a member",
-      "name": "tracker:B-3 Joined child of a member, running, joined by notes",
+      "label": "Joined child of a member",
+      "sub": "B-3",
+      "name": "Joined child of a member B-3, in tracker, running, joined by notes",
       "words": [
+        "in tracker",
         "running",
         "joined by notes"
       ],
@@ -418,10 +431,11 @@
       "kind": "item",
       "handle": "hub:owner/app#20",
       "ref": "hub:owner/app#20",
-      "label": "owner/app#20",
-      "sub": "P-1: shared plumbing",
-      "name": "hub:owner/app#20 P-1: shared plumbing, open",
+      "label": "P-1: shared plumbing",
+      "sub": "owner/app#20",
+      "name": "P-1: shared plumbing owner/app#20, in hub, open",
       "words": [
+        "in hub",
         "open"
       ],
       "flag": "",
@@ -446,8 +460,9 @@
       "ref": "hub:owner/app#21",
       "label": "owner/app#21",
       "sub": "",
-      "name": "hub:owner/app#21, not read: no input supplied it",
+      "name": "owner/app#21, in hub, not read: no input supplied it",
       "words": [
+        "in hub",
         "not read: no input supplied it"
       ],
       "flag": "",
@@ -495,10 +510,11 @@
       "kind": "item",
       "handle": "tracker:O-1",
       "ref": "tracker:O-1",
-      "label": "O-1",
-      "sub": "Roll the scheduler out",
-      "name": "tracker:O-1 Roll the scheduler out, Blocked",
+      "label": "Roll the scheduler out",
+      "sub": "O-1",
+      "name": "Roll the scheduler out O-1, in tracker, Blocked",
       "words": [
+        "in tracker",
         "Blocked"
       ],
       "flag": "",
@@ -523,8 +539,9 @@
       "ref": "code:owner/app:feature/rollout",
       "label": "owner/app:feature/rollout",
       "sub": "",
-      "name": "code:owner/app:feature/rollout, open, joined by pull_request",
+      "name": "owner/app:feature/rollout, in code, open, joined by pull_request",
       "words": [
+        "in code",
         "open",
         "joined by pull_request"
       ],
@@ -572,8 +589,9 @@
       "ref": "code:owner/docs:guides",
       "label": "owner/docs:guides",
       "sub": "",
-      "name": "code:owner/docs:guides, open",
+      "name": "owner/docs:guides, in code, open",
       "words": [
+        "in code",
         "open"
       ],
       "flag": "",
@@ -622,8 +640,9 @@
       "ref": "tracker:I-1",
       "label": "I-1",
       "sub": "",
-      "name": "tracker:I-1, not read: no input supplied it",
+      "name": "I-1, in tracker, not read: no input supplied it",
       "words": [
+        "in tracker",
         "not read: no input supplied it"
       ],
       "flag": "",

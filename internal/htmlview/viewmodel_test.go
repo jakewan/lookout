@@ -240,8 +240,12 @@ func TestARollupSaysWhatIsFlaggedBeneathIt(t *testing.T) {
 func TestANodesNameHoldsItsLabel(t *testing.T) {
 	m := pageOf(t, mapReadout(t)).Map
 	for _, n := range m.Nodes {
-		if !strings.Contains(n.Name, n.Label) {
-			t.Errorf("%q: name %q does not hold label %q", n.Handle, n.Name, n.Label)
+		shown := n.Label
+		if n.Sub != "" {
+			shown += " " + n.Sub
+		}
+		if !strings.HasPrefix(n.Name, shown) {
+			t.Errorf("%q: name %q does not open with what the node shows, %q", n.Handle, n.Name, shown)
 		}
 	}
 }
@@ -328,12 +332,29 @@ func TestEachNodeSaysHowMuchItHoldsAndWeighsItsLeaves(t *testing.T) {
 func TestAHandleIsCopiedExactlyAndShownSafely(t *testing.T) {
 	m := pageOf(t, mapReadout(t)).Map
 	_, n := nodeAt(t, m, "tracker:B-\u200b2")
-	if !n.HiddenChars || n.Label != `"B-\u200b2"` {
-		t.Errorf("label %q hidden %v, want the id quoted and the handle flagged", n.Label, n.HiddenChars)
+	if !n.HiddenChars || n.Sub != `"B-\u200b2"` {
+		t.Errorf("id %q hidden %v, want the id quoted and the handle flagged", n.Sub, n.HiddenChars)
 	}
 	_, plain := nodeAt(t, m, "tracker:B-1")
-	if plain.HiddenChars || plain.Label != "B-1" {
-		t.Errorf("label %q hidden %v, want the plain id unflagged", plain.Label, plain.HiddenChars)
+	if plain.HiddenChars || plain.Sub != "B-1" {
+		t.Errorf("id %q hidden %v, want the plain id unflagged", plain.Sub, plain.HiddenChars)
+	}
+}
+
+// An item is labelled on its branch by its title, as a hand-drawn map is by
+// words, with the id commands take beside it; one without a title shows its
+// id.
+func TestAnItemIsLabelledByItsTitleWithItsIDBesideIt(t *testing.T) {
+	m := pageOf(t, mapReadout(t)).Map
+	for _, tc := range []struct{ handle, label, sub string }{
+		{"tracker:P-2", "Split the scheduler", "P-2"},
+		{"code:owner/app:feature/split", "owner/app:feature/split", ""},
+		{"hub:owner/app#21", "owner/app#21", ""},
+	} {
+		_, n := nodeAt(t, m, tc.handle)
+		if n.Label != tc.label || n.Sub != tc.sub {
+			t.Errorf("%s label %q id %q, want %q and %q", tc.handle, n.Label, n.Sub, tc.label, tc.sub)
+		}
 	}
 }
 

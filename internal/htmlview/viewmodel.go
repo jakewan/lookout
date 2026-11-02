@@ -512,20 +512,26 @@ func workstreamNode(ws rawStream, shown workstream, hub int) mapNode {
 }
 
 func itemNode(e entry) mapNode {
-	label := viewrules.Clean(e.id)
+	id := viewrules.Clean(e.id)
 	// Parent is set when the item is placed; until then it names no node.
-	n := mapNode{Kind: "item", Handle: rawText(e.handle), Ref: viewrules.Clean(e.handle), Label: label, HiddenChars: viewrules.Clean(e.handle) != e.handle, Parent: -1}
-	// The name starts from the label as shown, its input before it, so a
-	// screen reader says what a sighted reader sees.
-	said := viewrules.Clean(e.input) + ":" + label
+	n := mapNode{Kind: "item", Handle: rawText(e.handle), Ref: viewrules.Clean(e.handle), Label: id, HiddenChars: viewrules.Clean(e.handle) != e.handle, Parent: -1}
+	// The name opens with what the node shows, in its order, so a screen
+	// reader says what a sighted reader sees; the input follows.
+	from := "in " + viewrules.Clean(e.input)
 	if e.placed == nil {
 		n.Kind = "unread"
-		n.Words = []string{"not read: no input supplied it"}
-		n.Name = nameOf(said, "", n.Words)
+		n.Words = []string{from, "not read: no input supplied it"}
+		n.Name = nameOf(id, "", n.Words)
 		return n
 	}
 	shown := itemOf(*e.placed)
-	n.Sub, n.State, n.Href = shown.Title, shown.State, shown.Href
+	n.State, n.Href = shown.State, shown.Href
+	// An item is labelled by its title, as a hand-drawn map is by words,
+	// with the id commands take beside it; without a title, by its id.
+	if shown.Title != "" {
+		n.Label, n.Sub = shown.Title, id
+	}
+	n.Words = append(n.Words, from)
 	if shown.State != "" {
 		n.Words = append(n.Words, shown.State)
 	}
@@ -533,7 +539,7 @@ func itemNode(e entry) mapNode {
 		n.JoinedBy = shown.Join.By
 		n.Words = append(n.Words, "joined by "+shown.Join.By)
 	}
-	n.Name = nameOf(said, n.Sub, n.Words)
+	n.Name = nameOf(n.Label, n.Sub, n.Words)
 	return n
 }
 
