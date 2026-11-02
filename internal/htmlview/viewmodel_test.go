@@ -198,6 +198,32 @@ func TestASharedItemShowsWhyEachOtherWorkstreamHoldsIt(t *testing.T) {
 	}
 }
 
+// Where an item and what it joined through are both drawn under other
+// workstreams, the link still names what it joined through, not the nearer
+// node the tree would hang it from.
+func TestASharedItemLinksToWhatItFollowsNotToANearerNode(t *testing.T) {
+	doc := mapReadout(t)
+	w := record(workstreams(doc)[3])
+	w["items"] = append(w["items"].([]any), map[string]any{"input": "code", "item": map[string]any{
+		"id": "owner/app:feature/rollout", "last_touched": "2030-06-04T12:00:00Z", "state": "open", "links": []any{}, "attrs": map[string]any{},
+	}})
+	m := pageOf(t, doc).Map
+	rollout, n := nodeAt(t, m, "code:owner/app:feature/rollout")
+	if got := string(m.Nodes[n.Parent].Handle); got != "docs" {
+		t.Fatalf("rollout is drawn under %q, want docs, where it is a member", got)
+	}
+	pr, _ := nodeAt(t, m, "hub:owner/app#20")
+	o1, _ := nodeAt(t, m, "tracker:O-1")
+	var toPR, toO1 bool
+	for _, l := range m.Links {
+		toPR = toPR || (l.From == rollout && l.To == pr && l.Kind == "joined")
+		toO1 = toO1 || (l.From == rollout && l.To == o1)
+	}
+	if !toPR || toO1 {
+		t.Errorf("rollout links to the pull request it came through: %v; to O-1, which it did not follow: %v", toPR, toO1)
+	}
+}
+
 // The same readout draws the same map: the order of its cross-links, which
 // the page draws and lists, does not vary between renders.
 func TestTheMapIsTheSameEveryTime(t *testing.T) {

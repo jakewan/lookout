@@ -151,9 +151,15 @@ func mapOf(r readout, shown []workstream, order viewrules.Order) viewModel {
 			}
 		}
 	}
-	links := linkSet{model: &m}
+	// Every workstream is placed before any relation becomes a link, so a
+	// link is drawn exactly where the tree, finished, does not show it.
+	var rel []relation
 	for i := range r.Workstreams {
-		place(&m, &links, entries[i], drawn[i], wsNode[i], placed)
+		rel = append(rel, place(&m, entries[i], drawn[i], wsNode[i], placed)...)
+	}
+	links := linkSet{model: &m}
+	for _, r := range rel {
+		links.add(r.from, r.to, r.kind)
 	}
 	byName := map[string]int{}
 	for i, ws := range r.Workstreams {
@@ -310,11 +316,23 @@ type pointer struct {
 	kind string
 }
 
+// relation is an edge an item occurrence actually follows, by the nodes at
+// its ends once every workstream is placed.
+type relation struct {
+	from, to int
+	kind     string
+}
+
 // place hangs each entry a workstream draws under one parent, the first that
 // applies: the pull request a branch came through, the member a join matched,
-// the item's parent where the same workstream holds it, or the workstream.
-// What the tree cannot show of these becomes a cross-link.
-func place(m *viewModel, links *linkSet, es []entry, drawn map[string]int, ws int, placed map[string]int) {
+// the item's parent where the same workstream holds it, or the workstream. It
+// returns, in list order, every relation the workstream's entries follow,
+// whether or not the tree ends up drawing it: the edge each one hangs by
+// before any cycle is cut, a join's parent where the workstream holds it, and,
+// for an item drawn under another workstream that hangs from nothing here,
+// its being held here at all. The tree is only a choice among these, so what
+// it does not draw is what the cross-links are; nothing here adds a link.
+func place(m *viewModel, es []entry, drawn map[string]int, ws int, placed map[string]int) []relation {
 	at := map[string]int{}
 	for i, e := range es {
 		if _, ok := at[e.handle]; !ok {
@@ -322,8 +340,19 @@ func place(m *viewModel, links *linkSet, es []entry, drawn map[string]int, ws in
 		}
 	}
 	ptr := make([]pointer, len(es))
+	var rel []relation
+	follows := func(i int, to int, kind string) {
+		target := ws
+		if to >= 0 {
+			target = nodeFor(es[to], drawn, placed, ws)
+		}
+		rel = append(rel, relation{from: nodeFor(es[i], drawn, placed, ws), to: target, kind: kind})
+	}
 	for i, e := range es {
 		ptr[i] = pointer{to: -1}
+		if at[e.handle] != i {
+			continue
+		}
 		j := e.join()
 		parent := -1
 		if e.placed != nil && e.placed.Item.Parent != "" {
@@ -339,21 +368,23 @@ func place(m *viewModel, links *linkSet, es []entry, drawn map[string]int, ws in
 		case parent >= 0:
 			ptr[i] = pointer{to: parent, kind: "parent"}
 		}
-		// A join hangs by how it joined, so its parent, where this
-		// workstream holds it, is drawn as a cross-link instead.
+		_, here := drawn[e.handle]
+		switch {
+		case ptr[i].to >= 0:
+			follows(i, ptr[i].to, ptr[i].kind)
+		case !here:
+			follows(i, -1, "shared")
+		}
+		// A join hangs by how it joined, and also has its parent where this
+		// workstream holds it.
 		if j != nil && parent >= 0 && ptr[i].to != parent {
-			if from, ok := drawn[e.handle]; ok {
-				links.add(from, nodeFor(es[parent], drawn, placed, ws), "parent")
-			}
+			follows(i, parent, "parent")
 		}
 	}
-	breakCycles(es, ptr, func(from, to int, kind string) {
-		if n, ok := drawn[es[from].handle]; ok {
-			links.add(n, nodeFor(es[to], drawn, placed, ws), kind)
-		}
-	})
+	breakCycles(es, ptr)
 	for i, e := range es {
-		if at[e.handle] != i {
+		n, ok := drawn[e.handle]
+		if !ok || at[e.handle] != i {
 			continue
 		}
 		parent := ws
@@ -366,33 +397,10 @@ func place(m *viewModel, links *linkSet, es []entry, drawn map[string]int, ws in
 				break
 			}
 		}
-		n, ok := drawn[e.handle]
-		if !ok {
-			// An item drawn under another workstream still shows why this
-			// one holds it: a cross-link from where it is drawn to what it
-			// hangs from here, or, where it hangs from nothing here, to this
-			// workstream. Walking the workstreams and their lists in order
-			// keeps these links in the same order on every render.
-			if home, drawnElsewhere := placed[e.handle]; drawnElsewhere {
-				if parent == ws {
-					links.add(home, ws, "shared")
-				} else {
-					links.add(home, parent, ptr[i].kind)
-				}
-			}
-			continue
-		}
 		m.Nodes[n].Parent = parent
 		m.Nodes[parent].Children = append(m.Nodes[parent].Children, n)
-		// Where the entry it hangs from is drawn under another workstream,
-		// the branch here shows a nearer node, so a cross-link keeps the
-		// edge the entry actually follows.
-		if k := ptr[i].to; k >= 0 {
-			if _, here := drawn[es[k].handle]; !here {
-				links.add(n, nodeFor(es[k], drawn, placed, ws), ptr[i].kind)
-			}
-		}
 	}
+	return rel
 }
 
 func hasHandle(at map[string]int, h string) bool { _, ok := at[h]; return ok }
@@ -410,8 +418,9 @@ func nodeFor(e entry, drawn map[string]int, placed map[string]int, ws int) int {
 
 // breakCycles cuts every cycle the pointers form, joins and parents together,
 // at the cycle's entry earliest in the lists, which then hangs from the
-// workstream; cut is told each edge given up.
-func breakCycles(es []entry, ptr []pointer, cut func(from, to int, kind string)) {
+// workstream. The edge it gives up is still among place's relations, so the
+// map draws it as a cross-link.
+func breakCycles(es []entry, ptr []pointer) {
 	const unseen, onPath, done = 0, 1, 2
 	state := make([]int, len(es))
 	for start := range es {
@@ -424,9 +433,7 @@ func breakCycles(es []entry, ptr []pointer, cut func(from, to int, kind string))
 		}
 		if k >= 0 && state[k] == onPath {
 			cycle := path[slices.Index(path, k):]
-			first := slices.Min(cycle)
-			cut(first, ptr[first].to, ptr[first].kind)
-			ptr[first] = pointer{to: -1}
+			ptr[slices.Min(cycle)] = pointer{to: -1}
 		}
 		for _, p := range path {
 			state[p] = done
@@ -441,8 +448,10 @@ type linkSet struct {
 }
 
 func (s *linkSet) add(from, to int, kind string) {
-	// A relation the tree already draws as a branch needs no cross-link.
-	if from == to || s.model.Nodes[from].Parent == to || s.model.Nodes[to].Parent == from {
+	// A relation the tree already draws as a branch, from hangs under to,
+	// needs no cross-link. The reverse is a different relation: in a cycle,
+	// the edge cut from the tree runs against the branch that stays.
+	if from == to || s.model.Nodes[from].Parent == to {
 		return
 	}
 	if s.seen == nil {
