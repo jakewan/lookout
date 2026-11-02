@@ -13,7 +13,7 @@ Conventions for the page `lookout view` writes, and for the browser specs and to
 
 ## What the page may compute
 
-The health, staleness and ranking rules live in Go, in `internal/viewrules` and `internal/htmlview`, and nowhere else. Go renders the page's text, so it reads fully with no script, and it computes every verdict, order, count and rollup the page shows. Script the page gains may derive only geometry and visibility: where a node sits, what is collapsed, which node is the hub, what is copied to the clipboard. It never orders, ranks, counts, rolls up or breaks a cycle; if a view needs one of those, Go computes it and hands it over. `docs/vision.md` records why: rules written again in JavaScript would be a second copy, kept in step with Go's by hand.
+The health, staleness and ranking rules live in Go: `internal/health` and the input adapters compute each input's health, `internal/viewrules` decides how every view marks age, staleness and health, and `internal/htmlview` derives what only the page shows. None of them lives in the page's script. Go renders the page's text, so it reads fully with no script, and it computes every verdict, order, count and rollup the page shows. Script the page gains may derive only geometry and visibility: where a node sits, what is collapsed, which node is the hub, what is copied to the clipboard. It never orders, ranks, counts, rolls up or breaks a cycle; if a view needs one of those, Go computes it and hands it over. `docs/vision.md` records why: rules written again in JavaScript would be a second copy, kept in step with Go's by hand.
 
 ## Files
 
@@ -26,7 +26,11 @@ The health, staleness and ranking rules live in Go, in `internal/viewrules` and 
 
 The specs under `internal/htmlview/browser/` drive the page `lookout view --readout` writes from fixture readouts, in Chromium and Firefox, from the reader's side: what is shown and in what order, what a keyboard reaches, that the page requests nothing and trips its policy nowhere, and an accessibility audit in light and dark colors. They are plain JavaScript checked by `tsc` through JSDoc types, with no build step. Run them with `just test-page` after `just page-setup`; `just page-check` runs the type check, Biome and the lockfile registry check.
 
-A known accessibility shortfall is recorded in the audit spec by what it is, never switched off by rule, so any other shortfall still fails.
+The audit opens every workstream's detail first, since axe skips hidden content. It asserts on axe's violations, not its incomplete results, which are checks axe could not decide; Firefox reports some contrast checks that way.
+
+Fix an accessibility shortfall the audit finds. Where one must stay for a while, record it in the audit spec by what it is, never by switching its rule off, so any other shortfall still fails.
+
+The network spec sees a request only where the engine reports one: Chromium reports a request the policy blocks, Firefox does not, so in Firefox the policy spec is what catches a page reaching out.
 
 ## What the stack can do, as checked
 

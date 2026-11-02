@@ -13,5 +13,5 @@ golangci-lint = "2.15.0"
 just = "1.59.0"
 lefthook = "2.2.2"
 # Only the page's browser specs and checks need Node. CI's setup-node reads
-# this line, so keep it a plain version string under [tools].
+# this line, so keep it an exact version string under [tools].
 node = "26.13.0"

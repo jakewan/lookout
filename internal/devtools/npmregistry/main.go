@@ -72,6 +72,6 @@ func run(args []string, stderr io.Writer) int {
 	for _, name := range refused {
 		diag.Printf("%s is not locked to a package with an integrity hash at %s", name, registry)
 	}
-	diag.Printf("reinstall with the project's .npmrc in effect (npm install from the repository root), then commit package-lock.json")
+	diag.Printf("reinstall from the repository root with no npm_config_registry or --registry overriding the project's .npmrc, then commit package-lock.json")
 	return 1
 }

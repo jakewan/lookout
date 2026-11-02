@@ -1,7 +1,7 @@
 // Global setup: render each fixture readout through the real binary, so the
 // specs drive the page `lookout view` writes rather than the template alone.
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -29,6 +29,11 @@ export default function render() {
     const path = execFileSync(binary, ["view", "--readout", readout], { env, encoding: "utf8" }).trim();
     pages[name] = pathToFileURL(path).href;
   }
-  // Workers inherit the environment global setup leaves behind.
+  // Playwright starts its workers with the environment global setup leaves
+  // behind; were that to change, every spec would fail at pageURL rather
+  // than pass on a page it never opened.
   process.env.LOOKOUT_PAGES = JSON.stringify(pages);
+  // Playwright runs a function global setup returns as its teardown, so the
+  // binary and pages do not outlive the run.
+  return () => rmSync(scratch, { recursive: true, force: true });
 }

@@ -35,8 +35,10 @@ jobs:
           # internal/htmlview carries files Go embeds and reads in its specs
           # (the template, the stylesheet, testdata), so a change to any of
           # them is a Go change too. The page filter covers what the browser
-          # specs render the page through (`lookout view --readout`, the view
-          # rules) and what only they and their tools read.
+          # specs render the page through (`lookout view --readout`: the
+          # command, the view rules, the readout schema it validates against,
+          # the setting-name check, and the Go toolchain go.mod selects) and
+          # what only the specs and their tools read.
           filters: |
             go:
               - '**/*.go'
@@ -49,7 +51,11 @@ jobs:
               - 'internal/htmlview/**'
               - 'internal/devtools/npmregistry/**'
               - 'internal/viewrules/**'
+              - 'internal/config/**'
+              - 'schema/**'
               - 'cmd/lookout/**'
+              - 'go.mod'
+              - 'go.sum'
               - 'package.json'
               - 'package-lock.json'
               - '.npmrc'
@@ -105,8 +111,8 @@ jobs:
         with:
           version: v2.15.0
 
-  # The page's browser specs and the checks over its files. Node is needed
-  # here and nowhere else in CI; building and testing the Go never needs it.
+  # The page's browser specs and the checks over its files. Building and
+  # testing the Go never needs Node; this job and the npm audit in vuln.yml do.
   page:
     needs: detect-changes
     if: needs.detect-changes.outputs.page == 'true'

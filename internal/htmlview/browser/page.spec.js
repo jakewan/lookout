@@ -75,11 +75,17 @@ test.describe("inputs", () => {
 });
 
 test.describe("a workstream's detail", () => {
-  test("starts closed and opens from the keyboard", async ({ page }) => {
+  test("starts closed, and Tab from the top of the page reaches it and Enter opens it", async ({ page }) => {
     await page.goto(pageURL("busy"));
     const detail = page.locator("#ws-1 details");
     await expect(detail).not.toHaveAttribute("open");
-    await detail.locator("summary").focus();
+    const summary = detail.locator("summary");
+    // Past the overview's lanes, the first workstream's summary is the next
+    // stop; the bound only keeps a regression from looping forever.
+    for (let stops = 0; stops < 20 && !(await summary.evaluate((s) => s === document.activeElement)); stops++) {
+      await page.keyboard.press("Tab");
+    }
+    await expect(summary).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(detail).toHaveAttribute("open");
   });
@@ -116,6 +122,10 @@ for (const name of ["busy", "empty"]) {
       test(`passes an accessibility audit in its ${colorScheme} colors`, async ({ page }) => {
         await page.emulateMedia({ colorScheme });
         await page.goto(pageURL(name));
+        // axe skips what is hidden, so every workstream's detail is opened
+        // and its items audited too.
+        for (const summary of await page.locator("summary").all()) await summary.click();
+        await expect(page.locator("details:not([open])")).toHaveCount(0);
         const results = await new AxeBuilder({ page }).analyze();
         const found = results.violations.flatMap((v) =>
           v.nodes.map((n) => ({ rule: v.id, target: n.target.join(" "), fg: n.any[0]?.data?.fgColor })),

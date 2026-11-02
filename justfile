@@ -27,20 +27,25 @@ test:
 test-race:
     go test -race ./...
 
+# `npm exec --no` runs only a tool the lockfile installed. Plain npx fetches
+# and runs whatever package carries the name when node_modules lacks it, and
+# the unscoped `tsc` and `biome` packages are not the tools these recipes mean.
+
 # Install the page's development tools from the lockfile, and the browsers its specs drive
 page-setup:
+    go run ./internal/devtools/npmregistry
     npm ci
-    npx playwright install chromium firefox
+    npm exec --no -- playwright install chromium firefox
 
 # Run the page's browser specs in Chromium and Firefox (needs page-setup)
 test-page:
-    npx playwright test
+    npm exec --no -- playwright test
 
 # Type-check, lint and format-check the page's files, and hold the lockfile to the public registry
 page-check:
     go run ./internal/devtools/npmregistry
-    npx tsc -p tsconfig.json
-    npx biome ci
+    npm exec --no -- tsc -p tsconfig.json
+    npm exec --no -- biome ci
 
 # Run tests with coverage
 test-coverage:

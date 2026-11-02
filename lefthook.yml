@@ -10,12 +10,16 @@ pre-commit:
       stage_fixed: true
       skip: merge
     page-format:
-      # Only the page's files, so a Go-only commit needs no Node; biome.json's
-      # includes decide which of them Biome formats.
+      # The files biome.json includes, named one by one at the root: lefthook's
+      # default glob matcher lets `*` cross directories, so `*.json` would also
+      # catch the published schemas. `npm exec --no` runs only the locked Biome.
       glob:
         - "internal/htmlview/**/*.{js,css,json}"
-        - "*.{js,json}"
-      run: npx biome format --write --no-errors-on-unmatched {staged_files}
+        - "playwright.config.js"
+        - "biome.json"
+        - "tsconfig.json"
+        - "package.json"
+      run: npm exec --no -- biome format --write --no-errors-on-unmatched {staged_files}
       stage_fixed: true
       skip: merge
 

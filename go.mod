@@ -2,6 +2,10 @@ module github.com/jakewan/lookout
 
 go 1.27.3
 
+// The page's npm tools install here; ./... patterns must not reach any Go
+// source a package ships.
+ignore ./node_modules
+
 tool golang.org/x/vuln/cmd/govulncheck
 
 require (
