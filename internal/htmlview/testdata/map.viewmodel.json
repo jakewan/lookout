@@ -10,6 +10,7 @@
       "name": "example",
       "words": [],
       "flag": "",
+      "tone": "",
       "state": "",
       "href": "",
       "joined_by": "",
@@ -38,6 +39,7 @@
         "draws on a failing input: tracker"
       ],
       "flag": "!",
+      "tone": "fault",
       "state": "",
       "href": "",
       "joined_by": "",
@@ -65,6 +67,7 @@
         "In Progress"
       ],
       "flag": "",
+      "tone": "fault",
       "state": "In Progress",
       "href": "https://tracker.example.com/P-1",
       "joined_by": "",
@@ -89,6 +92,7 @@
         "In Progress"
       ],
       "flag": "",
+      "tone": "fault",
       "state": "In Progress",
       "href": "",
       "joined_by": "",
@@ -114,6 +118,7 @@
         "To Do"
       ],
       "flag": "",
+      "tone": "fault",
       "state": "To Do",
       "href": "",
       "joined_by": "",
@@ -136,6 +141,7 @@
         "To Do"
       ],
       "flag": "",
+      "tone": "fault",
       "state": "To Do",
       "href": "",
       "joined_by": "",
@@ -158,6 +164,7 @@
         "To Do"
       ],
       "flag": "",
+      "tone": "fault",
       "state": "To Do",
       "href": "",
       "joined_by": "",
@@ -182,6 +189,7 @@
         "To Do"
       ],
       "flag": "",
+      "tone": "fault",
       "state": "To Do",
       "href": "",
       "joined_by": "",
@@ -204,6 +212,7 @@
         "To Do"
       ],
       "flag": "",
+      "tone": "fault",
       "state": "To Do",
       "href": "",
       "joined_by": "",
@@ -229,6 +238,7 @@
         "joined by notes"
       ],
       "flag": "",
+      "tone": "fault",
       "state": "running",
       "href": "",
       "joined_by": "notes",
@@ -252,6 +262,7 @@
         "joined by key"
       ],
       "flag": "",
+      "tone": "fault",
       "state": "open",
       "href": "https://github.com/owner/app/pull/10",
       "joined_by": "key",
@@ -277,6 +288,7 @@
         "joined by pull_request"
       ],
       "flag": "",
+      "tone": "fault",
       "state": "open",
       "href": "",
       "joined_by": "pull_request",
@@ -299,6 +311,7 @@
         "behind its rank"
       ],
       "flag": "↓",
+      "tone": "behind",
       "state": "",
       "href": "",
       "joined_by": "",
@@ -326,6 +339,7 @@
         "In Progress"
       ],
       "flag": "",
+      "tone": "behind",
       "state": "In Progress",
       "href": "",
       "joined_by": "",
@@ -348,6 +362,7 @@
         "To Do"
       ],
       "flag": "",
+      "tone": "behind",
       "state": "To Do",
       "href": "",
       "joined_by": "",
@@ -371,6 +386,7 @@
         "joined by notes"
       ],
       "flag": "",
+      "tone": "behind",
       "state": "running",
       "href": "",
       "joined_by": "notes",
@@ -393,6 +409,7 @@
         "open"
       ],
       "flag": "",
+      "tone": "behind",
       "state": "open",
       "href": "",
       "joined_by": "",
@@ -417,6 +434,7 @@
         "not read: no input supplied it"
       ],
       "flag": "",
+      "tone": "unread",
       "state": "",
       "href": "",
       "joined_by": "",
@@ -440,6 +458,7 @@
         "behind its rank"
       ],
       "flag": "◷↓",
+      "tone": "behind",
       "state": "",
       "href": "",
       "joined_by": "",
@@ -464,6 +483,7 @@
         "Blocked"
       ],
       "flag": "",
+      "tone": "behind",
       "state": "Blocked",
       "href": "",
       "joined_by": "",
@@ -489,6 +509,7 @@
         "joined by pull_request"
       ],
       "flag": "",
+      "tone": "behind",
       "state": "open",
       "href": "",
       "joined_by": "pull_request",
@@ -509,6 +530,7 @@
       "name": "docs",
       "words": [],
       "flag": "",
+      "tone": "",
       "state": "",
       "href": "",
       "joined_by": "",
@@ -533,6 +555,7 @@
         "open"
       ],
       "flag": "",
+      "tone": "",
       "state": "open",
       "href": "",
       "joined_by": "",
@@ -555,6 +578,7 @@
         "nothing read"
       ],
       "flag": "?",
+      "tone": "unread",
       "state": "",
       "href": "",
       "joined_by": "",
@@ -579,6 +603,7 @@
         "not read: no input supplied it"
       ],
       "flag": "",
+      "tone": "unread",
       "state": "",
       "href": "",
       "joined_by": "",

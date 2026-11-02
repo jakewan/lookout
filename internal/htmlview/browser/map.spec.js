@@ -69,6 +69,54 @@ test.describe("the map", () => {
   });
 });
 
+/**
+ * Where a node's label sits on the page.
+ * @param {import("@playwright/test").Page} page
+ * @param {string} handle
+ */
+const box = async (page, handle) => {
+  const b = await node(page, handle).locator(":scope > .node").boundingBox();
+  if (!b) throw new Error(`${handle} is not drawn`);
+  return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+};
+
+test.describe("the map's drawing", () => {
+  test("spreads sideways from the center: down the right in stated order, then back up the left", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    const hub = await box(page, "");
+    const [platform, billing, ops, docs, intake] = await Promise.all(
+      ["platform", "billing", "ops", "docs", "intake"].map((h) => box(page, h)),
+    );
+    if (!platform || !billing || !ops || !docs || !intake) throw new Error("a workstream is not drawn");
+    for (const right of [platform, billing, ops]) expect(right.x).toBeGreaterThan(hub.x);
+    for (const left of [docs, intake]) expect(left.x).toBeLessThan(hub.x);
+    expect(platform.y).toBeLessThan(billing.y);
+    expect(billing.y).toBeLessThan(ops.y);
+    expect(docs.y).toBeGreaterThan(intake.y);
+    // Each level steps outward, as a hand-drawn map's branches do.
+    const [p1, p2, p3] = await Promise.all(["tracker:P-1", "tracker:P-2", "tracker:P-3"].map((h) => box(page, h)));
+    if (!p1 || !p2 || !p3) throw new Error("an item is not drawn");
+    expect(p1.x).toBeGreaterThan(platform.x);
+    expect(p2.x).toBeGreaterThan(p1.x);
+    expect(p3.x).toBeGreaterThan(p2.x);
+    const guides = await box(page, "code:owner/docs:guides");
+    expect(guides.x).toBeLessThan(docs.x);
+  });
+
+  test("gives each branch the loudness of its workstream's cue", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    for (const [handle, tone] of [
+      ["platform", "fault"],
+      ["tracker:P-3", "fault"],
+      ["ops", "behind"],
+      ["intake", "unread"],
+      ["docs", ""],
+    ]) {
+      await expect(node(page, handle ?? "")).toHaveAttribute("data-tone", tone ?? "");
+    }
+  });
+});
+
 test.describe("placing items", () => {
   test("hangs a join under its member, and a branch under the pull request it came through", async ({ page }) => {
     await page.goto(pageURL("map"));

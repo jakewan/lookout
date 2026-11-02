@@ -38,7 +38,11 @@ type mapNode struct {
 	Words []string `json:"words"`
 	// Flag is a mark for a workstream with a cue, so it stands out by shape
 	// as well as color; empty for any other node.
-	Flag     string `json:"flag"`
+	Flag string `json:"flag"`
+	// Tone is how loud the node's branch is drawn: fault, behind, unread,
+	// stale, or empty. A workstream takes its loudest cue's, its items take
+	// the workstream's, and a member nothing read is unread.
+	Tone     string `json:"tone"`
 	State    string `json:"state"`
 	Href     string `json:"href"`
 	JoinedBy string `json:"joined_by"`
@@ -195,7 +199,23 @@ func mapOf(r readout, shown []workstream, order viewrules.Order) viewModel {
 		}
 	}
 	weigh(&m, m.Hub)
+	for _, w := range wsNode {
+		tone(&m, w, m.Nodes[w].Tone)
+	}
 	return m
+}
+
+// tone gives what hangs from n its workstream's tone, so a flagged branch is
+// flagged its whole length; a member nothing read keeps its own.
+func tone(m *viewModel, n int, t string) {
+	for _, c := range m.Nodes[n].Children {
+		if m.Nodes[c].Kind == "unread" {
+			m.Nodes[c].Tone = "unread"
+		} else {
+			m.Nodes[c].Tone = t
+		}
+		tone(m, c, t)
+	}
 }
 
 // entriesOf lists what a workstream holds, in the order the lists show it and
@@ -449,6 +469,21 @@ func workstreamNode(ws rawStream, shown workstream, hub int) mapNode {
 		flag = append(flag, "↓")
 	}
 	n.Flag = strings.Join(flag, "")
+	// Loudness follows what a cue asks of the reader: a failing input may
+	// make the figures wrong, behind its rank is drift from the stated order,
+	// nothing read may mean the work is gone, and stale is only quiet, so it
+	// fades rather than calls out. Where every workstream is stale, that
+	// keeps the others standing out.
+	switch {
+	case len(shown.Incomplete) > 0:
+		n.Tone = "fault"
+	case shown.Behind:
+		n.Tone = "behind"
+	case shown.Unread:
+		n.Tone = "unread"
+	case shown.Stale:
+		n.Tone = "stale"
+	}
 	n.HiddenChars = viewrules.Clean(ws.Name) != ws.Name
 	n.Name = nameOf(n.Label, n.Sub, n.Words)
 	return n

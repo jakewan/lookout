@@ -157,6 +157,37 @@ func TestWorkstreamsCarryTheirCuesInWordsAndAsAMark(t *testing.T) {
 	}
 }
 
+// A cue's loudness follows what it asks of the reader: a failing input may
+// make the numbers wrong, behind its rank is drift from the stated order, a
+// workstream nothing was read for may be gone, and stale is only quiet, so it
+// fades rather than calls out. On a setting where every workstream is stale,
+// that keeps the rest standing out.
+func TestEachCueHasItsOwnLoudnessAndABranchCarriesIt(t *testing.T) {
+	for _, tc := range []struct {
+		readout func(*testing.T) map[string]any
+		handle  string
+		tone    string
+	}{
+		{mapReadout, "platform", "fault"},
+		{mapReadout, "tracker:P-3", "fault"},
+		{mapReadout, "ops", "behind"},
+		{mapReadout, "code:owner/app:feature/rollout", "behind"},
+		{mapReadout, "intake", "unread"},
+		{mapReadout, "tracker:I-1", "unread"},
+		{mapReadout, "docs", ""},
+		{mapReadout, "hub:owner/app#21", "unread"},
+		{busy, "docs-site", "stale"},
+		{busy, "code:owner/docs:draft/guides", "stale"},
+		{busy, "onboarding", "fault"},
+		{busy, "", ""},
+	} {
+		_, n := nodeAt(t, pageOf(t, tc.readout(t)).Map, tc.handle)
+		if n.Tone != tc.tone {
+			t.Errorf("%q tone = %q, want %q", tc.handle, n.Tone, tc.tone)
+		}
+	}
+}
+
 func TestEachNodeSaysHowMuchItHoldsAndWeighsItsLeaves(t *testing.T) {
 	m := pageOf(t, mapReadout(t)).Map
 	for _, tc := range []struct {

@@ -78,9 +78,13 @@ summary { cursor: pointer; }
 .joinbadge { color: var(--join); font-size: 11px; font-weight: 600; }
 .state { color: var(--muted); font-size: 11px; }
 
-/* The map: the setting at the center, workstreams around it, items further
-   out. Color is spent only on a workstream with a cue, which carries its mark
-   too; a cross-link stays faint until one of its ends is selected. */
+/* The map, drawn as a hand-drawn mind map is: branches leave the center to
+   both sides, thinning outward, each label written on its line. Branches are
+   neutral; a workstream's cue sets its whole branch's tone, by what the cue
+   asks of the reader: a failing input in the error color, behind its rank in
+   the warning color, nothing read dashed, stale faded. Each tone also carries
+   its mark and its words. A cross-link stays faint until one of its ends is
+   selected. */
 /* biome-ignore lint/complexity/noImportantStyles: no other rule may show what the page hides, or a failed script could show the map and the lists at once. */
 [hidden] { display: none !important; }
 .read { font-size: 11px; }
@@ -97,21 +101,31 @@ summary { cursor: pointer; }
 /* The tree covers the plane, so the nodes placed in it share the drawing's
    coordinates and the tree has the drawing's size. */
 .plane > [role="tree"] { position: absolute; inset: 0; }
-.edge { stroke: var(--rule); stroke-width: 1.5; }
+.branch { fill: none; stroke: var(--muted); stroke-linecap: round; stroke-width: 1.5; }
+.branch.depth-1 { stroke-width: 5; }
+.branch.depth-2 { stroke-width: 2.5; }
+.branch.tone-stale { opacity: .4; }
+.branch.depth-1.tone-stale { stroke-width: 3; }
+.branch.tone-behind { stroke: var(--warn); }
+.branch.tone-fault { stroke: var(--bad); }
+.branch.tone-unread { stroke-dasharray: 6 4; }
 .xlink { fill: none; stroke: var(--join); stroke-width: 1.5; stroke-dasharray: 5 4; opacity: .35; }
 .xlink.strong { opacity: 1; stroke-width: 2.5; }
 .xlabel { fill: var(--muted); font-size: 10px; text-anchor: middle; }
 [role="treeitem"] { position: absolute; width: 0; height: 0; }
 [role="treeitem"]:focus { outline: none; }
-.node { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); max-width: 11em; padding: 1px 6px; border: 1px solid var(--rule); border-radius: 999px; background: var(--panel); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-.node.setting { font-size: 13px; font-weight: 700; border-color: var(--ink); }
-.node.workstream { font-size: 12px; font-weight: 600; border-radius: 4px; }
-.node.unread { border-style: dashed; color: var(--muted); font-style: italic; }
-.node.flagged { border: 2px solid var(--warn); background: var(--warn-bg); color: var(--warn); }
+.node { position: absolute; bottom: 1px; padding: 0 3px; border: 1px solid transparent; border-radius: 4px; font-size: 12px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.node.right { left: 0; }
+.node.left { right: 0; text-align: right; }
+.node.hub { left: 0; top: 0; bottom: auto; transform: translate(-50%, -50%); padding: 6px 16px; border: 2px solid var(--ink); border-radius: 999px; background: var(--panel); font-size: 15px; font-weight: 700; }
+.node.workstream { font-size: 14px; font-weight: 600; }
+.node.unread { color: var(--muted); font-style: italic; }
+.node.tone-stale { color: var(--muted); }
+.node.workstream.tone-behind { color: var(--warn); }
+.node.workstream.tone-fault { color: var(--bad); border-color: var(--bad); }
 .node .flag { margin-right: 4px; font-weight: 800; }
 .node .sub { margin-left: 4px; font-family: ui-monospace, monospace; font-size: 10px; font-weight: 400; }
 .node .rollup { margin-left: 4px; font-weight: 400; color: var(--muted); }
-.node.flagged .rollup { color: inherit; }
 .node.selected, [role="treeitem"]:focus > .node { outline: 2px solid var(--join); outline-offset: 1px; }
 .panel { margin-top: 8px; border-top: 1px solid var(--rule); padding-top: 6px; font-size: 13px; }
 .panel h2 { margin: 0; font-size: 14px; color: var(--ink); text-transform: none; letter-spacing: 0; }

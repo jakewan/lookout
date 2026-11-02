@@ -1,5 +1,4 @@
-// The page's map: a radial drawing of the setting, its workstreams and their
-// items. Go decides every order, place, count and cue and hands them over in
+// The page's map: a mind map of the setting, its workstreams and their items. Go decides every order, place, count and cue and hands them over in
 // the page's data block; this script only lays them out and shows or hides
 // parts of them, so no rule lives here twice. It builds the page only with
 // createElement and textContent.
@@ -14,6 +13,7 @@
  * @property {string} name
  * @property {string[]} words
  * @property {string} flag
+ * @property {string} tone fault, behind, unread, stale, or empty: how loud its branch is drawn
  * @property {string} state
  * @property {string} href
  * @property {string} joined_by
@@ -41,10 +41,30 @@
  * @property {CrossLink[]} links
  */
 
+/**
+ * Where a node is drawn: its branch meets its label's line at (x, y), and the
+ * line runs `run` pixels outward, to the right where side is 1 and to the left
+ * where it is -1. The hub has side 0 and sits at the center.
+ * @typedef {{x: number, y: number, side: number, depth: number, run: number}} Place
+ */
+
 /** @typedef {{x: number, y: number}} Point */
 
-/** The distance between one ring of the map and the next. */
-const ring = 170;
+/** The height each shown leaf takes. */
+const row = 26;
+/** The horizontal curve between a node's line and its children's. */
+const gap = 36;
+/** How far from the center the first branches leave the hub. */
+const hubReach = 56;
+
+/**
+ * How long a node's line is: the first branches are longest, as in a
+ * hand-drawn map.
+ * @param {number} depth
+ */
+function runAt(depth) {
+  return depth === 1 ? 180 : 150;
+}
 
 /**
  * @param {ViewModel} model
@@ -79,50 +99,61 @@ export function shown(model, hub, collapsed) {
 }
 
 /**
- * Where each shown node sits, with hub at the center. Rank 1 of the first
- * ring is centered at twelve o'clock and the rest follow clockwise. Around
- * the setting every workstream gets an equal share, so a large one cannot
- * crowd a small one out; further out, a node's share follows the leaf weight
- * Go gave it.
+ * The rows a shown node takes: Go's leaf weight, or one row where the node is
+ * collapsed or holds a collapsed node, whose leaves are then not drawn.
+ * @param {ViewModel} model
+ * @param {number} i
+ * @param {Set<number>} collapsed
+ * @returns {number}
+ */
+function rows(model, i, collapsed) {
+  const node = nodeOf(model, i);
+  if (collapsed.has(i) || node.children.length === 0) return 1;
+  if (collapsed.size === 0) return Math.max(1, node.weight);
+  return node.children.reduce((sum, c) => sum + rows(model, c, collapsed), 0);
+}
+
+/**
+ * Where each shown node is drawn, as a hand-drawn mind map is: the hub at the
+ * center, its branches leaving to both sides and running outward, each level
+ * further out, siblings stacked by the leaves they hold. Go's order runs down
+ * the right side and then back up the left, clockwise from the top.
  * @param {ViewModel} model
  * @param {number} hub
  * @param {Set<number>} collapsed
- * @returns {Map<number, Point>}
+ * @returns {Map<number, Place>}
  */
 export function layout(model, hub, collapsed) {
-  /** @type {Map<number, Point>} */
+  /** @type {Map<number, Place>} */
   const at = new Map();
-  at.set(hub, { x: 0, y: 0 });
+  at.set(hub, { x: 0, y: 0, side: 0, depth: 0, run: 0 });
   /**
-   * @param {number} i
+   * Places nodes on one side in a column centered on y, top to bottom.
+   * @param {number[]} nodes
+   * @param {number} side
+   * @param {number} x
+   * @param {number} y
    * @param {number} depth
-   * @param {number} from
-   * @param {number} span
    */
-  const spread = (i, depth, from, span) => {
-    if (collapsed.has(i)) return;
-    const node = nodeOf(model, i);
-    const equal = node.kind === "setting";
-    const share = (/** @type {number} */ c) => (equal ? 1 : Math.max(1, nodeOf(model, c).weight));
-    const total = node.children.reduce((sum, c) => sum + share(c), 0);
-    let start = from;
-    for (const c of node.children) {
-      const width = (span * share(c)) / total;
-      const angle = start + width / 2;
-      at.set(c, { x: Math.cos(angle) * ring * depth, y: Math.sin(angle) * ring * depth });
-      spread(c, depth + 1, start, width);
-      start += width;
+  const column = (nodes, side, x, y, depth) => {
+    const total = nodes.reduce((sum, c) => sum + rows(model, c, collapsed), 0);
+    let top = y - (total * row) / 2;
+    for (const c of nodes) {
+      const height = rows(model, c, collapsed) * row;
+      const run = runAt(depth);
+      const mid = top + height / 2;
+      at.set(c, { x, y: mid, side, depth, run });
+      if (!collapsed.has(c)) column(nodeOf(model, c).children, side, x + side * (run + gap), mid, depth + 1);
+      top += height;
     }
   };
-  const root = nodeOf(model, hub);
-  const first = root.children[0];
-  const total = root.children.reduce(
-    (sum, c) => sum + (root.kind === "setting" ? 1 : Math.max(1, nodeOf(model, c).weight)),
-    0,
-  );
-  const firstShare = first === undefined ? 0 : root.kind === "setting" ? 1 : Math.max(1, nodeOf(model, first).weight);
-  const firstWidth = total === 0 ? 0 : (2 * Math.PI * firstShare) / total;
-  spread(hub, 1, -Math.PI / 2 - firstWidth / 2, 2 * Math.PI);
+  if (!collapsed.has(hub)) {
+    const children = nodeOf(model, hub).children;
+    const half = Math.ceil(children.length / 2);
+    column(children.slice(0, half), 1, hubReach + gap, 0, 1);
+    // The left side reads bottom to top, so the order keeps running clockwise.
+    column(children.slice(half).reverse(), -1, -(hubReach + gap), 0, 1);
+  }
   return at;
 }
 
@@ -194,29 +225,46 @@ class MapView {
    */
   build() {
     const at = layout(this.model, this.hub, this.collapsed);
-    const xs = [...at.values()].map((p) => p.x);
+    const xs = [...at.values()].flatMap((p) => [p.x, p.x + p.side * p.run]);
     const ys = [...at.values()].map((p) => p.y);
-    const pad = 110;
-    const left = Math.min(...xs) - pad;
-    const top = Math.min(...ys) - pad / 2;
-    const width = Math.max(...xs) - left + pad;
+    const pad = 60;
+    const left = Math.min(...xs, -hubReach) - pad;
+    const top = Math.min(...ys) - pad;
+    const width = Math.max(...xs, hubReach) - left + pad;
     const height = Math.max(...ys) - top + pad / 2;
     /** @param {number} i */
-    const point = (i) => {
+    const place = (i) => {
       const p = at.get(i);
-      return p ? { x: p.x - left, y: p.y - top } : undefined;
+      return p ? { ...p, x: p.x - left, y: p.y - top } : undefined;
+    };
+    /**
+     * Where a cross-link meets a node: the middle of its line.
+     * @param {number} i
+     * @returns {Point | undefined}
+     */
+    const point = (i) => {
+      const p = place(i);
+      return p ? { x: p.x + (p.side * p.run) / 2, y: p.y } : undefined;
     };
 
     const drawing = svg("svg");
     attrs(drawing, { "aria-hidden": "true", width: String(width), height: String(height) });
-    for (const [i, p] of at) {
-      const parent = nodeOf(this.model, i).parent;
-      const q = point(parent);
-      const r = point(i);
-      if (i === this.hub || !q || !r || !p) continue;
-      const line = svg("line");
-      attrs(line, { class: "edge", x1: String(q.x), y1: String(q.y), x2: String(r.x), y2: String(r.y) });
-      drawing.append(line);
+    for (const i of at.keys()) {
+      if (i === this.hub) continue;
+      const node = nodeOf(this.model, i);
+      const p = place(i);
+      const q = place(node.parent);
+      if (!p || !q) continue;
+      // A branch curves out of the end of its parent's line, or out of the
+      // hub, into the line its own label is written on.
+      const from = q.side === 0 ? { x: q.x + p.side * hubReach, y: q.y } : { x: q.x + q.side * q.run, y: q.y };
+      const bend = (p.side * gap) / 2;
+      const path = svg("path");
+      attrs(path, {
+        class: `branch depth-${Math.min(p.depth, 3)}${node.tone ? ` tone-${node.tone}` : ""}`,
+        d: `M ${from.x} ${from.y} C ${from.x + bend} ${from.y} ${p.x - bend} ${p.y} ${p.x} ${p.y} L ${p.x + p.side * p.run} ${p.y}`,
+      });
+      drawing.append(path);
     }
     const center = point(this.hub) ?? { x: 0, y: 0 };
     for (const link of this.model.links) {
@@ -254,7 +302,7 @@ class MapView {
      * @param {number} size
      */
     const add = (i, level, pos, size) => {
-      tree.append(this.item(i, level, pos, size, point));
+      tree.append(this.item(i, level, pos, size, place));
       if (this.collapsed.has(i)) return;
       const kids = nodeOf(this.model, i).children;
       kids.forEach((c, k) => {
@@ -283,10 +331,10 @@ class MapView {
    * @param {number} level
    * @param {number} pos
    * @param {number} size
-   * @param {(i: number) => Point | undefined} point
+   * @param {(i: number) => Place | undefined} place
    * @returns {HTMLElement}
    */
-  item(i, level, pos, size, point) {
+  item(i, level, pos, size, place) {
     const node = nodeOf(this.model, i);
     const li = el("li");
     const open = !this.collapsed.has(i);
@@ -303,27 +351,30 @@ class MapView {
       "aria-labelledby": said.id,
       "aria-selected": String(i === this.selected),
       "data-handle": node.handle,
+      "data-tone": node.tone,
       tabindex: i === this.selected ? "0" : "-1",
     });
     li.append(said);
     if (i !== this.hub) li.setAttribute("data-parent", nodeOf(this.model, node.parent).handle);
     if (node.children.length > 0) li.setAttribute("aria-expanded", String(open));
+    const p = place(i);
+    const side = !p || p.side === 0 ? "hub" : p.side > 0 ? "right" : "left";
     const box = el(
       "span",
       undefined,
-      `node ${node.kind}${node.flag ? " flagged" : ""}${i === this.selected ? " selected" : ""}`,
+      `node ${node.kind} ${side}${node.tone ? ` tone-${node.tone}` : ""}${i === this.selected ? " selected" : ""}`,
     );
     box.setAttribute("aria-hidden", "true");
     if (node.flag) box.append(el("span", node.flag, "flag"));
     box.append(el("span", node.label, "label"));
     if (node.kind === "workstream" && node.sub) box.append(" ", el("span", node.sub, "sub"));
     if (!open && node.rollup) box.append(" ", el("span", node.rollup, "rollup"));
-    // The item itself sits at its node's point, so focusing it scrolls the
-    // node into view.
-    const p = point(i);
+    // The item itself sits where its branch meets its line, so focusing it
+    // scrolls the node into view; the label is written along the line.
     if (p) {
       li.style.left = `${p.x}px`;
       li.style.top = `${p.y}px`;
+      if (p.run > 0) box.style.maxWidth = `${p.run - 8}px`;
     }
     box.addEventListener("click", () => this.select(i, true));
     li.append(box);
