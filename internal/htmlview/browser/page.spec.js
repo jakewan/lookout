@@ -1,29 +1,9 @@
 // How the page lookout view writes behaves in a browser, from the reader's side.
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+import { cspViolations, pageURL, showLists, watchPolicy } from "./support.js";
 
-/** @type {Record<string, string>} */
-const pages = JSON.parse(process.env.LOOKOUT_PAGES ?? "{}");
-
-/** @param {string} name */
-function pageURL(name) {
-  const url = pages[name];
-  if (!url) throw new Error(`no page rendered for fixture ${name}`);
-  return url;
-}
-
-test.beforeEach(async ({ page }) => {
-  // Init scripts run outside the page's content security policy, so this
-  // listener sees every violation the policy reports.
-  await page.addInitScript(() => {
-    /** @type {string[]} */
-    const seen = [];
-    Object.assign(window, { cspViolations: seen });
-    document.addEventListener("securitypolicyviolation", (e) => {
-      seen.push(`${e.violatedDirective} ${e.blockedURI}`);
-    });
-  });
-});
+watchPolicy();
 
 test.describe("the overview", () => {
   test("lists every workstream in stated order, by title with its id beside it, or by its id", async ({ page }) => {
@@ -56,8 +36,9 @@ test.describe("the overview", () => {
     await expect(link.getByTitle("draws on a failing input")).toHaveText("!");
   });
 
-  test("opens a workstream's detail from its lane", async ({ page }) => {
+  test("opens a workstream's detail from its lane, in the lists", async ({ page }) => {
     await page.goto(pageURL("busy"));
+    await showLists(page);
     await page.getByRole("link", { name: "Billing export to the ledger billing-export" }).click();
     await expect(page).toHaveURL(/#ws-2$/);
     await expect(page.locator("#ws-2")).toBeInViewport();
@@ -77,6 +58,8 @@ test.describe("inputs", () => {
 test.describe("a workstream's detail", () => {
   test("starts closed, and Tab from the top of the page reaches it and Enter opens it", async ({ page }) => {
     await page.goto(pageURL("busy"));
+    await showLists(page);
+    await page.locator("body").focus();
     const detail = page.locator("#ws-1 details");
     await expect(detail).not.toHaveAttribute("open");
     const summary = detail.locator("summary");
@@ -96,7 +79,7 @@ test("an empty setting says it has no workstreams", async ({ page }) => {
   await expect(page.getByText("No workstreams.")).toBeVisible();
 });
 
-for (const name of ["busy", "empty"]) {
+for (const name of ["busy", "empty", "map"]) {
   test.describe(`the ${name} page`, () => {
     test("requests nothing beyond its own file", async ({ page }) => {
       /** @type {string[]} */
@@ -112,25 +95,26 @@ for (const name of ["busy", "empty"]) {
     test("trips its content security policy nowhere", async ({ page }) => {
       await page.goto(pageURL(name));
       await page.waitForLoadState("networkidle");
-      const seen = await page.evaluate(
-        () => /** @type {{cspViolations: string[]}} */ (/** @type {unknown} */ (window)).cspViolations,
-      );
-      expect(seen).toEqual([]);
+      expect(await cspViolations(page)).toEqual([]);
     });
 
     for (const colorScheme of /** @type {const} */ (["light", "dark"])) {
-      test(`passes an accessibility audit in its ${colorScheme} colors`, async ({ page }) => {
+      test(`passes an accessibility audit in its ${colorScheme} colors, map and lists`, async ({ page }) => {
         await page.emulateMedia({ colorScheme });
         await page.goto(pageURL(name));
-        // axe skips what is hidden, so every workstream's detail is opened
-        // and its items audited too.
+        // The map shows first; axe skips what is hidden, so it audits the
+        // map now and the lists once they are shown and opened.
+        const audit = async () => {
+          const results = await new AxeBuilder({ page }).analyze();
+          return results.violations.flatMap((v) =>
+            v.nodes.map((n) => ({ rule: v.id, target: n.target.join(" "), fg: n.any[0]?.data?.fgColor })),
+          );
+        };
+        expect(await audit()).toEqual([]);
+        await showLists(page);
         for (const summary of await page.locator("summary").all()) await summary.click();
         await expect(page.locator("details:not([open])")).toHaveCount(0);
-        const results = await new AxeBuilder({ page }).analyze();
-        const found = results.violations.flatMap((v) =>
-          v.nodes.map((n) => ({ rule: v.id, target: n.target.join(" "), fg: n.any[0]?.data?.fgColor })),
-        );
-        expect(found).toEqual([]);
+        expect(await audit()).toEqual([]);
       });
     }
   });

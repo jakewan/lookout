@@ -1,0 +1,228 @@
+// How the page's map of each workstream's items behaves, from the reader's
+// side, over a readout holding every shape the map has to place.
+import { expect, test } from "@playwright/test";
+import { pageURL, showLists, watchPolicy } from "./support.js";
+
+watchPolicy();
+
+/** @param {import("@playwright/test").Page} page */
+const tree = (page) => page.getByRole("tree", { name: "map of every workstream's items" });
+
+/**
+ * A node by its handle: a workstream's id, or an item's <input>:<id>.
+ * @param {import("@playwright/test").Page | import("@playwright/test").Locator} within
+ * @param {string} handle
+ */
+const node = (within, handle) => within.locator(`[role="treeitem"][data-handle="${handle}"]`);
+
+/**
+ * The nodes directly beneath a node, by handle, in order.
+ * @param {import("@playwright/test").Locator} parent
+ */
+const children = (parent) => parent.locator(":scope > [role='group'] > [role='treeitem']");
+
+/**
+ * The handles of the nodes a locator finds, in order.
+ * @param {import("@playwright/test").Locator} nodes
+ */
+const handles = (nodes) => nodes.evaluateAll((els) => els.map((e) => e.getAttribute("data-handle")));
+
+/**
+ * A cross-link, by the handles at its ends.
+ * @param {import("@playwright/test").Page} page
+ * @param {string} from
+ * @param {string} to
+ */
+const crossLink = (page, from, to) => page.locator(`svg .xlink[data-from="${from}"][data-to="${to}"]`);
+
+test.describe("the map", () => {
+  test("shows by default, and its switch reaches the lists", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    await expect(tree(page)).toBeVisible();
+    await expect(page.locator("#ws-1")).toBeHidden();
+    await showLists(page);
+    await expect(tree(page)).toBeHidden();
+    await expect(page.locator("#ws-1")).toBeVisible();
+    await page.getByRole("button", { name: "Map" }).click();
+    await expect(tree(page)).toBeVisible();
+  });
+
+  test("centers on the setting, with every workstream around it in stated order", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    const hub = tree(page).locator(":scope > [role='treeitem']");
+    await expect(hub).toHaveCount(1);
+    await expect.poll(() => handles(children(hub))).toEqual(["platform", "billing", "ops", "docs", "intake"]);
+  });
+
+  test("names each workstream's cues in words and marks each flagged one by shape", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    await expect(node(page, "platform")).toHaveAccessibleName(/^Platform rework platform.*draws on a failing input/);
+    await expect(node(page, "ops")).toHaveAccessibleName(/stale.*behind its rank/);
+    await expect(node(page, "intake")).toHaveAccessibleName(/nothing read/);
+    for (const flagged of ["platform", "ops", "intake"]) {
+      await expect(node(page, flagged).locator(":scope > .node .flag")).not.toHaveText("");
+    }
+    await expect(node(page, "docs").locator(":scope > .node .flag")).toHaveCount(0);
+  });
+});
+
+test.describe("placing items", () => {
+  test("hangs a join under its member, and a branch under the pull request it came through", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    const p2 = node(page, "tracker:P-2");
+    await expect.poll(() => handles(children(p2))).toEqual(["tracker:P-3", "hub:owner/app#10"]);
+    await expect.poll(() => handles(children(node(p2, "hub:owner/app#10")))).toEqual(["code:owner/app:feature/split"]);
+  });
+
+  test("hangs a member under its parent in the same workstream, and leaves one whose parent is absent at the top", async ({
+    page,
+  }) => {
+    await page.goto(pageURL("map"));
+    await expect
+      .poll(() => handles(children(node(page, "platform"))))
+      .toEqual(["tracker:P-1", "tracker:P-9", "tracker:C-1", "tracker:J-1"]);
+    await expect.poll(() => handles(children(node(page, "tracker:P-1")))).toEqual(["tracker:P-2"]);
+  });
+
+  test("breaks a cycle at its earliest node and draws the edge it gave up as a cross-link", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    await expect.poll(() => handles(children(node(page, "tracker:C-1")))).toEqual(["tracker:C-2"]);
+    await expect(crossLink(page, "tracker:C-1", "tracker:C-2")).toHaveAttribute("data-kind", "parent");
+    // A member whose parent joined through it: the join hangs under the
+    // member, and the parent edge is drawn instead.
+    await expect.poll(() => handles(children(node(page, "tracker:J-1")))).toEqual(["tracker:J-0"]);
+    await expect(crossLink(page, "tracker:J-1", "tracker:J-0")).toHaveAttribute("data-kind", "parent");
+  });
+
+  test("draws a shared item once, where it is a member, with one cross-link to each other holder", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    await expect(tree(page).locator('[data-handle="hub:owner/app#20"]')).toHaveCount(1);
+    await expect(node(node(page, "billing"), "hub:owner/app#20")).toHaveCount(1);
+    await expect(page.locator('svg .xlink[data-from="hub:owner/app#20"]')).toHaveCount(2);
+    await expect(crossLink(page, "hub:owner/app#20", "platform")).toHaveAttribute("data-kind", "shared");
+    await expect(crossLink(page, "hub:owner/app#20", "ops")).toHaveAttribute("data-kind", "shared");
+  });
+
+  test("hangs what joined through a shared item, where that item is not drawn, under the item's own place", async ({
+    page,
+  }) => {
+    await page.goto(pageURL("map"));
+    await expect.poll(() => handles(children(node(page, "tracker:O-1")))).toEqual(["code:owner/app:feature/rollout"]);
+  });
+
+  test("links a child to a parent another workstream holds, and keeps a joined child's parent", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    await expect(crossLink(page, "tracker:B-1", "tracker:P-1")).toHaveAttribute("data-kind", "parent");
+    await expect.poll(() => handles(children(node(page, "hub:owner/app#20")))).toEqual(["tracker:B-3"]);
+    await expect(crossLink(page, "tracker:B-3", "tracker:B-1")).toHaveAttribute("data-kind", "parent");
+  });
+
+  test("shows a member nothing read, and a link of a kind it does not know as given", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    await expect(node(page, "hub:owner/app#21")).toHaveAccessibleName(/not read/);
+    await expect(node(page, "tracker:I-1")).toHaveAccessibleName(/not read/);
+    const blocks = crossLink(page, "tracker:O-1", "platform");
+    await expect(blocks).toHaveAttribute("data-kind", "blocks");
+  });
+});
+
+test.describe("using the map", () => {
+  test("shows a selected node's handle and copies it exactly", async ({ page }) => {
+    await page.addInitScript(() => {
+      /** @type {string[]} */
+      const copied = [];
+      Object.assign(window, { copied });
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText: async (/** @type {string} */ s) => void copied.push(s) },
+      });
+    });
+    await page.goto(pageURL("map"));
+    await node(page, "tracker:B-​2").locator(":scope > .node").click();
+    const panel = page.getByRole("region", { name: "selected node" });
+    await expect(panel).toContainText("contains hidden characters");
+    await panel.getByRole("button", { name: "Copy" }).click();
+    const copied = await page.evaluate(
+      () => /** @type {{copied: string[]}} */ (/** @type {unknown} */ (window)).copied,
+    );
+    expect(copied).toEqual(["tracker:B-​2"]);
+  });
+
+  test("lists a selected node's cross-links and draws them at full strength", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    await expect(crossLink(page, "hub:owner/app#20", "ops")).not.toHaveClass(/strong/);
+    await node(page, "ops").locator(":scope > .node").click();
+    await expect(crossLink(page, "hub:owner/app#20", "ops")).toHaveClass(/strong/);
+    await expect(page.getByRole("region", { name: "selected node" })).toContainText("shared with hub:owner/app#20");
+  });
+
+  test("makes a node the hub and finds the way back", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    await node(page, "tracker:P-2").locator(":scope > .node").click();
+    await page.getByRole("button", { name: "Make hub" }).click();
+    await expect(tree(page).locator(":scope > [role='treeitem']")).toHaveAttribute("data-handle", "tracker:P-2");
+    const crumbs = page.getByRole("navigation", { name: "map hub" });
+    await expect(crumbs.getByRole("button")).toHaveText(["example", "Platform rework", "P-1"]);
+    await crumbs.getByRole("button", { name: "example" }).click();
+    await expect(tree(page).locator(":scope > [role='treeitem']")).toHaveAttribute("data-handle", "");
+  });
+
+  test("collapses a node, saying how much it holds", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    await node(page, "tracker:P-2").locator(":scope > .node").click();
+    await page.getByRole("button", { name: "Collapse" }).click();
+    await expect(node(page, "tracker:P-3")).toBeHidden();
+    await expect(node(page, "tracker:P-2")).toHaveAttribute("aria-expanded", "false");
+    await expect(node(page, "tracker:P-2").locator(":scope > .node")).toContainText("3 items");
+  });
+
+  test("focuses a workstream when its lane is followed", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    await page
+      .getByRole("region", { name: "every workstream, in stated order" })
+      .getByRole("link", { name: "billing" })
+      .click();
+    await expect(node(page, "billing")).toHaveAttribute("aria-selected", "true");
+    await expect(node(page, "billing")).toBeFocused();
+  });
+
+  test("takes one Tab stop, and arrow keys move through it", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    await expect(tree(page).locator('[role="treeitem"][tabindex="0"]')).toHaveCount(1);
+    await page.getByRole("button", { name: "List" }).focus();
+    await page.keyboard.press("Tab");
+    await expect(node(page, "")).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(node(page, "platform")).toBeFocused();
+    await page.keyboard.press("ArrowLeft");
+    await expect(node(page, "")).toBeFocused();
+  });
+});
+
+test.describe("a reader who must be able to trust it", () => {
+  test("names the exact read it was drawn from", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    await expect(page.locator("header")).toContainText("2030-06-15T12:00:00.123456789Z");
+  });
+
+  test("keeps today's lists where its script fails", async ({ page }) => {
+    await page.addInitScript(() => {
+      JSON.parse = () => {
+        throw new Error("broken on purpose");
+      };
+    });
+    await page.goto(pageURL("map"));
+    await expect(page.locator("#ws-1")).toBeVisible();
+    await expect(page.getByRole("group", { name: "Show the detail as" })).toBeHidden();
+  });
+});
+
+test.describe("with script off", () => {
+  test.use({ javaScriptEnabled: false });
+
+  test("reads as lists, with no switch and no map", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    await expect(page.locator("#ws-1")).toBeVisible();
+    await expect(page.getByRole("group", { name: "Show the detail as" })).toBeHidden();
+    await expect(tree(page)).toBeHidden();
+  });
+});
