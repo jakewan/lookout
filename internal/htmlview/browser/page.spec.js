@@ -120,19 +120,8 @@ for (const name of ["busy", "empty"]) {
         const found = results.violations.flatMap((v) =>
           v.nodes.map((n) => ({ rule: v.id, target: n.target.join(" "), fg: n.any[0]?.data?.fgColor })),
         );
-        expect(found.filter((f) => !knownShortfall(colorScheme, f))).toEqual([]);
+        expect(found).toEqual([]);
       });
     }
   });
-}
-
-// Today's page falls short in one known way: its light warning color,
-// --warn in page.css, misses the 4.5:1 text contrast WCAG asks for. It is
-// recorded here rather than switched off, so any other shortfall still fails.
-/**
- * @param {"light" | "dark"} colorScheme
- * @param {{rule: string, fg: unknown}} found
- */
-function knownShortfall(colorScheme, found) {
-  return colorScheme === "light" && found.rule === "color-contrast" && found.fg === "#a86a00";
 }

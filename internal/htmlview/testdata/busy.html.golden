@@ -10,7 +10,7 @@
 <style>
 :root {
   --bg: #fbfbfa; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --rule: #e4e3df;
-  --ok: #4f7a5a; --warn: #a86a00; --warn-bg: #fff4dd; --bad: #b3261e; --bad-bg: #fde8e6;
+  --ok: #4f7a5a; --warn: #946000; --warn-bg: #fff4dd; --bad: #b3261e; --bad-bg: #fde8e6;
   --mark: #33332f; --join: #6a5acd;
 }
 @media (prefers-color-scheme: dark) {
