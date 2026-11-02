@@ -224,6 +224,118 @@ func TestASharedItemLinksToWhatItFollowsNotToANearerNode(t *testing.T) {
 	}
 }
 
+// held adds a supplied item to the workstream at index i, joined through
+// member (and via, where it is not empty) when member is not empty.
+func held(doc map[string]any, i int, input, id, member, via string) {
+	w := record(workstreams(doc)[i])
+	placed := map[string]any{"input": input, "item": map[string]any{
+		"id": id, "last_touched": "2030-06-10T12:00:00Z", "state": "open", "links": []any{}, "attrs": map[string]any{},
+	}}
+	if member != "" {
+		j := map[string]any{"by": "key", "member": member}
+		if via != "" {
+			j["by"], j["via"] = "pull_request", via
+		}
+		placed["joined"] = j
+	}
+	w["items"] = append(w["items"].([]any), placed)
+}
+
+// Every edge an item occurrence follows, in any workstream, reaches the map:
+// as the branch it hangs by, or as a cross-link to the very node it follows,
+// of its kind. The relations are derived here from the readout alone, over
+// readouts that put each kind of occurrence in each kind of place: drawn here
+// or under another workstream; following nothing, a node drawn here, one
+// drawn elsewhere, or a member nothing read; by a pull request, a member or a
+// parent; cut from a cycle; and a join whose parent its workstream holds.
+func TestEveryEdgeAnOccurrenceFollowsIsDrawn(t *testing.T) {
+	variants := map[string]func(map[string]any){
+		"the fixture": func(map[string]any) {},
+		"an item and what it joined through both drawn elsewhere": func(doc map[string]any) {
+			held(doc, 3, "code", "owner/app:feature/rollout", "", "")
+		},
+		"a member held twice, with nothing to hang from in the second": func(doc map[string]any) {
+			held(doc, 3, "tracker", "B-1", "", "")
+		},
+		"a member held twice, under its parent in both": func(doc map[string]any) {
+			member(doc, 1, "E-1", "")
+			member(doc, 1, "E-2", "E-1")
+			member(doc, 2, "E-1", "")
+			member(doc, 2, "E-2", "E-1")
+		},
+		"a join through a member nothing read": func(doc map[string]any) {
+			held(doc, 4, "hub", "owner/app#99", "tracker:I-1", "")
+		},
+		"a branch through a pull request drawn elsewhere, its member drawn here": func(doc map[string]any) {
+			held(doc, 2, "code", "owner/app:feature/other", "tracker:O-1", "hub:owner/app#20")
+		},
+	}
+	for name, vary := range variants {
+		t.Run(name, func(t *testing.T) {
+			doc := mapReadout(t)
+			vary(doc)
+			m := pageOf(t, doc).Map
+			has := func(from, to int, kind string) bool {
+				if m.Nodes[from].Parent == to {
+					return true
+				}
+				return slices.ContainsFunc(m.Links, func(l crossLink) bool { return l.From == from && l.To == to && l.Kind == kind })
+			}
+			for _, w := range workstreams(doc) {
+				ws := record(w)
+				wsAt, _ := nodeAt(t, m, ws["name"].(string))
+				holds := map[string]bool{}
+				for _, it := range ws["items"].([]any) {
+					p := record(it)
+					holds[p["input"].(string)+":"+record(p["item"])["id"].(string)] = true
+				}
+				for _, u := range ws["members_unread"].([]any) {
+					holds[u.(string)] = true
+				}
+				for _, it := range ws["items"].([]any) {
+					p := record(it)
+					item := record(p["item"])
+					handle := p["input"].(string) + ":" + item["id"].(string)
+					from, _ := nodeAt(t, m, handle)
+					parent := ""
+					if s, ok := item["parent"].(string); ok && p["input"].(string)+":"+s != handle && holds[p["input"].(string)+":"+s] {
+						parent = p["input"].(string) + ":" + s
+					}
+					follows, kind := "", ""
+					if j, ok := p["joined"].(map[string]any); ok {
+						via, _ := j["via"].(string)
+						switch {
+						case j["by"] == "pull_request" && via != "" && holds[via]:
+							follows, kind = via, "joined"
+						case holds[j["member"].(string)]:
+							follows, kind = j["member"].(string), "joined"
+						}
+						if parent != "" && parent != follows {
+							to, _ := nodeAt(t, m, parent)
+							if !has(from, to, "parent") {
+								t.Errorf("%s in %s: its parent %s is neither its branch nor a cross-link", handle, ws["name"], parent)
+							}
+						}
+					}
+					if follows == "" && parent != "" {
+						follows, kind = parent, "parent"
+					}
+					if follows == "" {
+						if !has(from, wsAt, "shared") {
+							t.Errorf("%s in %s: being held there is neither its branch nor a shared link", handle, ws["name"])
+						}
+						continue
+					}
+					to, _ := nodeAt(t, m, follows)
+					if !has(from, to, kind) {
+						t.Errorf("%s in %s: it follows %s (%s), which is neither its branch nor a cross-link", handle, ws["name"], follows, kind)
+					}
+				}
+			}
+		})
+	}
+}
+
 // The same readout draws the same map: the order of its cross-links, which
 // the page draws and lists, does not vary between renders.
 func TestTheMapIsTheSameEveryTime(t *testing.T) {
