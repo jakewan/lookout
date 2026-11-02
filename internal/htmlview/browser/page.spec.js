@@ -56,6 +56,17 @@ test.describe("inputs", () => {
 });
 
 test.describe("a workstream's detail", () => {
+  test("opens an item's link in a new tab, leaving the page where it was", async ({ page }) => {
+    await page.goto(pageURL("busy"));
+    await showLists(page);
+    const links = page.locator("#lists a[href^='http']");
+    await expect(links).not.toHaveCount(0);
+    for (const link of await links.all()) {
+      await expect(link).toHaveAttribute("target", "_blank");
+      await expect(link).toHaveAttribute("rel", "noreferrer noopener");
+    }
+  });
+
   test("starts closed, and Tab from the top of the page reaches it and Enter opens it", async ({ page }) => {
     await page.goto(pageURL("busy"));
     await showLists(page);

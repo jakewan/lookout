@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-S0UCRgDyea0r8M5oUBJnZuOtjE7fvOcM9C6JB2ZtE5U='; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'; require-trusted-types-for 'script'; trusted-types 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-sVamC//BDP8Tk/n9sXo8ussvp0G1PN3ldYwl9/KY7AE='; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'; require-trusted-types-for 'script'; trusted-types 'none'">
 <meta http-equiv="x-dns-prefetch-control" content="off">
 <meta name="referrer" content="no-referrer">
 <meta charset="utf-8">
@@ -257,9 +257,9 @@ footer.flagged { color: var(--warn); font-weight: 600; }
       <div class="group">
         <h3><bdi>hub</bdi></h3>
         <ul>
-          <li class="join"><a href="https://github.com/owner/app/pull/41" rel="noreferrer noopener"><span class="id"><bdi>owner/app#41</bdi></span></a> <bdi>ABC-13: add result filters</bdi> <span class="state">open</span><br><span class="joinbadge">joined by key &rarr; <bdi>tracker:ABC-13</bdi></span>
+          <li class="join"><a href="https://github.com/owner/app/pull/41" target="_blank" rel="noreferrer noopener"><span class="id"><bdi>owner/app#41</bdi></span></a> <bdi>ABC-13: add result filters</bdi> <span class="state">open</span><br><span class="joinbadge">joined by key &rarr; <bdi>tracker:ABC-13</bdi></span>
           </li>
-          <li class="join"><a href="https://github.com/owner/app/pull/42" rel="noreferrer noopener"><span class="id"><bdi>owner/app#42</bdi></span></a> <bdi>Tidy the search index job</bdi> <span class="state">merged</span><br><span class="joinbadge">joined by description &rarr; <bdi>tracker:ABC-12</bdi></span>
+          <li class="join"><a href="https://github.com/owner/app/pull/42" target="_blank" rel="noreferrer noopener"><span class="id"><bdi>owner/app#42</bdi></span></a> <bdi>Tidy the search index job</bdi> <span class="state">merged</span><br><span class="joinbadge">joined by description &rarr; <bdi>tracker:ABC-12</bdi></span>
           </li>
         </ul>
       </div>
@@ -273,9 +273,9 @@ footer.flagged { color: var(--warn); font-weight: 600; }
       <div class="group">
         <h3><bdi>tracker</bdi></h3>
         <ul>
-          <li class=""><a href="https://tracker.example.com/ABC-12" rel="noreferrer noopener"><span class="id"><bdi>ABC-12</bdi></span></a> <bdi>Search revamp</bdi> <span class="state">In Progress</span>
+          <li class=""><a href="https://tracker.example.com/ABC-12" target="_blank" rel="noreferrer noopener"><span class="id"><bdi>ABC-12</bdi></span></a> <bdi>Search revamp</bdi> <span class="state">In Progress</span>
           </li>
-          <li class=""><a href="https://tracker.example.com/ABC-13" rel="noreferrer noopener"><span class="id"><bdi>ABC-13</bdi></span></a> <bdi>Filters for search results</bdi> <span class="state">In Review</span>
+          <li class=""><a href="https://tracker.example.com/ABC-13" target="_blank" rel="noreferrer noopener"><span class="id"><bdi>ABC-13</bdi></span></a> <bdi>Filters for search results</bdi> <span class="state">In Review</span>
           </li>
           <li class=""><span class="id"><bdi>ABC-14</bdi></span> <bdi>Ranking tweaks</bdi> <span class="state">To Do</span>
           </li>
@@ -303,7 +303,7 @@ footer.flagged { color: var(--warn); font-weight: 600; }
       <div class="group">
         <h3><bdi>hub</bdi></h3>
         <ul>
-          <li class=""><a href="https://github.com/owner/billing/pull/7" rel="noreferrer noopener"><span class="id"><bdi>owner/billing#7</bdi></span></a> <bdi>Export invoices as CSV</bdi> <span class="state">open</span>
+          <li class=""><a href="https://github.com/owner/billing/pull/7" target="_blank" rel="noreferrer noopener"><span class="id"><bdi>owner/billing#7</bdi></span></a> <bdi>Export invoices as CSV</bdi> <span class="state">open</span>
           </li>
           <li class="unread"><span class="id"><bdi>owner/billing#5</bdi></span> <span class="state">not read: no input supplied it</span>
           </li>
@@ -865,6 +865,8 @@ class MapView {
     if (node.href) {
       const a = el("a", "open in its source");
       a.href = node.href;
+      // A new tab, so following an item leaves the map as it was.
+      a.target = "_blank";
       a.rel = "noreferrer noopener";
       parts.push(a);
     }

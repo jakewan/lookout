@@ -79,7 +79,7 @@
         <ul>
         {{- range .Items}}
           <li class="{{if .Join}}join{{else if .Unread}}unread{{end}}">
-            {{- if .Href}}<a href="{{.Href}}" rel="noreferrer noopener"><span class="id"><bdi>{{.ID}}</bdi></span></a>{{else}}<span class="id"><bdi>{{.ID}}</bdi></span>{{end}}
+            {{- if .Href}}<a href="{{.Href}}" target="_blank" rel="noreferrer noopener"><span class="id"><bdi>{{.ID}}</bdi></span></a>{{else}}<span class="id"><bdi>{{.ID}}</bdi></span>{{end}}
             {{- if .Title}} <bdi>{{.Title}}</bdi>{{end}}
             {{- if .State}} <span class="state">{{.State}}</span>{{end}}
             {{- if .Unread}} <span class="state">not read: no input supplied it</span>{{end}}

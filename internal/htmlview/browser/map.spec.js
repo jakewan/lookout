@@ -177,6 +177,15 @@ test.describe("placing items", () => {
 });
 
 test.describe("using the map", () => {
+  test("opens a selected item's link in a new tab, leaving the map where it was", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    await node(page, "tracker:P-1").locator(":scope > .node").click();
+    const link = page.getByRole("region", { name: "selected node" }).getByRole("link");
+    await expect(link).toHaveAttribute("href", "https://tracker.example.com/P-1");
+    await expect(link).toHaveAttribute("target", "_blank");
+    await expect(link).toHaveAttribute("rel", "noreferrer noopener");
+  });
+
   test("shows a selected node's handle and copies it exactly", async ({ page }) => {
     await page.addInitScript(() => {
       /** @type {string[]} */

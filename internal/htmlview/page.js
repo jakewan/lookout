@@ -465,6 +465,8 @@ class MapView {
     if (node.href) {
       const a = el("a", "open in its source");
       a.href = node.href;
+      // A new tab, so following an item leaves the map as it was.
+      a.target = "_blank";
       a.rel = "noreferrer noopener";
       parts.push(a);
     }
