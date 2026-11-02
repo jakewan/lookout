@@ -102,6 +102,20 @@ func TestRankPutsUnlistedInputsLast(t *testing.T) {
 	}
 }
 
+func TestTokenIsWhatAdoptAndDismissTake(t *testing.T) {
+	for _, tc := range []struct{ input, id, want string }{
+		{"hub", "owner/app#60", "hub:owner/app#60"},
+		{"code", "owner/app:spike/cache", "code:owner/app:spike/cache"},
+		{"code", "fix/\u200bcache", `"code:fix/\u200bcache"`},
+		{"tracker", "tab\there", `"tracker:tab\there"`},
+		{"tracker", "bad\xffutf8", `"tracker:bad\xffutf8"`},
+	} {
+		if got := Token(tc.input, tc.id); got != tc.want {
+			t.Errorf("Token(%q, %q) = %q, want %q", tc.input, tc.id, got, tc.want)
+		}
+	}
+}
+
 func TestCleanShowsWhatItWouldOtherwiseObey(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"plain name", "plain name"},

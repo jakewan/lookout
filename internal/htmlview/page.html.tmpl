@@ -96,6 +96,26 @@
 {{- if .Workstreams}}
 </div>
 {{- end}}
+{{- if .UnplacedItems}}
+
+<section class="ws unplaced" id="unplaced" aria-label="Unplaced">
+  <details>
+    <summary>
+      <span class="name">{{len .UnplacedItems}} unplaced</span>
+      <span class="stats">no live workstream holds these; newest touch first</span>
+    </summary>
+    <ul>
+    {{- range .UnplacedItems}}
+      <li>
+        {{- if .Href}}<a href="{{.Href}}" target="_blank" rel="noreferrer noopener"><span class="id"><bdi>{{.Token}}</bdi></span></a>{{else}}<span class="id"><bdi>{{.Token}}</bdi></span>{{end}}
+        {{- if .Title}} <bdi>{{.Title}}</bdi>{{end}}
+        {{- if .State}} <span class="state">{{.State}}</span>{{end}} <span class="state">{{.Touched}} ago</span>
+      </li>
+    {{- end}}
+    </ul>
+  </details>
+</section>
+{{- end}}
 
 <footer{{if .AnyUnhealthy}} class="flagged"{{end}}>
   {{if .AnyUnhealthy}}&#9650; inputs are failing, so these counts may be short: {{end}}{{.Unplaced}} unplaced{{if .Dismissed}}, {{.Dismissed}} dismissed{{end}}{{if .Completed}}, {{.Completed}} workstream{{if gt .Completed 1}}s{{end}} completed{{end}}

@@ -7,6 +7,7 @@ package viewrules
 import (
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // The markers a workstream can carry beside its age.
@@ -102,6 +103,19 @@ func (o Order) Rank(input string) int {
 		return i
 	}
 	return len(o)
+}
+
+// Token is the <input>:<id> handle adopt, move, remove and dismiss take for an
+// item, as lookout unplaced prints it. One holding anything Go does not count
+// as printable, a tab included, or that is not valid UTF-8 is quoted whole,
+// which those commands decode, so a view can show the handle a command will
+// accept without the text splitting a line or driving a terminal.
+func Token(input, id string) string {
+	token := input + ":" + id
+	if !utf8.ValidString(token) || strings.ContainsFunc(token, func(r rune) bool { return !strconv.IsPrint(r) }) {
+		return strconv.Quote(token)
+	}
+	return token
 }
 
 // Clean keeps text from the readout from breaking its line or being obeyed.

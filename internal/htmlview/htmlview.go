@@ -62,7 +62,7 @@ type readout struct {
 	EventWindowSeconds int64       `json:"event_window_seconds"`
 	Workstreams        []rawStream `json:"workstreams"`
 	Links              []rawLink   `json:"workstream_links"`
-	Unplaced           []struct{}  `json:"unplaced"`
+	Unplaced           []rawPlaced `json:"unplaced"`
 	Health             []rawHealth `json:"health"`
 	DismissedCount     int         `json:"dismissed_count"`
 	CompletedCount     int         `json:"completed_count"`
@@ -90,11 +90,12 @@ type rawEvent struct {
 type rawPlaced struct {
 	Input string `json:"input"`
 	Item  struct {
-		ID     string `json:"id"`
-		Title  string `json:"title"`
-		State  string `json:"state"`
-		Parent string `json:"parent"`
-		Links  []struct {
+		ID          string    `json:"id"`
+		Title       string    `json:"title"`
+		State       string    `json:"state"`
+		Parent      string    `json:"parent"`
+		LastTouched time.Time `json:"last_touched"`
+		Links       []struct {
 			Href string `json:"href"`
 		} `json:"links"`
 	} `json:"item"`
@@ -137,13 +138,17 @@ type page struct {
 	// Active counts the workstreams with an event within the event window,
 	// as snapshot does, the measure the vision sets beside a
 	// work-in-progress limit.
-	Active       int
-	Health       []input
-	Workstreams  []workstream
-	Unplaced     int
-	Dismissed    int
-	Completed    int
-	AnyUnhealthy bool
+	Active      int
+	Health      []input
+	Workstreams []workstream
+	// UnplacedItems is what no live workstream holds, most recently touched
+	// first, so what is moving now leads when the user reconciles their
+	// workstreams against it.
+	UnplacedItems []unplacedItem
+	Unplaced      int
+	Dismissed     int
+	Completed     int
+	AnyUnhealthy  bool
 }
 
 type input struct {
@@ -194,6 +199,18 @@ type item struct {
 	Href   string
 	Unread bool
 	Join   *join
+}
+
+// unplacedItem is an item no live workstream holds. Token is the handle adopt
+// and dismiss take, quoted as lookout unplaced quotes it, so the user or an
+// agent can act on what the page shows; Touched is the time since its last
+// touch.
+type unplacedItem struct {
+	Token   string
+	Title   string
+	State   string
+	Touched string
+	Href    string
 }
 
 // join is why a workstream holds an item it does not name. By is shown as
@@ -268,7 +285,31 @@ func build(data []byte) (page, error) {
 		p.Workstreams = append(p.Workstreams, shown)
 	}
 	p.Map = mapOf(r, p.Workstreams, order)
+	p.UnplacedItems = unplacedOf(r.Unplaced, r.GeneratedAt)
 	return p, nil
+}
+
+// unplacedOf lists the unplaced items newest touch first; items touched at
+// the same moment keep the readout's order, so the same readout lists the
+// same way.
+func unplacedOf(placed []rawPlaced, generated time.Time) []unplacedItem {
+	sorted := slices.Clone(placed)
+	slices.SortStableFunc(sorted, func(a, b rawPlaced) int {
+		return b.Item.LastTouched.Compare(a.Item.LastTouched)
+	})
+	out := make([]unplacedItem, 0, len(sorted))
+	for _, p := range sorted {
+		shown := itemOf(p)
+		idle := max(int64(generated.Sub(p.Item.LastTouched).Seconds()), 0)
+		out = append(out, unplacedItem{
+			Token:   viewrules.Token(p.Input, p.Item.ID),
+			Title:   shown.Title,
+			State:   shown.State,
+			Touched: viewrules.Age(&idle),
+			Href:    shown.Href,
+		})
+	}
+	return out
 }
 
 // behind reports whether the workstream at i has gone quieter than one the

@@ -139,6 +139,49 @@ func TestWorkstreamsKeepTheStatedOrder(t *testing.T) {
 	}
 }
 
+func TestUnplacedItemsListNewestTouchFirstByTheTokenAdoptTakes(t *testing.T) {
+	p := pageOf(t, busy(t))
+	want := []unplacedItem{
+		{Token: "sessions:owner/tools:main", State: "open", Touched: "30m"},
+		{Token: `"code:owner/app:fix/\u200bcache"`, Title: "Cache the build", State: "open", Touched: "2h"},
+		{Token: "code:owner/app:spike/cache", State: "open", Touched: "3h"},
+		{Token: "hub:owner/app#60", Title: "Bump the linter", State: "open", Touched: "8h", Href: "https://example.com/owner/app/pull/60"},
+	}
+	if !slices.Equal(p.UnplacedItems, want) {
+		t.Errorf("unplaced items =\n%+v\nwant\n%+v", p.UnplacedItems, want)
+	}
+	if p.Unplaced != len(want) {
+		t.Errorf("unplaced count = %d, want %d", p.Unplaced, len(want))
+	}
+}
+
+func TestUnplacedItemsTouchedTogetherKeepTheReadoutsOrder(t *testing.T) {
+	doc := busy(t)
+	for _, u := range doc["unplaced"].([]any) {
+		record(record(u)["item"])["last_touched"] = "2030-06-15T09:00:00Z"
+	}
+	p := pageOf(t, doc)
+	var got []string
+	for _, u := range p.UnplacedItems {
+		got = append(got, u.Token)
+	}
+	want := []string{"code:owner/app:spike/cache", "hub:owner/app#60", `"code:owner/app:fix/\u200bcache"`, "sessions:owner/tools:main"}
+	if !slices.Equal(got, want) {
+		t.Errorf("order = %v, want %v", got, want)
+	}
+}
+
+func TestNoUnplacedSectionWhereNothingIsUnplaced(t *testing.T) {
+	doc := busy(t)
+	doc["unplaced"] = []any{}
+	if out := render(t, doc); strings.Contains(out, `id="unplaced"`) {
+		t.Error("the page draws an unplaced section with nothing in it")
+	}
+	if out := render(t, busy(t)); !strings.Contains(out, `id="unplaced"`) {
+		t.Error("the page draws no unplaced section where items are unplaced")
+	}
+}
+
 func TestAgeAndMarkerTellFreshStaleAndUnread(t *testing.T) {
 	p := pageOf(t, busy(t))
 	for _, tc := range []struct {
@@ -378,7 +421,7 @@ func TestTheWindowIsLabelledExactly(t *testing.T) {
 func TestCountsAreFlaggedWhileAnyInputIsUnhealthy(t *testing.T) {
 	doc := busy(t)
 	p := pageOf(t, doc)
-	if p.Unplaced != 3 || p.Dismissed != 2 || p.Completed != 1 || !p.AnyUnhealthy {
+	if p.Unplaced != 4 || p.Dismissed != 2 || p.Completed != 1 || !p.AnyUnhealthy {
 		t.Errorf("counts %d/%d/%d flagged %v", p.Unplaced, p.Dismissed, p.Completed, p.AnyUnhealthy)
 	}
 	for _, h := range health(doc) {
