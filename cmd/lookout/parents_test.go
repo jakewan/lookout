@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -152,7 +153,10 @@ func TestAGitHubSubIssueCarriesItsParentInsideTheFence(t *testing.T) {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
 	}
 	validate(t, "readout.v1", stdout)
-	doc := f.read()
+	var doc readoutDoc
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("decoding readout: %v", err)
+	}
 
 	if got := placedItem(t, doc, "review", "alice/app#4")["parent"]; got != "alice/plans#1" {
 		t.Errorf("alice/app#4 parent = %v, want its parent's item id", got)
