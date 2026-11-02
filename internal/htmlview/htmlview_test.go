@@ -462,6 +462,15 @@ func TestThePageCannotFetchAnything(t *testing.T) {
 	}
 }
 
+// The stylesheet is inlined as trusted CSS, so html/template does not stop it
+// closing its own element; a closing tag in it would turn the rest of the
+// file into markup the content security policy was never written for.
+func TestTheStylesheetCannotCloseItsElement(t *testing.T) {
+	if strings.Contains(strings.ToLower(pageStyle), "</style") {
+		t.Error("page.css holds </style, which would close the element it is inlined into")
+	}
+}
+
 func TestTheTitleNamesNoSettingOrWorkstream(t *testing.T) {
 	out := render(t, busy(t))
 	if !strings.Contains(out, "<title>lookout</title>") {
