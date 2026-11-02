@@ -9,6 +9,15 @@ pre-commit:
       run: golangci-lint fmt {staged_files}
       stage_fixed: true
       skip: merge
+    page-format:
+      # Only the page's files, so a Go-only commit needs no Node; biome.json's
+      # includes decide which of them Biome formats.
+      glob:
+        - "internal/htmlview/**/*.{js,css,json}"
+        - "*.{js,json}"
+      run: npx biome format --write --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+      skip: merge
 
 pre-push:
   piped: true
@@ -34,4 +43,28 @@ pre-push:
       # The same form CI runs, so a push that passes here cannot fail CI's test
       # job for a reason the hook never checked.
       run: just test-race
+      skip: merge
+    # The page commands run only when the push changes a file CI's page job is
+    # filtered on, so a Go-only push stays Node-free while hook and CI still
+    # check the same things. Keep this glob and that filter in step.
+    page-check:
+      priority: 4
+      glob: &page-files
+        - "internal/htmlview/**"
+        - "internal/devtools/npmregistry/**"
+        - "internal/viewrules/**"
+        - "cmd/lookout/**"
+        - "package.json"
+        - "package-lock.json"
+        - ".npmrc"
+        - "tsconfig.json"
+        - "biome.json"
+        - "playwright.config.js"
+        - "mise.toml"
+      run: just page-check
+      skip: merge
+    page-test:
+      priority: 5
+      glob: *page-files
+      run: just test-page
       skip: merge

@@ -3,6 +3,10 @@ paths:
   - "mise.toml"
   - "mise.lock"
   - "go.mod"
+  - "package.json"
+  - "package-lock.json"
+  - ".npmrc"
+  - ".github/dependabot.yml"
   - "lefthook.yml"
   - ".golangci.yml"
   - ".github/workflows/ci.yml"
@@ -39,11 +43,17 @@ A Go upgrade can also retire code forms, since `go fix`'s analyzer set grows wit
 
 The failure is loud rather than silent, which makes `just lint` the gate that catches it and the one to run when moving the pair: golangci-lint refuses to start and names both versions — `the Go language version (goX.Y) used to build golangci-lint is lower than the targeted Go version (X.Z)`. Every other gate passes, so a bump verified with anything less looks clean.
 
+## Node is pinned once, in mise.toml
+
+CI's `page` job and the `npm-audit` job take Node from `actions/setup-node` with `node-version-file: mise.toml`, so the `node` line under `[tools]` chooses both the local and the CI version. setup-node parses the file as TOML and reads `tools.node` as a version string, or a table's `version` key (read from the action's `src/util.ts` at the SHA pinned in `ci.yml`). If it ever stopped reading mise's file, it would fall back to treating the whole file as a version and fail at install rather than run a wrong Node. It does not read `mise.lock`, so CI's Node is not checked against the checksums recorded there.
+
+The npm development tools are pinned to exact versions in `package.json` and resolved in `package-lock.json`; CI installs them with `npm ci`, so the two run the same tools. Install the lockfile only with the project's `.npmrc` in effect (any npm command from the repository root): it names the public registry, and `internal/devtools/npmregistry`, run by `just page-check` and CI, fails a lockfile that resolves anywhere else.
+
 ## mise.lock moves with every mise.toml pin
 
 `mise.toml` sets `lockfile = true`, and `mise.lock` records each tool's resolved URL and checksum per platform. It is committed, and the two files must move together: run `mise lock` and commit the result in the same commit as any `mise.toml` version change.
 
-**Nothing in CI enforces this.** No workflow job installs through mise — the only `jdx/mise-action` call, in `toolchain.yml`'s toolchain-report job, sets `install: false`, and CI takes Go from `go.mod` and golangci-lint from an action input. So a stale `mise.lock` is caught by review or not at all.
+**Nothing in CI enforces this.** No workflow job installs through mise — the only `jdx/mise-action` call, in `toolchain.yml`'s toolchain-report job, sets `install: false`, and CI takes Go from `go.mod`, golangci-lint from an action input, and Node from setup-node's reading of `mise.toml`. So a stale `mise.lock` is caught by review or not at all.
 
 **The two commands are not interchangeable, and only one of them is safe after a pin change.** `mise lock` refreshes every platform already recorded in the lockfile. An install rewrites the changed tool's entry to the new version and **drops all of its platform blocks**, leaving an entry nothing can be verified against — whether or not it actually installs anything. So a pin bump followed by an install alone silently strips that tool's verification data. Run `mise lock` after any pin change, and read the resulting diff. The symptom of this going wrong is a lockfile entry carrying a version with no platform blocks under it.
 
@@ -60,3 +70,5 @@ The consequence for review: a bump that looks like tooling can change the binary
 CI's golangci-lint enforces the formatters configured in `.golangci.yml` (`gofmt` + `goimports`). The pre-commit hook in `lefthook.yml` runs `golangci-lint fmt`, which applies that same configured set and re-stages the result — so an import-ordering issue can't pass the commit hook only to fail the lint job later. If the formatters enabled in `.golangci.yml` change, the hook inherits them automatically.
 
 The pre-push test hook runs `just test-race`, matching CI's `go test -race`. Keep them the same form, so a push the hook passes cannot fail CI's test job for a reason the hook never checked.
+
+The page commands follow the same rule. Pre-commit formats staged page files with Biome, and pre-push runs `just page-check` and `just test-page`, the checks and specs CI's `page` job runs. Both pre-push commands carry a `glob:` that matches the `page` path filter in `ci.yml`, so a push that changes no page file needs no Node; keep the glob and the filter in step, or a push can skip a check CI then fails.

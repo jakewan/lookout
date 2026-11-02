@@ -26,17 +26,37 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       go: ${{ steps.filter.outputs.go }}
+      page: ${{ steps.filter.outputs.page }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
+          # internal/htmlview carries files Go embeds and reads in its specs
+          # (the template, the stylesheet, testdata), so a change to any of
+          # them is a Go change too. The page filter covers what the browser
+          # specs render the page through (`lookout view --readout`, the view
+          # rules) and what only they and their tools read.
           filters: |
             go:
               - '**/*.go'
               - 'go.mod'
               - 'go.sum'
               - '.golangci.yml'
+              - 'internal/htmlview/**'
+              - '.github/workflows/ci.yml'
+            page:
+              - 'internal/htmlview/**'
+              - 'internal/devtools/npmregistry/**'
+              - 'internal/viewrules/**'
+              - 'cmd/lookout/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.npmrc'
+              - 'tsconfig.json'
+              - 'biome.json'
+              - 'playwright.config.js'
+              - 'mise.toml'
               - '.github/workflows/ci.yml'
 
   test:
@@ -84,3 +104,39 @@ jobs:
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.15.0
+
+  # The page's browser specs and the checks over its files. Node is needed
+  # here and nowhere else in CI; building and testing the Go never needs it.
+  page:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.page == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # setup-node reads the node pin from mise.toml's [tools] table, so the
+      # Node CI runs is the one developers pin, with no second copy to drift.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: mise.toml
+          cache: npm
+
+      # Checked before npm ci, so a lockfile pointing elsewhere fails before
+      # anything is fetched from where it points.
+      - name: Check the lockfile names only the public registry
+        run: go run ./internal/devtools/npmregistry
+
+      - run: npm ci
+
+      # The rest of `just page-check`, spelled out because this job installs
+      # neither mise nor just.
+      - run: npx tsc -p tsconfig.json
+      - run: npx biome ci
+
+      - run: npx playwright install --with-deps chromium firefox
+
+      - run: npx playwright test
