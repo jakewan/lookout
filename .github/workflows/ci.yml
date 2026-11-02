@@ -139,10 +139,11 @@ jobs:
       - run: npm ci
 
       # The rest of `just page-check`, spelled out because this job installs
-      # neither mise nor just.
-      - run: npx tsc -p tsconfig.json
-      - run: npx biome ci
+      # neither mise nor just. `npm exec --no` refuses a tool npm ci did not
+      # install, where npx would fetch whatever package carries the name.
+      - run: npm exec --no -- tsc -p tsconfig.json
+      - run: npm exec --no -- biome ci
 
-      - run: npx playwright install --with-deps chromium firefox
+      - run: npm exec --no -- playwright install --with-deps chromium firefox
 
-      - run: npx playwright test
+      - run: npm exec --no -- playwright test
