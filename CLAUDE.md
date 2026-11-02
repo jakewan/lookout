@@ -68,7 +68,7 @@ just sweep-file <path>… # disclosure sweep over drafted text bound for GitHub
 just install            # build and install to ~/.local/bin
 ```
 
-Go formatting is enforced by golangci-lint's configured formatters (`gofmt`, `goimports`) — there is no separate format-check step; the page's JavaScript and JSON are formatted by Biome. The `lefthook` hooks run formatting on commit and the disclosure sweep, lint, and tests on push, the page's commands only when a pushed change touches the page.
+Go formatting is enforced by golangci-lint's configured formatters (`gofmt`, `goimports`) — there is no separate format-check step; the page's JavaScript and JSON are formatted by Biome. The `lefthook` hooks run formatting on commit and the disclosure sweep, lint, and tests on push, the page's commands only when a pushed change touches one of the page's non-Go files; CI's page job also runs for the Go the page is rendered through.
 
 ## Development approach
 

@@ -10,10 +10,13 @@ pre-commit:
       stage_fixed: true
       skip: merge
     page-format:
-      # The files biome.json includes, named one by one at the root: lefthook's
-      # default glob matcher lets `*` cross directories, so `*.json` would also
-      # catch the published schemas. `npm exec --no` runs only the locked Biome.
+      # The files biome.json includes. Root files are named one by one, since
+      # lefthook's default matcher lets a leading `*` cross directories and
+      # `*.json` would catch the published schemas; and its `**/` matches only
+      # below a subdirectory, so the stylesheet needs its own line. `npm exec
+      # --no` runs only the locked Biome.
       glob:
+        - "internal/htmlview/*.css"
         - "internal/htmlview/**/*.{js,css,json}"
         - "playwright.config.js"
         - "biome.json"
@@ -48,23 +51,24 @@ pre-push:
       # job for a reason the hook never checked.
       run: just test-race
       skip: merge
-    # The page commands run only when the push changes a file CI's page job is
-    # filtered on, so a Go-only push stays Node-free while hook and CI still
-    # check the same things. Keep this glob and that filter in step.
+    # The page commands run only when the push changes one of the page's own
+    # non-Go files, so a push changing only Go needs no Node or browsers. This
+    # is deliberately narrower than CI's page filter, which also covers the Go
+    # the page is rendered through; CI's page job catches a Go change that
+    # breaks the page.
     page-check:
       priority: 4
+      # Both forms are needed: lefthook's `**/` matches only below a
+      # subdirectory, so it alone would miss the template and the stylesheet.
       glob: &page-files
-        - "internal/htmlview/**"
-        - "internal/devtools/npmregistry/**"
-        - "internal/viewrules/**"
-        - "cmd/lookout/**"
+        - "internal/htmlview/*.{tmpl,css}"
+        - "internal/htmlview/**/*.{tmpl,css,js,json,golden}"
         - "package.json"
         - "package-lock.json"
         - ".npmrc"
         - "tsconfig.json"
         - "biome.json"
         - "playwright.config.js"
-        - "mise.toml"
       run: just page-check
       skip: merge
     page-test:
