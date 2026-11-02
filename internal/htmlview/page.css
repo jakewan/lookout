@@ -78,6 +78,47 @@ summary { cursor: pointer; }
 .joinbadge { color: var(--join); font-size: 11px; font-weight: 600; }
 .state { color: var(--muted); font-size: 11px; }
 
+/* The map: the setting at the center, workstreams around it, items further
+   out. Color is spent only on a workstream with a cue, which carries its mark
+   too; a cross-link stays faint until one of its ends is selected. */
+/* biome-ignore lint/complexity/noImportantStyles: no other rule may show what the page hides, or a failed script could show the map and the lists at once. */
+[hidden] { display: none !important; }
+.read { font-size: 11px; }
+.viewswitch { margin: 14px 0 6px; display: flex; gap: 4px; }
+.viewswitch button, .panel button, .crumbs button { font: inherit; font-size: 12px; padding: 2px 10px; border: 1px solid var(--rule); border-radius: 4px; background: var(--panel); color: var(--ink); cursor: pointer; }
+.viewswitch button[aria-pressed="true"] { border-color: var(--ink); font-weight: 600; }
+.map { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 12px; }
+.crumbs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.crumbs button::after { content: " \2192"; color: var(--muted); }
+.canvas { overflow: auto; }
+.plane { position: relative; margin: 0 auto; }
+.plane svg { position: absolute; left: 0; top: 0; }
+.plane ul { list-style: none; margin: 0; padding: 0; }
+/* The tree covers the plane, so the nodes placed in it share the drawing's
+   coordinates and the tree has the drawing's size. */
+.plane > [role="tree"] { position: absolute; inset: 0; }
+.edge { stroke: var(--rule); stroke-width: 1.5; }
+.xlink { fill: none; stroke: var(--join); stroke-width: 1.5; stroke-dasharray: 5 4; opacity: .35; }
+.xlink.strong { opacity: 1; stroke-width: 2.5; }
+.xlabel { fill: var(--muted); font-size: 10px; text-anchor: middle; }
+[role="treeitem"] { position: absolute; width: 0; height: 0; }
+[role="treeitem"]:focus { outline: none; }
+.node { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); max-width: 11em; padding: 1px 6px; border: 1px solid var(--rule); border-radius: 999px; background: var(--panel); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.node.setting { font-size: 13px; font-weight: 700; border-color: var(--ink); }
+.node.workstream { font-size: 12px; font-weight: 600; border-radius: 4px; }
+.node.unread { border-style: dashed; color: var(--muted); font-style: italic; }
+.node.flagged { border: 2px solid var(--warn); background: var(--warn-bg); color: var(--warn); }
+.node .flag { margin-right: 4px; font-weight: 800; }
+.node .sub { margin-left: 4px; font-family: ui-monospace, monospace; font-size: 10px; font-weight: 400; }
+.node .rollup { margin-left: 4px; font-weight: 400; color: var(--muted); }
+.node.flagged .rollup { color: inherit; }
+.node.selected, [role="treeitem"]:focus > .node { outline: 2px solid var(--join); outline-offset: 1px; }
+.panel { margin-top: 8px; border-top: 1px solid var(--rule); padding-top: 6px; font-size: 13px; }
+.panel h2 { margin: 0; font-size: 14px; color: var(--ink); text-transform: none; letter-spacing: 0; }
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.panel p { margin: 4px 0; }
+.panel ul { margin: 4px 0; padding-left: 18px; }
+
 footer { margin-top: 16px; font-size: 13px; }
 footer.flagged { color: var(--warn); font-weight: 600; }
 @media (max-width: 640px) {

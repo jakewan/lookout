@@ -13,11 +13,18 @@ export function pageURL(name) {
   return url;
 }
 
-/** @param {import("@playwright/test").Page} page */
+/**
+ * The violations the page has reported. A report is dispatched as a task of
+ * its own, after the action that caused it, so the read waits a frame and a
+ * task first; without that, a violation from a spec's last click could land
+ * after it was read.
+ * @param {import("@playwright/test").Page} page
+ */
 export async function cspViolations(page) {
-  return page.evaluate(
-    () => /** @type {{cspViolations?: string[]}} */ (/** @type {unknown} */ (window)).cspViolations ?? [],
-  );
+  return page.evaluate(async () => {
+    await new Promise((settle) => requestAnimationFrame(() => setTimeout(settle, 0)));
+    return /** @type {{cspViolations?: string[]}} */ (/** @type {unknown} */ (window)).cspViolations ?? [];
+  });
 }
 
 export function watchPolicy() {
@@ -33,9 +40,10 @@ export function watchPolicy() {
       });
     });
   });
-  test.afterEach(async ({ page }) => {
-    // A spec that never opened a page has nothing to report.
-    if (page.url().startsWith("file:")) expect(await cspViolations(page)).toEqual([]);
+  test.afterEach(async ({ page, javaScriptEnabled }) => {
+    // A spec that never opened a page, or opened it with script off, has
+    // nothing to report and no listener to report it.
+    if (javaScriptEnabled && page.url().startsWith("file:")) expect(await cspViolations(page)).toEqual([]);
   });
 }
 

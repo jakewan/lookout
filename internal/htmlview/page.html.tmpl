@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'SCRIPT_HASH'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'; require-trusted-types-for 'script'; trusted-types 'none'">
 <meta http-equiv="x-dns-prefetch-control" content="off">
 <meta name="referrer" content="no-referrer">
 <meta charset="utf-8">
@@ -15,7 +15,7 @@
 <header>
   <h1>lookout &middot; <bdi>{{.Setting}}</bdi></h1>
   <span class="asof">as of {{.AsOf}}</span>
-  <span class="note">a snapshot: run lookout view again to refresh it</span>
+  <span class="note">a snapshot: run lookout view again, then reload, to refresh it &middot; read <code class="read">{{.Read}}</code>, as in view.json beside this page</span>
 </header>
 
 {{if .Health}}<ul class="health">
@@ -53,6 +53,13 @@
   {{- end}}
 </section>
 
+<div class="viewswitch" role="group" aria-label="Show the detail as" hidden><button type="button" aria-pressed="true">Map</button><button type="button" aria-pressed="false">List</button></div>
+<section id="map" class="map" aria-label="map" hidden>
+  <nav class="crumbs" aria-label="map hub" hidden></nav>
+  <div class="canvas" tabindex="-1"></div>
+  <section class="panel" aria-label="selected node" hidden></section>
+</section>
+<div id="lists">
 <h2>Workstreams</h2>
 {{- end}}
 {{- range .Workstreams}}
@@ -86,10 +93,15 @@
   </details>
 </section>
 {{- end}}
+{{- if .Workstreams}}
+</div>
+{{- end}}
 
 <footer{{if .AnyUnhealthy}} class="flagged"{{end}}>
   {{if .AnyUnhealthy}}&#9650; inputs are failing, so these counts may be short: {{end}}{{.Unplaced}} unplaced{{if .Dismissed}}, {{.Dismissed}} dismissed{{end}}{{if .Completed}}, {{.Completed}} workstream{{if gt .Completed 1}}s{{end}} completed{{end}}
 </footer>
 </main>
+<script type="application/json" id="lookout-map">{{.Map}}</script>
+<script type="module">{{script}}</script>
 </body>
 </html>

@@ -194,7 +194,7 @@
         {
           "input": "tracker",
           "item": {
-            "id": "B-​2",
+            "id": "B-\u200b2",
             "last_touched": "2030-06-14T10:00:00Z",
             "state": "To Do",
             "links": [],

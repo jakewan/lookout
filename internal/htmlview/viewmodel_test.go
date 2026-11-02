@@ -98,7 +98,7 @@ func TestSiblingsKeepTheGroupOrder(t *testing.T) {
 	for handle, want := range map[string][]string{
 		"platform":    {"tracker:P-1", "tracker:P-9", "tracker:C-1", "tracker:J-1"},
 		"tracker:P-2": {"tracker:P-3", "hub:owner/app#10"},
-		"billing":     {"tracker:B-1", "tracker:B-​2", "hub:owner/app#20", "hub:owner/app#21"},
+		"billing":     {"tracker:B-1", "tracker:B-\u200b2", "hub:owner/app#20", "hub:owner/app#21"},
 	} {
 		_, n := nodeAt(t, m, handle)
 		if got := handlesOf(m, n.Children); !slices.Equal(got, want) {
@@ -178,8 +178,8 @@ func TestEachNodeSaysHowMuchItHoldsAndWeighsItsLeaves(t *testing.T) {
 
 func TestAHandleIsCopiedExactlyAndShownSafely(t *testing.T) {
 	m := pageOf(t, mapReadout(t)).Map
-	_, n := nodeAt(t, m, "tracker:B-​2")
-	if !n.HiddenChars || n.Label != `"B-​2"` {
+	_, n := nodeAt(t, m, "tracker:B-\u200b2")
+	if !n.HiddenChars || n.Label != `"B-\u200b2"` {
 		t.Errorf("label %q hidden %v, want the id quoted and the handle flagged", n.Label, n.HiddenChars)
 	}
 	_, plain := nodeAt(t, m, "tracker:B-1")

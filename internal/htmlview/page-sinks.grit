@@ -1,0 +1,41 @@
+// What the page's script may never do: write markup from a string, run code
+// from a string, navigate, or open a connection. The page's content security
+// policy blocks fetches and Trusted Types blocks markup sinks, but neither
+// governs navigation or WebRTC, so this rule is what holds the script to the
+// vision's "requests nothing, starts no navigation".
+language js
+
+or {
+  `$o.innerHTML = $v`,
+  `$o.outerHTML = $v`,
+  `$o.srcdoc = $v`,
+  `$o.insertAdjacentHTML($p, $v)`,
+  `$o.createContextualFragment($v)`,
+  `$o.setHTMLUnsafe($v)`,
+  `$o.write($...)`,
+  `$o.writeln($...)`,
+  `new DOMParser()`,
+  `eval($...)`,
+  `new Function($...)`,
+  `Function($...)`,
+  `location = $v`,
+  `$o.location = $v`,
+  `location.$p = $v`,
+  `$o.location.$p = $v`,
+  `location.assign($...)`,
+  `location.replace($...)`,
+  `$o.location.assign($...)`,
+  `$o.location.replace($...)`,
+  `$o.open($...)`,
+  `open($...)`,
+  `$o.click()`,
+  `new RTCPeerConnection($...)`,
+  `new webkitRTCPeerConnection($...)`,
+  `$o.sendBeacon($...)`,
+  `$o.setAttribute($name, $v)` where { $name <: r"^[\"'](?:on.*|href|src|srcdoc|action|formaction)[\"']$" }
+} as $hit where {
+  register_diagnostic(
+    span = $hit,
+    message = "The page's script may not write markup from a string, run code from a string, navigate, or open a connection."
+  )
+}
