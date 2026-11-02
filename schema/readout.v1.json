@@ -62,6 +62,13 @@
       "description": "Completed workstreams left out of workstreams.",
       "type": "integer",
       "minimum": 0
+    },
+    "workstream_links": {
+      "description": "How live workstreams relate through the items they hold, as a member or a join: in the order of the from workstream, then the to workstream, in stated order, then kind. A readout from a lookout that predates this field omits it.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/workstream_link"
+      }
     }
   },
   "$defs": {
@@ -199,6 +206,41 @@
         },
         "joined": {
           "$ref": "#/$defs/joined"
+        }
+      }
+    },
+    "workstream_link": {
+      "type": "object",
+      "required": [
+        "from",
+        "to",
+        "kind",
+        "items"
+      ],
+      "properties": {
+        "from": {
+          "description": "A workstream's name: for parent, the one holding the parent; for shared_item, whichever of the two comes first in stated order.",
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "description": "A workstream's name: for parent, the one holding the children; for shared_item, the other.",
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "description": "shared_item, where both workstreams hold the same item; parent, where to holds an item whose parent, in the same input, from holds. A renderer should show a kind it does not know as a plain relation rather than drop it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "items": {
+          "description": "The items behind the link, as <input>:<id>, sorted: the shared items, or the children. Its length is the link's weight.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },

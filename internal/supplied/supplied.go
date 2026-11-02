@@ -35,6 +35,7 @@ type itemFields struct {
 	LastTouched time.Time  `json:"last_touched"`
 	StartedAt   *time.Time `json:"started_at"`
 	Notes       *string    `json:"notes"`
+	Parent      string     `json:"parent"`
 }
 
 // Reader reads supplied files against the compiled supplied.v1 contract.
@@ -101,7 +102,7 @@ func (rd *Reader) Read(ctx context.Context, in config.Input, now time.Time) read
 			raw, decodeErr = withoutNotes(raw)
 		}
 		if decodeErr == nil {
-			it := readout.Item{ID: f.ID, Title: f.Title, LastTouched: f.LastTouched, StartedAt: f.StartedAt, Raw: raw}
+			it := readout.Item{ID: f.ID, Title: f.Title, LastTouched: f.LastTouched, StartedAt: f.StartedAt, Parent: f.Parent, Raw: raw}
 			if f.Notes != nil {
 				it.Notes = *f.Notes
 			}

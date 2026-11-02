@@ -140,6 +140,11 @@
           "description": "Source-specific detail, such as a sprint or an estimate, that has no field of its own.",
           "type": "object"
         },
+        "parent": {
+          "description": "The exact id of the item this one sits beneath in its source's hierarchy, such as a story's epic, in the same input. An item has one parent at most, as in mainstream trackers; any other relation belongs in links. The parent need not be among the items supplied.",
+          "type": "string",
+          "minLength": 1
+        },
         "notes": {
           "description": "Free text the item was worked under, such as the ticket section of a work container's notes, which lookout searches for the setting's ticket keys. The supplier passes it along without knowing the key pattern. lookout never emits it: only the joins it produces reach a readout. maxLength counts Unicode code points, and one over-long value withholds every item in the file, so a supplier with more text cuts it at whitespace, or leaves the field out, rather than cutting a key in two.",
           "type": "string",
