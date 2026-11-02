@@ -155,13 +155,6 @@ func mapOf(r readout, shown []workstream, order viewrules.Order) viewModel {
 	for i := range r.Workstreams {
 		place(&m, &links, entries[i], drawn[i], wsNode[i], placed)
 	}
-	for handle, holders := range holdersOf(entries) {
-		for _, w := range holders {
-			if w != home[handle] {
-				links.add(placed[handle], wsNode[w], "shared")
-			}
-		}
-	}
 	byName := map[string]int{}
 	for i, ws := range r.Workstreams {
 		byName[ws.Name] = i
@@ -279,25 +272,6 @@ func entriesOf(ws rawStream, order viewrules.Order) []entry {
 	return out
 }
 
-// holdersOf is, for each item more than one workstream holds, those
-// workstreams in stated order.
-func holdersOf(entries [][]entry) map[string][]int {
-	all := map[string][]int{}
-	for i, es := range entries {
-		for _, e := range es {
-			if e.placed != nil && !slices.Contains(all[e.handle], i) {
-				all[e.handle] = append(all[e.handle], i)
-			}
-		}
-	}
-	for h, ws := range all {
-		if len(ws) < 2 {
-			delete(all, h)
-		}
-	}
-	return all
-}
-
 // homes is the one workstream each item is drawn under: the first in stated
 // order holding it as a member, since membership is what the user stated and
 // a join is what lookout matched; failing that, the first holding it at all.
@@ -379,8 +353,7 @@ func place(m *viewModel, links *linkSet, es []entry, drawn map[string]int, ws in
 		}
 	})
 	for i, e := range es {
-		n, ok := drawn[e.handle]
-		if !ok || at[e.handle] != i {
+		if at[e.handle] != i {
 			continue
 		}
 		parent := ws
@@ -392,6 +365,22 @@ func place(m *viewModel, links *linkSet, es []entry, drawn map[string]int, ws in
 				parent = p
 				break
 			}
+		}
+		n, ok := drawn[e.handle]
+		if !ok {
+			// An item drawn under another workstream still shows why this
+			// one holds it: a cross-link from where it is drawn to what it
+			// hangs from here, or, where it hangs from nothing here, to this
+			// workstream. Walking the workstreams and their lists in order
+			// keeps these links in the same order on every render.
+			if home, drawnElsewhere := placed[e.handle]; drawnElsewhere {
+				if parent == ws {
+					links.add(home, ws, "shared")
+				} else {
+					links.add(home, parent, ptr[i].kind)
+				}
+			}
+			continue
 		}
 		m.Nodes[n].Parent = parent
 		m.Nodes[parent].Children = append(m.Nodes[parent].Children, n)

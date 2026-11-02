@@ -114,7 +114,12 @@ summary { cursor: pointer; }
 .xlabel { fill: var(--muted); font-size: 10px; text-anchor: middle; }
 [role="treeitem"] { position: absolute; width: 0; height: 0; }
 [role="treeitem"]:focus { outline: none; }
-.node { position: absolute; bottom: 1px; padding: 0 3px; border: 1px solid transparent; border-radius: 4px; font-size: 12px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.node { position: absolute; bottom: 1px; display: flex; align-items: baseline; gap: 4px; padding: 0 3px; border: 1px solid transparent; border-radius: 4px; font-size: 12px; line-height: 1.25; white-space: nowrap; overflow: hidden; cursor: pointer; }
+/* The label and id give way to an ellipsis first, so the mark and what a
+   collapsed node holds stay in view however long the label. */
+.node .label, .node .sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.node .sub { flex-shrink: 2; }
+.node .flag, .node .rollup { flex: none; }
 .node.right { left: 0; }
 .node.left { right: 0; text-align: right; }
 .node.hub { left: 0; top: 0; bottom: auto; transform: translate(-50%, -50%); padding: 6px 16px; border: 2px solid var(--ink); border-radius: 999px; background: var(--panel); font-size: 15px; font-weight: 700; }
@@ -123,9 +128,9 @@ summary { cursor: pointer; }
 .node.tone-stale { color: var(--muted); }
 .node.workstream.tone-behind { color: var(--warn); }
 .node.workstream.tone-fault { color: var(--bad); border-color: var(--bad); }
-.node .flag { margin-right: 4px; font-weight: 800; }
-.node .sub { margin-left: 4px; font-family: ui-monospace, monospace; font-size: 10px; font-weight: 400; }
-.node .rollup { margin-left: 4px; font-weight: 400; color: var(--muted); }
+.node .flag { font-weight: 800; }
+.node .sub { font-family: ui-monospace, monospace; font-size: 10px; font-weight: 400; color: var(--muted); }
+.node .rollup { font-weight: 400; color: var(--muted); }
 .node .rollup.tone-behind { color: var(--warn); font-weight: 600; }
 .node .rollup.tone-fault { color: var(--bad); font-weight: 600; }
 .node.selected, [role="treeitem"]:focus > .node { outline: 2px solid var(--join); outline-offset: 1px; }

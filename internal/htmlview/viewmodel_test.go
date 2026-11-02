@@ -117,8 +117,8 @@ func TestCrossLinksCarryEveryEdgeTheTreeDoesNotShowOnce(t *testing.T) {
 	slices.Sort(got)
 	want := []string{
 		"code:owner/app:feature/rollout joined hub:owner/app#20",
-		"hub:owner/app#20 shared ops",
-		"hub:owner/app#20 shared platform",
+		"hub:owner/app#20 joined tracker:O-1",
+		"hub:owner/app#20 joined tracker:P-1",
 		"tracker:B-1 parent tracker:P-1",
 		"tracker:B-3 parent tracker:B-1",
 		"tracker:C-1 parent tracker:C-2",
@@ -176,6 +176,48 @@ func TestAnEdgeSkippedOverAnItemDrawnElsewhereIsKept(t *testing.T) {
 		}
 	}
 	t.Error("no joined cross-link from the rollout branch to the pull request it came through")
+}
+
+// An item drawn under one workstream still shows why each other holder holds
+// it: the member or pull request it joined through there, or, where it follows
+// nothing there, a shared link to that workstream.
+func TestASharedItemShowsWhyEachOtherWorkstreamHoldsIt(t *testing.T) {
+	doc := mapReadout(t)
+	member(doc, 3, "B-1", "")
+	m := pageOf(t, doc).Map
+	b1, _ := nodeAt(t, m, "tracker:B-1")
+	docs, _ := nodeAt(t, m, "docs")
+	found := false
+	for _, l := range m.Links {
+		if l.From == b1 && l.To == docs && l.Kind == "shared" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a member held by docs with nothing to hang from there has no shared link to docs")
+	}
+}
+
+// The same readout draws the same map: the order of its cross-links, which
+// the page draws and lists, does not vary between renders.
+func TestTheMapIsTheSameEveryTime(t *testing.T) {
+	doc := mapReadout(t)
+	member(doc, 3, "B-1", "")
+	member(doc, 3, "P-9", "")
+	member(doc, 4, "O-1", "")
+	first, err := json.Marshal(pageOf(t, doc).Map)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 30 {
+		again, err := json.Marshal(pageOf(t, doc).Map)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(again) != string(first) {
+			t.Fatal("the same readout drew a different map")
+		}
+	}
 }
 
 // Collapsed, a node still says what is flagged beneath it, so folding the map

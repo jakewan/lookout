@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-pIz72RFyi9QIEGCaZOwEYULS5Wr6DD4eA1Us92Cr9B4='; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'; require-trusted-types-for 'script'; trusted-types 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/LofeBwkkjfnMDNkZ6Xsw/YJ/So138yCrhFwD0htZqs='; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'; require-trusted-types-for 'script'; trusted-types 'none'">
 <meta http-equiv="x-dns-prefetch-control" content="off">
 <meta name="referrer" content="no-referrer">
 <meta charset="utf-8">
@@ -124,7 +124,12 @@ summary { cursor: pointer; }
 .xlabel { fill: var(--muted); font-size: 10px; text-anchor: middle; }
 [role="treeitem"] { position: absolute; width: 0; height: 0; }
 [role="treeitem"]:focus { outline: none; }
-.node { position: absolute; bottom: 1px; padding: 0 3px; border: 1px solid transparent; border-radius: 4px; font-size: 12px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.node { position: absolute; bottom: 1px; display: flex; align-items: baseline; gap: 4px; padding: 0 3px; border: 1px solid transparent; border-radius: 4px; font-size: 12px; line-height: 1.25; white-space: nowrap; overflow: hidden; cursor: pointer; }
+/* The label and id give way to an ellipsis first, so the mark and what a
+   collapsed node holds stay in view however long the label. */
+.node .label, .node .sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.node .sub { flex-shrink: 2; }
+.node .flag, .node .rollup { flex: none; }
 .node.right { left: 0; }
 .node.left { right: 0; text-align: right; }
 .node.hub { left: 0; top: 0; bottom: auto; transform: translate(-50%, -50%); padding: 6px 16px; border: 2px solid var(--ink); border-radius: 999px; background: var(--panel); font-size: 15px; font-weight: 700; }
@@ -133,9 +138,9 @@ summary { cursor: pointer; }
 .node.tone-stale { color: var(--muted); }
 .node.workstream.tone-behind { color: var(--warn); }
 .node.workstream.tone-fault { color: var(--bad); border-color: var(--bad); }
-.node .flag { margin-right: 4px; font-weight: 800; }
-.node .sub { margin-left: 4px; font-family: ui-monospace, monospace; font-size: 10px; font-weight: 400; }
-.node .rollup { margin-left: 4px; font-weight: 400; color: var(--muted); }
+.node .flag { font-weight: 800; }
+.node .sub { font-family: ui-monospace, monospace; font-size: 10px; font-weight: 400; color: var(--muted); }
+.node .rollup { font-weight: 400; color: var(--muted); }
 .node .rollup.tone-behind { color: var(--warn); font-weight: 600; }
 .node .rollup.tone-fault { color: var(--bad); font-weight: 600; }
 .node.selected, [role="treeitem"]:focus > .node { outline: 2px solid var(--join); outline-offset: 1px; }
@@ -861,6 +866,7 @@ class MapView {
       }
     }
     if (node.words.length > 0) parts.push(el("p", node.words.join(", ")));
+    if (node.rollup) parts.push(el("p", `Holds ${node.rollup}`));
     const links = this.model.links.filter((l) => l.from === i || l.to === i);
     if (links.length > 0) {
       const list = el("ul");
@@ -948,13 +954,10 @@ class MapView {
   }
 
   /**
-   * Follows a lane's link to its workstream's node. The anchor is read from
-   * the event's new address, so the script never touches the page's own
-   * address object, which a Go word scan keeps out of it.
-   * @param {HashChangeEvent} e
+   * Selects the workstream a lane's anchor names, where the map is shown.
+   * @param {string} anchor
    */
-  follow(e) {
-    const anchor = new URL(e.newURL).hash.slice(1);
+  follow(anchor) {
     const i = this.model.nodes.findIndex((n) => n.anchor !== "" && n.anchor === anchor);
     if (i >= 0 && !this.map.hidden) this.select(i, true);
   }
@@ -986,7 +989,23 @@ export function main() {
   view.panel();
   showMap.addEventListener("click", () => choose(true));
   showList.addEventListener("click", () => choose(false));
-  window.addEventListener("hashchange", (e) => view.follow(e));
+  // A lane is followed by its click, since clicking the same lane twice does
+  // not change the address and fires no hashchange; hashchange still covers
+  // moving back and forward through history. Both read the anchor from what
+  // they are given, so the script never touches the page's own address
+  // object, which a Go word scan keeps out of it.
+  for (const lane of document.querySelectorAll(".overview a.ovname")) {
+    if (!(lane instanceof HTMLAnchorElement)) continue;
+    lane.addEventListener("click", (e) => {
+      // In the map a lane selects its workstream's node; jumping on to the
+      // hidden list section would only take focus away from it. In the
+      // lists, the link goes where it always has.
+      if (map.hidden) return;
+      e.preventDefault();
+      view.follow(lane.hash.slice(1));
+    });
+  }
+  window.addEventListener("hashchange", (e) => view.follow(new URL(e.newURL).hash.slice(1)));
   toggle.hidden = false;
   choose(true);
 }

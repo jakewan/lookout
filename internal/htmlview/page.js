@@ -459,6 +459,7 @@ class MapView {
       }
     }
     if (node.words.length > 0) parts.push(el("p", node.words.join(", ")));
+    if (node.rollup) parts.push(el("p", `Holds ${node.rollup}`));
     const links = this.model.links.filter((l) => l.from === i || l.to === i);
     if (links.length > 0) {
       const list = el("ul");
@@ -546,13 +547,10 @@ class MapView {
   }
 
   /**
-   * Follows a lane's link to its workstream's node. The anchor is read from
-   * the event's new address, so the script never touches the page's own
-   * address object, which a Go word scan keeps out of it.
-   * @param {HashChangeEvent} e
+   * Selects the workstream a lane's anchor names, where the map is shown.
+   * @param {string} anchor
    */
-  follow(e) {
-    const anchor = new URL(e.newURL).hash.slice(1);
+  follow(anchor) {
     const i = this.model.nodes.findIndex((n) => n.anchor !== "" && n.anchor === anchor);
     if (i >= 0 && !this.map.hidden) this.select(i, true);
   }
@@ -584,7 +582,23 @@ export function main() {
   view.panel();
   showMap.addEventListener("click", () => choose(true));
   showList.addEventListener("click", () => choose(false));
-  window.addEventListener("hashchange", (e) => view.follow(e));
+  // A lane is followed by its click, since clicking the same lane twice does
+  // not change the address and fires no hashchange; hashchange still covers
+  // moving back and forward through history. Both read the anchor from what
+  // they are given, so the script never touches the page's own address
+  // object, which a Go word scan keeps out of it.
+  for (const lane of document.querySelectorAll(".overview a.ovname")) {
+    if (!(lane instanceof HTMLAnchorElement)) continue;
+    lane.addEventListener("click", (e) => {
+      // In the map a lane selects its workstream's node; jumping on to the
+      // hidden list section would only take focus away from it. In the
+      // lists, the link goes where it always has.
+      if (map.hidden) return;
+      e.preventDefault();
+      view.follow(lane.hash.slice(1));
+    });
+  }
+  window.addEventListener("hashchange", (e) => view.follow(new URL(e.newURL).hash.slice(1)));
   toggle.hidden = false;
   choose(true);
 }

@@ -144,13 +144,15 @@ test.describe("placing items", () => {
     await expect(crossLink(page, "tracker:J-1", "tracker:J-0")).toHaveAttribute("data-kind", "parent");
   });
 
-  test("draws a shared item once, where it is a member, with one cross-link to each other holder", async ({ page }) => {
+  test("draws a shared item once, where it is a member, linked to what it joined through in each other holder", async ({
+    page,
+  }) => {
     await page.goto(pageURL("map"));
     await expect(tree(page).locator('[data-handle="hub:owner/app#20"]')).toHaveCount(1);
     await expect(node(page, "hub:owner/app#20")).toHaveAttribute("data-parent", "billing");
     await expect(page.locator('svg .xlink[data-from="hub:owner/app#20"]')).toHaveCount(2);
-    await expect(crossLink(page, "hub:owner/app#20", "platform")).toHaveAttribute("data-kind", "shared");
-    await expect(crossLink(page, "hub:owner/app#20", "ops")).toHaveAttribute("data-kind", "shared");
+    await expect(crossLink(page, "hub:owner/app#20", "tracker:P-1")).toHaveAttribute("data-kind", "joined");
+    await expect(crossLink(page, "hub:owner/app#20", "tracker:O-1")).toHaveAttribute("data-kind", "joined");
   });
 
   test("hangs what joined through a shared item, where that item is not drawn, under the item's own place", async ({
@@ -208,10 +210,36 @@ test.describe("using the map", () => {
 
   test("lists a selected node's cross-links and draws them at full strength", async ({ page }) => {
     await page.goto(pageURL("map"));
-    await expect(crossLink(page, "hub:owner/app#20", "ops")).not.toHaveClass(/strong/);
-    await node(page, "ops").locator(":scope > .node").click();
-    await expect(crossLink(page, "hub:owner/app#20", "ops")).toHaveClass(/strong/);
-    await expect(page.getByRole("region", { name: "selected node" })).toContainText("shared with hub:owner/app#20");
+    await expect(crossLink(page, "hub:owner/app#20", "tracker:O-1")).not.toHaveClass(/strong/);
+    await node(page, "tracker:O-1").locator(":scope > .node").click();
+    await expect(crossLink(page, "hub:owner/app#20", "tracker:O-1")).toHaveClass(/strong/);
+    await expect(page.getByRole("region", { name: "selected node" })).toContainText("joined with hub:owner/app#20");
+  });
+
+  test("selects a workstream each time its lane is followed, not only the first", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    const lane = page
+      .getByRole("region", { name: "every workstream, in stated order" })
+      .getByRole("link", { name: "billing" });
+    await lane.click();
+    await expect(node(page, "billing")).toHaveAttribute("aria-selected", "true");
+    await node(page, "docs").locator(":scope > .node").click();
+    await expect(node(page, "billing")).toHaveAttribute("aria-selected", "false");
+    await lane.click();
+    await expect(node(page, "billing")).toHaveAttribute("aria-selected", "true");
+    await expect(node(page, "billing")).toBeFocused();
+  });
+
+  test("keeps a collapsed node's rollup in view however long its label", async ({ page }) => {
+    await page.goto(pageURL("busy"));
+    await node(page, "billing-export").locator(":scope > .node").click();
+    await page.getByRole("button", { name: "Collapse" }).click();
+    const box = await node(page, "billing-export").locator(":scope > .node").boundingBox();
+    const rollup = await node(page, "billing-export").locator(":scope > .node .rollup").boundingBox();
+    if (!box || !rollup) throw new Error("the collapsed node or its rollup is not drawn");
+    expect(rollup.width).toBeGreaterThan(0);
+    expect(rollup.x + rollup.width).toBeLessThanOrEqual(box.x + box.width + 0.5);
+    await expect(page.getByRole("region", { name: "selected node" })).toContainText("3 items, 1 not read");
   });
 
   test("makes a node the hub and finds the way back", async ({ page }) => {

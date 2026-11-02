@@ -655,28 +655,28 @@
       "label": "parent"
     },
     {
+      "from": 16,
+      "to": 2,
+      "kind": "joined",
+      "label": "joined"
+    },
+    {
       "from": 15,
       "to": 13,
       "kind": "parent",
       "label": "parent"
     },
     {
-      "from": 20,
-      "to": 16,
+      "from": 16,
+      "to": 19,
       "kind": "joined",
       "label": "joined"
     },
     {
-      "from": 16,
-      "to": 1,
-      "kind": "shared",
-      "label": "shared"
-    },
-    {
-      "from": 16,
-      "to": 18,
-      "kind": "shared",
-      "label": "shared"
+      "from": 20,
+      "to": 16,
+      "kind": "joined",
+      "label": "joined"
     },
     {
       "from": 13,
