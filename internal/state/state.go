@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/jakewan/lookout/internal/config"
+	"github.com/jakewan/lookout/internal/dirlock"
 )
 
 // Outcomes a gesture can have. A refused gesture still cost the user a
@@ -140,7 +141,12 @@ func Open(getenv func(string) string, setting, configPath string, mode Mode) (_ 
 			return nil, fmt.Errorf("creating the state directory: %w", mkErr)
 		}
 	}
-	if s.lock, err = lockDir(s.dir, mode == Write); err != nil {
+	// Off Unix, state is neither read nor written rather than used without
+	// the lock that keeps it consistent.
+	if s.lock, err = dirlock.Lock(s.dir, "the state directory", mode == Write); err != nil {
+		if errors.Is(err, dirlock.ErrUnsupported) {
+			return nil, errors.New("lookout keeps state only on Unix systems, where it can lock it")
+		}
 		return nil, err
 	}
 	defer func() {
