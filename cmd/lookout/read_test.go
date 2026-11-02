@@ -140,6 +140,17 @@ type readoutDoc struct {
 	Health         []healthDoc `json:"health"`
 	DismissedCount int         `json:"dismissed_count"`
 	CompletedCount int         `json:"completed_count"`
+	// WorkstreamLinks is a pointer so a spec can tell an omitted list from an
+	// empty one.
+	WorkstreamLinks *[]linkDoc `json:"workstream_links"`
+}
+
+// linkDoc is one relation between two workstreams and the items behind it.
+type linkDoc struct {
+	From  string   `json:"from"`
+	To    string   `json:"to"`
+	Kind  string   `json:"kind"`
+	Items []string `json:"items"`
 }
 
 // eventDoc is one touch within the event window.

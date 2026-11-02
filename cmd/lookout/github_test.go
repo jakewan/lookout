@@ -61,6 +61,10 @@ type ghNode struct {
 	// anyKey makes a key search return it whatever key it asks for, as
 	// GitHub's search does for text its tokenizer splits, such as "ABC 1".
 	anyKey bool
+	// parentRepo and parentNumber name an issue's parent issue, as GitHub's
+	// sub-issues relate them; the fake sends it only to a query asking for it.
+	parentRepo   string
+	parentNumber int
 }
 
 // ghRequest is one request the fake received.
@@ -165,13 +169,23 @@ func (g *githubFake) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if q, ok := req.variables["q"].(string); ok {
-		g.search(w, q, req.variables["after"])
+		g.search(w, req.query, q, req.variables["after"])
 		return
 	}
-	g.members(w, req.variables)
+	g.members(w, req.query, req.variables)
 }
 
-func (g *githubFake) search(w http.ResponseWriter, q string, after any) {
+// answer is n as GitHub would send it to query, which gets a parent only by
+// asking for one.
+func (n ghNode) answer(query string) map[string]any {
+	doc := n.json()
+	if !strings.Contains(query, "parent {") {
+		delete(doc, "parent")
+	}
+	return doc
+}
+
+func (g *githubFake) search(w http.ResponseWriter, query, q string, after any) {
 	if after == nil && strings.Contains(q, "is:merged") {
 		g.mu.Lock()
 		g.mergedSearches++
@@ -197,7 +211,7 @@ func (g *githubFake) search(w http.ResponseWriter, q string, after any) {
 	end := min(start+page, len(matches))
 	nodes := make([]any, 0, end-start)
 	for _, n := range matches[start:end] {
-		nodes = append(nodes, n.json())
+		nodes = append(nodes, n.answer(query))
 	}
 	count := len(matches)
 	if g.issueCount != 0 {
@@ -322,7 +336,7 @@ func (g *githubFake) matches(n ghNode, q string) bool {
 
 // members answers a lookup whose variables are o<i>, n<i> and k<i> for each
 // alias m<i>.
-func (g *githubFake) members(w http.ResponseWriter, vars map[string]any) {
+func (g *githubFake) members(w http.ResponseWriter, query string, vars map[string]any) {
 	data := map[string]any{"rateLimit": rateLimit()}
 	var errs []any
 	for i := 0; ; i++ {
@@ -338,7 +352,7 @@ func (g *githubFake) members(w http.ResponseWriter, vars map[string]any) {
 		for _, n := range g.nodes {
 			asked := owner + "/" + name
 			if (strings.EqualFold(n.repo, asked) || strings.EqualFold(n.formerly, asked)) && n.number == int(number) {
-				found, forbidden = n.json(), n.forbidden
+				found, forbidden = n.answer(query), n.forbidden
 			}
 		}
 		if forbidden {
@@ -387,6 +401,16 @@ func (n ghNode) json() map[string]any {
 			"owner":            map[string]any{"login": owner},
 			"defaultBranchRef": map[string]any{"name": "main"},
 		},
+	}
+	if !n.pr {
+		doc["parent"] = nil
+		if n.parentRepo != "" {
+			parentOwner, _, _ := strings.Cut(n.parentRepo, "/")
+			doc["parent"] = map[string]any{
+				"number":     n.parentNumber,
+				"repository": map[string]any{"nameWithOwner": n.parentRepo, "owner": map[string]any{"login": parentOwner}},
+			}
+		}
 	}
 	if n.pr {
 		id, base := n.nodeID, n.base

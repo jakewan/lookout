@@ -295,7 +295,7 @@ func (r *Reader) Read(ctx context.Context, in config.Input, sc readout.Scope, no
 	horizon := now.Add(health.ClockTolerance)
 	for _, id := range ids {
 		n := found[id]
-		item, ok := n.item()
+		item, ok := n.item(owners)
 		if !ok {
 			out.Health.Lower(health.Degraded, health.GitHubFailed)
 			detail(id + ": github.com sent it without the fields lookout reads")
@@ -442,7 +442,7 @@ var trusted = map[string]bool{"OWNER": true, "MEMBER": true, "COLLABORATOR": tru
 // never joined by its description.
 const (
 	prFields        = `number title url state isDraft createdAt updatedAt headRefName headRepository { nameWithOwner } authorAssociation repository { nameWithOwner owner { login } }`
-	issueFields     = `... on Issue { number title url state createdAt updatedAt repository { nameWithOwner owner { login } } }`
+	issueFields     = `... on Issue { number title url state createdAt updatedAt repository { nameWithOwner owner { login } } parent { number repository { nameWithOwner owner { login } } } }`
 	nodeFields      = "__typename\n... on PullRequest { " + prFields + " }\n" + issueFields
 	describedFields = "__typename\n... on PullRequest { " + prFields + " body }\n" + issueFields
 )
@@ -461,14 +461,22 @@ type node struct {
 	HeadRepository *struct {
 		NameWithOwner string `json:"nameWithOwner"`
 	} `json:"headRepository"`
-	AuthorAssociation string `json:"authorAssociation"`
-	Body              string `json:"body"`
-	Repository        struct {
-		NameWithOwner string `json:"nameWithOwner"`
-		Owner         struct {
-			Login string `json:"login"`
-		} `json:"owner"`
-	} `json:"repository"`
+	AuthorAssociation string     `json:"authorAssociation"`
+	Body              string     `json:"body"`
+	Repository        repository `json:"repository"`
+	// Parent is the issue this one is a sub-issue of, which may sit in any
+	// repository, inside the owner fence or not.
+	Parent *struct {
+		Number     int        `json:"number"`
+		Repository repository `json:"repository"`
+	} `json:"parent"`
+}
+
+type repository struct {
+	NameWithOwner string `json:"nameWithOwner"`
+	Owner         struct {
+		Login string `json:"login"`
+	} `json:"owner"`
 }
 
 func (n node) id() string { return itemID(n.Repository.NameWithOwner, n.Number) }
@@ -519,6 +527,7 @@ type itemShape struct {
 	State       string     `json:"state"`
 	Links       []link     `json:"links"`
 	Attrs       attrs      `json:"attrs"`
+	Parent      string     `json:"parent,omitempty"`
 }
 
 type link struct {
@@ -534,8 +543,9 @@ type attrs struct {
 }
 
 // item builds the readout item, or reports false for a node missing what an
-// item needs.
-func (n node) item() (readout.Item, bool) {
+// item needs. An issue's parent is named only where owners, the fence, admits
+// its owner; one outside it is left out, as any node the fence refuses is.
+func (n node) item(owners []string) (readout.Item, bool) {
 	touched := n.updated()
 	if touched.IsZero() || n.Number <= 0 || n.Repository.NameWithOwner == "" {
 		return readout.Item{}, false
@@ -563,6 +573,9 @@ func (n node) item() (readout.Item, bool) {
 		}
 	case "Issue":
 		shape.Attrs.Type, shape.State = "issue", strings.ToLower(n.State)
+		if p := n.Parent; p != nil && p.Number > 0 && p.Repository.NameWithOwner != "" && slices.Contains(owners, strings.ToLower(p.Repository.Owner.Login)) {
+			shape.Parent = itemID(p.Repository.NameWithOwner, p.Number)
+		}
 	default:
 		return readout.Item{}, false
 	}
@@ -573,7 +586,7 @@ func (n node) item() (readout.Item, bool) {
 	if err != nil {
 		return readout.Item{}, false
 	}
-	return readout.Item{ID: shape.ID, Title: n.Title, LastTouched: touched, StartedAt: shape.StartedAt, Raw: raw}, true
+	return readout.Item{ID: shape.ID, Title: n.Title, LastTouched: touched, StartedAt: shape.StartedAt, Parent: shape.Parent, Raw: raw}, true
 }
 
 // answer is what a lookup found for one member.

@@ -31,7 +31,10 @@ type Item struct {
 	// Head is the id a git or Claude Code input gives the branch an open pull
 	// request was made from, or empty.
 	Head string
-	Raw  json.RawMessage
+	// Parent is the id of the item, in the same input, this one sits beneath,
+	// or empty. It may name an item no input supplied, or the item itself.
+	Parent string
+	Raw    json.RawMessage
 }
 
 // Reading is what one input contributed: its health, and the items a
@@ -67,7 +70,24 @@ type Readout struct {
 	Health             []health.Record `json:"health"`
 	DismissedCount     int             `json:"dismissed_count"`
 	CompletedCount     int             `json:"completed_count"`
+	WorkstreamLinks    []Link          `json:"workstream_links"`
 }
+
+// Link relates two live workstreams through the items behind it, each as
+// <input>:<id>.
+type Link struct {
+	From  string   `json:"from"`
+	To    string   `json:"to"`
+	Kind  string   `json:"kind"`
+	Items []string `json:"items"`
+}
+
+// The values of Link.Kind: both workstreams hold one item, or To holds an item
+// whose parent From holds.
+const (
+	linkSharedItem = "shared_item"
+	linkParent     = "parent"
+)
 
 // Workstream is one workstream's figures.
 type Workstream struct {
@@ -269,6 +289,14 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 		}
 	}
 
+	// held is every live workstream holding each item, in stated order, and
+	// holds each workstream's items, so links can be read off placement.
+	held := map[key][]string{}
+	type holding struct {
+		input string
+		item  Item
+	}
+	holds := map[string][]holding{}
 	for _, ws := range cfg.Workstreams {
 		if ws.Completed != "" {
 			continue
@@ -282,6 +310,10 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 		}
 		place := func(input string, it Item, joined *Joined) {
 			w.Items = append(w.Items, Placed{Input: input, Item: it.Raw, Joined: joined})
+			if k := (key{input, it.ID}); !slices.Contains(held[k], ws.Name) {
+				held[k] = append(held[k], ws.Name)
+				holds[ws.Name] = append(holds[ws.Name], holding{input, it})
+			}
 			touched := it.LastTouched.UTC()
 			if w.LastTouched == nil || touched.After(*w.LastTouched) {
 				w.LastTouched = &touched
@@ -334,6 +366,48 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 		w.AgeSeconds = since(now, w.StartedAt)
 		out.Workstreams = append(out.Workstreams, w)
 	}
+
+	// A link gathers its items as it finds them, then each is sorted once. A
+	// parent is looked up one step only, so a cycle of parents needs no
+	// guarding, and an item naming itself its parent relates nothing.
+	type linkKey struct{ from, to, kind string }
+	found := map[linkKey][]string{}
+	relate := func(from, to, kind, item string) {
+		k := linkKey{from, to, kind}
+		if !slices.Contains(found[k], item) {
+			found[k] = append(found[k], item)
+		}
+	}
+	for k, names := range held {
+		for i, from := range names {
+			for _, to := range names[i+1:] {
+				relate(from, to, linkSharedItem, k.input+":"+k.id)
+			}
+		}
+	}
+	for _, w := range out.Workstreams {
+		for _, h := range holds[w.Name] {
+			if h.item.Parent == "" || h.item.Parent == h.item.ID {
+				continue
+			}
+			for _, from := range held[key{h.input, h.item.Parent}] {
+				if from != w.Name {
+					relate(from, w.Name, linkParent, h.input+":"+h.item.ID)
+				}
+			}
+		}
+	}
+	rank := func(name string) int {
+		return slices.IndexFunc(out.Workstreams, func(w Workstream) bool { return w.Name == name })
+	}
+	out.WorkstreamLinks = make([]Link, 0, len(found))
+	for k, items := range found {
+		slices.Sort(items)
+		out.WorkstreamLinks = append(out.WorkstreamLinks, Link{From: k.from, To: k.to, Kind: k.kind, Items: items})
+	}
+	slices.SortFunc(out.WorkstreamLinks, func(a, b Link) int {
+		return cmp.Or(cmp.Compare(rank(a.From), rank(b.From)), cmp.Compare(rank(a.To), rank(b.To)), cmp.Compare(a.Kind, b.Kind))
+	})
 	return out
 }
 
