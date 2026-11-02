@@ -141,7 +141,7 @@
           "type": "object"
         },
         "parent": {
-          "description": "The id of the item this one sits beneath in its source's hierarchy, such as a story's epic, in the same input. Trackers give an item at most one parent; any other relation belongs in links. The parent need not be among the items supplied.",
+          "description": "The exact id of the item this one sits beneath in its source's hierarchy, such as a story's epic, in the same input. An item has one parent at most, as in mainstream trackers; any other relation belongs in links. The parent need not be among the items supplied.",
           "type": "string",
           "minLength": 1
         },

@@ -740,6 +740,21 @@ func (e gqlError) failure() *failure {
 	return &failure{health.GitHubFailed, "github.com reported " + e.code()}
 }
 
+// aboutParent reports whether the error concerns only an issue's parent. A
+// parent can sit in any repository, including one another context's access
+// policy keeps from this token; GitHub then sends the parent as null with an
+// error whose path ends at it (GitHub's GraphQL reports field errors by path).
+// That is not a fault in the child or in this input, so the child is read
+// without a parent. Were GitHub to change the path's shape, such an error
+// would drop the child or end a search again, as any error does.
+func (e gqlError) aboutParent() bool {
+	if len(e.Path) == 0 {
+		return false
+	}
+	last, _ := e.Path[len(e.Path)-1].(string)
+	return last == "parent"
+}
+
 func unreadable() *failure {
 	return &failure{health.GitHubFailed, "github.com sent a response lookout could not read"}
 }
@@ -801,7 +816,7 @@ func (r *Reader) query(ctx context.Context, token, query string, vars map[string
 	if err := json.Unmarshal(doc.Data, into); err != nil {
 		return nil, unreadable()
 	}
-	return doc.Errors, nil
+	return slices.DeleteFunc(doc.Errors, gqlError.aboutParent), nil
 }
 
 // classify reads a response's status. GitHub signals a rate limit as 429, or

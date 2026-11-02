@@ -115,6 +115,26 @@ func TestWorkstreamLinksFollowJoinsAndStatedOrder(t *testing.T) {
 	}
 }
 
+func TestAParentLinkRunsFromTheParentsWorkstreamWhateverTheirOrder(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", strings.Replace(githubOnly, "workstreams: []", `workstreams:
+  - name: stories
+    members: ["hub:alice/app#4"]
+  - name: epics
+    members: ["hub:alice/plans#1"]`, 1))
+	f.withGitHub(
+		ghNode{repo: "Alice/App", number: 4, title: "Story", state: "OPEN", created: 72 * time.Hour, updated: time.Hour, parentRepo: "Alice/Plans", parentNumber: 1},
+		ghNode{repo: "Alice/Plans", number: 1, title: "Epic", state: "OPEN", created: 72 * time.Hour, updated: time.Hour},
+	)
+
+	doc := f.read()
+
+	want := []linkDoc{{From: "epics", To: "stories", Kind: "parent", Items: []string{"hub:alice/app#4"}}}
+	if got := links(t, doc); !reflect.DeepEqual(got, want) {
+		t.Errorf("workstream_links = %+v, want %+v: a parent link runs from the parent's workstream even when it comes later in stated order", got, want)
+	}
+}
+
 func TestWorkstreamLinksAreEmptyWhenNothingRelates(t *testing.T) {
 	f := newFixture(t)
 	f.write("personal.yml", oneInput)
@@ -138,6 +158,40 @@ func links(t *testing.T, doc readoutDoc) []linkDoc {
 		t.Fatal("workstream_links missing, want it always emitted")
 	}
 	return *doc.WorkstreamLinks
+}
+
+func TestAParentTheTokenCannotReadLeavesItsChildRead(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", githubMembers("alice/app#4"))
+	fake := f.withGitHub(
+		ghNode{repo: "Alice/App", number: 4, title: "Member child", state: "OPEN", created: 72 * time.Hour, updated: time.Hour, parentRepo: "Mallory/Secret-Plans", parentNumber: 9, parentForbidden: true},
+		ghNode{repo: "Alice/App", number: 5, title: "Assigned child", state: "OPEN", created: 72 * time.Hour, updated: time.Hour, assigned: true, parentRepo: "Mallory/Secret-Plans", parentNumber: 9, parentForbidden: true},
+		ghNode{repo: "Alice/App", number: 6, title: "Next page", state: "OPEN", created: 72 * time.Hour, updated: time.Hour, assigned: true},
+	)
+	fake.page = 1
+
+	code, stdout, stderr := f.run("read", "--json")
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	validate(t, "readout.v1", stdout)
+	var doc readoutDoc
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("decoding readout: %v", err)
+	}
+
+	if _, ok := placedItem(t, doc, "review", "alice/app#4")["parent"]; ok {
+		t.Errorf("alice/app#4 carries a parent, want none where the token cannot read it")
+	}
+	for _, token := range []string{"hub:alice/app#5", "hub:alice/app#6"} {
+		unplacedItem(t, doc, token)
+	}
+	if h := doc.health(t, "hub"); h.Status != "ok" || len(h.Details) != 0 {
+		t.Errorf("health = %+v, want ok: a parent the token may not read is another context's, not a fault in this one", h)
+	}
+	if strings.Contains(strings.ToLower(stdout+stderr), "mallory") {
+		t.Errorf("output names the unreadable parent's owner:\n%s%s", stdout, stderr)
+	}
 }
 
 func TestAGitHubSubIssueCarriesItsParentInsideTheFence(t *testing.T) {

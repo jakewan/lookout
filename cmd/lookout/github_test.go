@@ -65,6 +65,20 @@ type ghNode struct {
 	// sub-issues relate them; the fake sends it only to a query asking for it.
 	parentRepo   string
 	parentNumber int
+	// parentForbidden makes the parent unreadable to the token, as an
+	// organization's access policy does: GitHub sends no parent and an error
+	// whose path ends at it.
+	parentForbidden bool
+}
+
+// parentError is the error GitHub sends beside a parent the token may not
+// read, at path.
+func parentError(path ...any) map[string]any {
+	return map[string]any{
+		"type":    "FORBIDDEN",
+		"path":    append(path, "parent"),
+		"message": "Resource protected by organization SAML enforcement.",
+	}
 }
 
 // ghRequest is one request the fake received.
@@ -181,8 +195,15 @@ func (n ghNode) answer(query string) map[string]any {
 	doc := n.json()
 	if !strings.Contains(query, "parent {") {
 		delete(doc, "parent")
+	} else if n.parentForbidden {
+		doc["parent"] = nil
 	}
 	return doc
+}
+
+// refusesParent reports whether answering n to query refuses its parent.
+func (n ghNode) refusesParent(query string) bool {
+	return n.parentForbidden && strings.Contains(query, "parent {")
 }
 
 func (g *githubFake) search(w http.ResponseWriter, query, q string, after any) {
@@ -210,8 +231,12 @@ func (g *githubFake) search(w http.ResponseWriter, query, q string, after any) {
 	}
 	end := min(start+page, len(matches))
 	nodes := make([]any, 0, end-start)
-	for _, n := range matches[start:end] {
+	var errs []any
+	for i, n := range matches[start:end] {
 		nodes = append(nodes, n.answer(query))
+		if n.refusesParent(query) {
+			errs = append(errs, parentError("search", "nodes", i))
+		}
 	}
 	count := len(matches)
 	if g.issueCount != 0 {
@@ -221,14 +246,18 @@ func (g *githubFake) search(w http.ResponseWriter, query, q string, after any) {
 	if g.stuckCursor {
 		cursor, more = "stuck", true
 	}
-	writeJSON(g.t, w, map[string]any{"data": map[string]any{
+	doc := map[string]any{"data": map[string]any{
 		"search": map[string]any{
 			"issueCount": count,
 			"pageInfo":   map[string]any{"hasNextPage": more, "endCursor": cursor},
 			"nodes":      nodes,
 		},
 		"rateLimit": rateLimit(),
-	}})
+	}}
+	if errs != nil {
+		doc["errors"] = errs
+	}
+	writeJSON(g.t, w, doc)
 }
 
 // matches applies the search qualifiers lookout sends, so a query that lost
@@ -374,6 +403,11 @@ func (g *githubFake) members(w http.ResponseWriter, query string, vars map[strin
 			continue
 		}
 		data[alias] = map[string]any{"issueOrPullRequest": found}
+		for _, n := range g.nodes {
+			if (strings.EqualFold(n.repo, owner+"/"+name) || strings.EqualFold(n.formerly, owner+"/"+name)) && n.number == int(number) && n.refusesParent(query) {
+				errs = append(errs, parentError(alias, "issueOrPullRequest"))
+			}
+		}
 	}
 	doc := map[string]any{"data": data}
 	if errs != nil {
