@@ -25,7 +25,8 @@
         23
       ],
       "weight": 12,
-      "rollup": "5 workstreams",
+      "rollup": "5 workstreams: 1 on a failing input, 2 behind their rank, 1 with nothing read",
+      "rollup_tone": "fault",
       "start_collapsed": false
     },
     {
@@ -54,6 +55,7 @@
       ],
       "weight": 5,
       "rollup": "10 items",
+      "rollup_tone": "fault",
       "start_collapsed": false
     },
     {
@@ -79,6 +81,7 @@
       ],
       "weight": 2,
       "rollup": "4 items",
+      "rollup_tone": "fault",
       "start_collapsed": false
     },
     {
@@ -105,6 +108,7 @@
       ],
       "weight": 2,
       "rollup": "3 items",
+      "rollup_tone": "fault",
       "start_collapsed": false
     },
     {
@@ -128,6 +132,7 @@
       "children": [],
       "weight": 1,
       "rollup": "",
+      "rollup_tone": "",
       "start_collapsed": false
     },
     {
@@ -151,6 +156,7 @@
       "children": [],
       "weight": 1,
       "rollup": "",
+      "rollup_tone": "",
       "start_collapsed": false
     },
     {
@@ -176,6 +182,7 @@
       ],
       "weight": 1,
       "rollup": "1 item",
+      "rollup_tone": "fault",
       "start_collapsed": false
     },
     {
@@ -199,6 +206,7 @@
       "children": [],
       "weight": 1,
       "rollup": "",
+      "rollup_tone": "",
       "start_collapsed": false
     },
     {
@@ -224,6 +232,7 @@
       ],
       "weight": 1,
       "rollup": "1 item",
+      "rollup_tone": "fault",
       "start_collapsed": false
     },
     {
@@ -248,6 +257,7 @@
       "children": [],
       "weight": 1,
       "rollup": "",
+      "rollup_tone": "",
       "start_collapsed": false
     },
     {
@@ -274,6 +284,7 @@
       ],
       "weight": 1,
       "rollup": "1 item",
+      "rollup_tone": "fault",
       "start_collapsed": false
     },
     {
@@ -298,6 +309,7 @@
       "children": [],
       "weight": 1,
       "rollup": "",
+      "rollup_tone": "",
       "start_collapsed": false
     },
     {
@@ -326,6 +338,7 @@
       ],
       "weight": 4,
       "rollup": "5 items, 1 not read",
+      "rollup_tone": "behind",
       "start_collapsed": false
     },
     {
@@ -349,6 +362,7 @@
       "children": [],
       "weight": 1,
       "rollup": "",
+      "rollup_tone": "",
       "start_collapsed": false
     },
     {
@@ -357,7 +371,7 @@
       "ref": "\"tracker:B-\\u200b2\"",
       "label": "\"B-\\u200b2\"",
       "sub": "A key with a hidden character",
-      "name": "\"tracker:B-\\u200b2\" A key with a hidden character, To Do",
+      "name": "tracker:\"B-\\u200b2\" A key with a hidden character, To Do",
       "words": [
         "To Do"
       ],
@@ -372,6 +386,7 @@
       "children": [],
       "weight": 1,
       "rollup": "",
+      "rollup_tone": "",
       "start_collapsed": false
     },
     {
@@ -396,6 +411,7 @@
       "children": [],
       "weight": 1,
       "rollup": "",
+      "rollup_tone": "",
       "start_collapsed": false
     },
     {
@@ -421,6 +437,7 @@
       ],
       "weight": 1,
       "rollup": "1 item",
+      "rollup_tone": "behind",
       "start_collapsed": false
     },
     {
@@ -444,6 +461,7 @@
       "children": [],
       "weight": 1,
       "rollup": "",
+      "rollup_tone": "",
       "start_collapsed": false
     },
     {
@@ -470,6 +488,7 @@
       ],
       "weight": 1,
       "rollup": "2 items",
+      "rollup_tone": "behind",
       "start_collapsed": false
     },
     {
@@ -495,6 +514,7 @@
       ],
       "weight": 1,
       "rollup": "1 item",
+      "rollup_tone": "behind",
       "start_collapsed": false
     },
     {
@@ -519,6 +539,7 @@
       "children": [],
       "weight": 1,
       "rollup": "",
+      "rollup_tone": "",
       "start_collapsed": false
     },
     {
@@ -542,6 +563,7 @@
       ],
       "weight": 1,
       "rollup": "1 item",
+      "rollup_tone": "",
       "start_collapsed": false
     },
     {
@@ -565,6 +587,7 @@
       "children": [],
       "weight": 1,
       "rollup": "",
+      "rollup_tone": "",
       "start_collapsed": false
     },
     {
@@ -590,6 +613,7 @@
       ],
       "weight": 1,
       "rollup": "1 item, 1 not read",
+      "rollup_tone": "unread",
       "start_collapsed": false
     },
     {
@@ -613,6 +637,7 @@
       "children": [],
       "weight": 1,
       "rollup": "",
+      "rollup_tone": "",
       "start_collapsed": false
     }
   ],
@@ -634,6 +659,12 @@
       "to": 13,
       "kind": "parent",
       "label": "parent"
+    },
+    {
+      "from": 20,
+      "to": 16,
+      "kind": "joined",
+      "label": "joined"
     },
     {
       "from": 16,

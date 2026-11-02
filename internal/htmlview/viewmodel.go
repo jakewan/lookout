@@ -57,8 +57,10 @@ type mapNode struct {
 	// Weight is the number of leaves beneath the node, or 1 for a leaf: the
 	// share of its parent's angle the layout gives it.
 	Weight int `json:"weight"`
-	// Rollup says what a collapsed node holds.
+	// Rollup says what a collapsed node holds, cues included, and RollupTone
+	// is the loudest tone beneath it, so a fold never hides a flag.
 	Rollup         string `json:"rollup"`
+	RollupTone     string `json:"rollup_tone"`
 	StartCollapsed bool   `json:"start_collapsed"`
 }
 
@@ -198,11 +200,33 @@ func mapOf(r readout, shown []workstream, order viewrules.Order) viewModel {
 			}
 		}
 	}
-	weigh(&m, m.Hub)
 	for _, w := range wsNode {
 		tone(&m, w, m.Nodes[w].Tone)
 	}
+	weigh(&m, m.Hub)
 	return m
+}
+
+// tones are the tones in order of loudness, loudest first, with how a rollup
+// names a workstream drawn in each.
+var tones = []struct{ tone, words string }{
+	{"fault", "on a failing input"},
+	{"behind", "behind their rank"},
+	{"unread", "with nothing read"},
+	{"stale", "stale"},
+}
+
+// louder reports whether tone a is louder than tone b; no tone is quietest.
+func louder(a, b string) bool {
+	rank := func(t string) int {
+		for i, x := range tones {
+			if x.tone == t {
+				return i
+			}
+		}
+		return len(tones)
+	}
+	return rank(a) < rank(b)
 }
 
 // tone gives what hangs from n its workstream's tone, so a flagged branch is
@@ -371,6 +395,14 @@ func place(m *viewModel, links *linkSet, es []entry, drawn map[string]int, ws in
 		}
 		m.Nodes[n].Parent = parent
 		m.Nodes[parent].Children = append(m.Nodes[parent].Children, n)
+		// Where the entry it hangs from is drawn under another workstream,
+		// the branch here shows a nearer node, so a cross-link keeps the
+		// edge the entry actually follows.
+		if k := ptr[i].to; k >= 0 {
+			if _, here := drawn[es[k].handle]; !here {
+				links.add(n, nodeFor(es[k], drawn, placed, ws), ptr[i].kind)
+			}
+		}
 	}
 }
 
@@ -420,7 +452,8 @@ type linkSet struct {
 }
 
 func (s *linkSet) add(from, to int, kind string) {
-	if from == to {
+	// A relation the tree already draws as a branch needs no cross-link.
+	if from == to || s.model.Nodes[from].Parent == to || s.model.Nodes[to].Parent == from {
 		return
 	}
 	if s.seen == nil {
@@ -491,11 +524,15 @@ func workstreamNode(ws rawStream, shown workstream, hub int) mapNode {
 
 func itemNode(e entry) mapNode {
 	label := viewrules.Clean(e.id)
-	n := mapNode{Kind: "item", Handle: rawText(e.handle), Ref: viewrules.Clean(e.handle), Label: label, HiddenChars: viewrules.Clean(e.handle) != e.handle}
+	// Parent is set when the item is placed; until then it names no node.
+	n := mapNode{Kind: "item", Handle: rawText(e.handle), Ref: viewrules.Clean(e.handle), Label: label, HiddenChars: viewrules.Clean(e.handle) != e.handle, Parent: -1}
+	// The name starts from the label as shown, its input before it, so a
+	// screen reader says what a sighted reader sees.
+	said := viewrules.Clean(e.input) + ":" + label
 	if e.placed == nil {
 		n.Kind = "unread"
 		n.Words = []string{"not read: no input supplied it"}
-		n.Name = nameOf(n.Ref, "", n.Words)
+		n.Name = nameOf(said, "", n.Words)
 		return n
 	}
 	shown := itemOf(*e.placed)
@@ -507,7 +544,7 @@ func itemNode(e entry) mapNode {
 		n.JoinedBy = shown.Join.By
 		n.Words = append(n.Words, "joined by "+shown.Join.By)
 	}
-	n.Name = nameOf(n.Ref, n.Sub, n.Words)
+	n.Name = nameOf(said, n.Sub, n.Words)
 	return n
 }
 
@@ -527,6 +564,7 @@ func nameOf(label, sub string, words []string) string {
 // members nothing read.
 func weigh(m *viewModel, n int) (weight, beneath, unread int) {
 	node := &m.Nodes[n]
+	loudest := ""
 	for _, c := range node.Children {
 		w, b, u := weigh(m, c)
 		weight += w
@@ -535,6 +573,11 @@ func weigh(m *viewModel, n int) (weight, beneath, unread int) {
 		if m.Nodes[c].Kind == "unread" {
 			unread++
 		}
+		for _, t := range []string{m.Nodes[c].Tone, m.Nodes[c].RollupTone} {
+			if louder(t, loudest) {
+				loudest = t
+			}
+		}
 	}
 	node = &m.Nodes[n]
 	if len(node.Children) == 0 {
@@ -542,9 +585,25 @@ func weigh(m *viewModel, n int) (weight, beneath, unread int) {
 		return 1, 0, 0
 	}
 	node.Weight = weight
+	node.RollupTone = loudest
 	switch node.Kind {
 	case "setting":
 		node.Rollup = count(len(node.Children), "workstream")
+		var cues []string
+		for _, t := range tones {
+			k := 0
+			for _, c := range node.Children {
+				if m.Nodes[c].Tone == t.tone {
+					k++
+				}
+			}
+			if k > 0 {
+				cues = append(cues, fmt.Sprintf("%d %s", k, t.words))
+			}
+		}
+		if len(cues) > 0 {
+			node.Rollup += ": " + strings.Join(cues, ", ")
+		}
 	default:
 		node.Rollup = count(beneath, "item")
 		if unread > 0 {

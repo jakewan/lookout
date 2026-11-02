@@ -234,6 +234,14 @@ test.describe("using the map", () => {
     await expect(node(page, "tracker:P-2").locator(":scope > .node")).toContainText("3 items");
   });
 
+  test("folded all the way in, still says what is flagged, as loud as the loudest", async ({ page }) => {
+    await page.goto(pageURL("map"));
+    await page.getByRole("button", { name: "Collapse" }).click();
+    const rollup = node(page, "").locator(":scope > .node .rollup");
+    await expect(rollup).toHaveText("5 workstreams: 1 on a failing input, 2 behind their rank, 1 with nothing read");
+    await expect(rollup).toHaveClass(/tone-fault/);
+  });
+
   test("focuses a workstream when its lane is followed", async ({ page }) => {
     await page.goto(pageURL("map"));
     await page

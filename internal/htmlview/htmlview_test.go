@@ -442,9 +442,11 @@ func TestTheLaneHoldsEveryMarkInsideIt(t *testing.T) {
 var fetchers = regexp.MustCompile(`(?i)<script|<link|<iframe|<object|<embed|<form|<image|<use|<img|<video|<audio|<source|\ssrc=|srcset|@import|url\(|http-equiv="?refresh`)
 
 // The page's own script and its data block are the two script elements it
-// may hold, pinned by TestTheOneScriptIsPinnedByItsHash; the rest of the page
-// is held to fetching nothing, the data block's readout text included, since
-// a title can say url( without being markup.
+// may hold, pinned by TestTheOneScriptIsPinnedByItsHash. Both are left out of
+// this scan: the data block's readout text can say url( without being markup,
+// and TestReadoutTextCannotEscapeTheDataBlock holds it inert; the script is
+// held by TestTheScriptReachesNoSinkNavigationOrConnection. The rest of the
+// page is held to fetching nothing.
 func TestThePageCannotFetchAnything(t *testing.T) {
 	out := render(t, busy(t))
 	script, data := scriptOf(t, out)

@@ -134,9 +134,10 @@ func savedReadout(name string, stdin io.Reader) ([]byte, error) {
 // Each is written beside its final name and renamed into place, so a browser
 // or an agent reading one never reads half of it. Both are written under an
 // exclusive lock on the directory, so two views written at once cannot leave
-// one's page beside the other's readout; off Unix, where no such lock exists,
-// they are written without it. The page names the read it shows exactly, so a
-// reader of either can still tell the two apart.
+// one's page beside the other's readout; where no such lock exists, off Unix
+// or on a filesystem without flock, they are written without it. The page
+// names the read it shows exactly, so a reader of either can still tell the
+// two apart.
 func writeView(getenv func(string) string, setting string, page, readout []byte) (path string, err error) {
 	base, err := cacheRoot(getenv)
 	if err != nil {

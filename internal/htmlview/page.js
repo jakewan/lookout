@@ -23,6 +23,7 @@
  * @property {number[]} children
  * @property {number} weight
  * @property {string} rollup
+ * @property {string} rollup_tone the loudest tone beneath the node, so a fold never hides a flag
  * @property {boolean} start_collapsed
  */
 
@@ -368,7 +369,9 @@ class MapView {
     if (node.flag) box.append(el("span", node.flag, "flag"));
     box.append(el("span", node.label, "label"));
     if (node.kind === "workstream" && node.sub) box.append(" ", el("span", node.sub, "sub"));
-    if (!open && node.rollup) box.append(" ", el("span", node.rollup, "rollup"));
+    if (!open && node.rollup) {
+      box.append(" ", el("span", node.rollup, `rollup${node.rollup_tone ? ` tone-${node.rollup_tone}` : ""}`));
+    }
     // The item itself sits where its branch meets its line, so focusing it
     // scrolls the node into view; the label is written along the line.
     if (p) {
@@ -542,9 +545,14 @@ class MapView {
     e.preventDefault();
   }
 
-  /** Follows a lane's link to its workstream's node. */
-  follow() {
-    const anchor = window.location.hash.slice(1);
+  /**
+   * Follows a lane's link to its workstream's node. The anchor is read from
+   * the event's new address, so the script never touches the page's own
+   * address object, which a Go word scan keeps out of it.
+   * @param {HashChangeEvent} e
+   */
+  follow(e) {
+    const anchor = new URL(e.newURL).hash.slice(1);
     const i = this.model.nodes.findIndex((n) => n.anchor !== "" && n.anchor === anchor);
     if (i >= 0 && !this.map.hidden) this.select(i, true);
   }
@@ -576,7 +584,7 @@ export function main() {
   view.panel();
   showMap.addEventListener("click", () => choose(true));
   showList.addEventListener("click", () => choose(false));
-  window.addEventListener("hashchange", () => view.follow());
+  window.addEventListener("hashchange", (e) => view.follow(e));
   toggle.hidden = false;
   choose(true);
 }

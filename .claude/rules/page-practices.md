@@ -21,7 +21,7 @@ The health, staleness and ranking rules live in Go: `internal/health` and the in
 - `page.css` is inlined as trusted CSS and `page.js` as trusted script. The stylesheet must never contain `</style`, nor the script `</script` or `<!--`; Go specs hold them to that.
 - What the script draws reaches it as a view model (`viewmodel.go`) in a `<script type="application/json">` block. html/template writes it as JSON, which escapes every `<`, so readout text cannot end the block; pass it the Go value, never `template.JS`. It is the page's own, not a published contract. `testdata/map.viewmodel.json` is its golden, and `browser/viewmodel.check.js` assigns that golden to the script's JSDoc types, so `tsc` fails when Go drops or renames a key the script reads.
 - The page's content security policy is the first element in its `<head>`, and a Go spec pins its exact text, the script's hash included. Go computes the hash from `page.js` and writes it into the template's own text before parsing, so the hash is never a value html/template escapes. Changing the policy is a deliberate change to what the page may do, made in the template and that spec together.
-- The policy cannot hold the script back from navigating or opening a WebRTC connection, so `page-sinks.grit`, a Biome plugin scoped to `page.js`, refuses those along with markup and code written from strings. The script builds the page with `createElement` and `textContent` only.
+- The policy cannot hold the script back from navigating or opening a WebRTC connection, so two guards keep the script from them, and from writing markup or code from a string: `page-sinks.grit`, a Biome plugin scoped to `page.js`, refuses the call shapes it names, and a Go spec refuses the words those calls need, which a helper such as `attrs` cannot hide. The script builds the page with `createElement`, `createElementNS` and `textContent`, never by parsing markup.
 - The script builds the whole map before changing anything on the page, and `[hidden]` cannot be overridden, so a script that fails partway leaves the lists as they were.
 - Biome lints `page.css` but does not format it, so its rules keep the shape they were reviewed in. Reformat it as its own change, under the browser specs.
 
@@ -35,9 +35,9 @@ Fix an accessibility shortfall the audit finds. Where one must stay for a while,
 
 The network spec sees a request only where the engine reports one: Chromium reports a request the policy blocks, Firefox does not, so in Firefox the policy spec is what catches a page reaching out.
 
-Every spec checks the policy after it runs, through `support.js`, so a violation the page trips while being used fails as surely as one it trips while loading. A report arrives as a task of its own after the action that caused it, so the check waits a frame and a task before reading.
+Every spec that runs the page's script checks the policy after it runs, through `support.js`, so a violation the page trips while being used fails as surely as one it trips while loading. A report arrives as a task of its own after the action that caused it, so the check waits a frame and a task before reading.
 
-The map is a flat ARIA tree: every node is a `treeitem` in one list, saying its level, its place among its siblings and, in `data-parent`, its parent's handle. Nested groups would make each node's visible text take in the nodes beneath it, which axe reports as a name that does not match its label. A node's name comes from a hidden span through `aria-labelledby` and contains its visible label.
+The map is a flat ARIA tree: every node is a `treeitem` in one list, saying its level, its place among its siblings and, in `data-parent`, its parent's handle. Nested groups would make each node's visible text take in the nodes beneath it, which axe reports as a name that does not match its label. A node's name comes from a hidden span through `aria-labelledby` and holds its visible label, so what a speech user sees is what they say; a Go spec holds every node to that.
 
 ## What the stack can do, as checked
 

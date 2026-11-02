@@ -141,11 +141,12 @@ func Open(getenv func(string) string, setting, configPath string, mode Mode) (_ 
 			return nil, fmt.Errorf("creating the state directory: %w", mkErr)
 		}
 	}
-	// Off Unix, state is neither read nor written rather than used without
-	// the lock that keeps it consistent.
+	// Where the directory cannot be locked, off Unix or on a filesystem
+	// without flock, state is neither read nor written rather than used
+	// without the lock that keeps it consistent.
 	if s.lock, err = dirlock.Lock(s.dir, "the state directory", mode == Write); err != nil {
 		if errors.Is(err, dirlock.ErrUnsupported) {
-			return nil, errors.New("lookout keeps state only on Unix systems, where it can lock it")
+			return nil, fmt.Errorf("lookout keeps state only where it can lock its directory: %w", err)
 		}
 		return nil, err
 	}

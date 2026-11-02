@@ -32,6 +32,12 @@ func Lock(dir, what string, exclusive bool) (*os.File, error) {
 			break
 		}
 	}
+	// Some filesystems, such as some network and FUSE mounts, offer no flock;
+	// that is the same lack of a lock as a system without one, so callers can
+	// treat both alike.
+	if errors.Is(err, syscall.ENOLCK) || errors.Is(err, syscall.EOPNOTSUPP) || errors.Is(err, syscall.ENOTSUP) {
+		return nil, errors.Join(fmt.Errorf("locking %s: %w: %w", what, ErrUnsupported, err), f.Close())
+	}
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("locking %s: %w", what, err), f.Close())
 	}

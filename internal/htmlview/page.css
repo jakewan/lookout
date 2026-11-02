@@ -126,6 +126,8 @@ summary { cursor: pointer; }
 .node .flag { margin-right: 4px; font-weight: 800; }
 .node .sub { margin-left: 4px; font-family: ui-monospace, monospace; font-size: 10px; font-weight: 400; }
 .node .rollup { margin-left: 4px; font-weight: 400; color: var(--muted); }
+.node .rollup.tone-behind { color: var(--warn); font-weight: 600; }
+.node .rollup.tone-fault { color: var(--bad); font-weight: 600; }
 .node.selected, [role="treeitem"]:focus > .node { outline: 2px solid var(--join); outline-offset: 1px; }
 .panel { margin-top: 8px; border-top: 1px solid var(--rule); padding-top: 6px; font-size: 13px; }
 .panel h2 { margin: 0; font-size: 14px; color: var(--ink); text-transform: none; letter-spacing: 0; }

@@ -5,5 +5,6 @@ package dirlock
 
 import "errors"
 
-// ErrUnsupported is returned where the system offers no directory lock.
-var ErrUnsupported = errors.New("directory locks are available only on Unix systems")
+// ErrUnsupported is returned where no directory lock is to be had: off Unix,
+// or on a filesystem that offers none.
+var ErrUnsupported = errors.New("no directory lock is available here")
