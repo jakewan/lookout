@@ -10,7 +10,7 @@
 <style>
 :root {
   --bg: #fbfbfa; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --rule: #e4e3df;
-  --ok: #4f7a5a; --warn: #a86a00; --warn-bg: #fff4dd; --bad: #b3261e; --bad-bg: #fde8e6;
+  --ok: #4f7a5a; --warn: #946000; --warn-bg: #fff4dd; --bad: #b3261e; --bad-bg: #fde8e6;
   --mark: #33332f; --join: #6a5acd;
 }
 @media (prefers-color-scheme: dark) {
@@ -31,7 +31,7 @@ h2 { font-size: 13px; margin: 22px 0 6px; color: var(--muted); text-transform: u
 .id { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
 a { color: inherit; }
 
- 
+/* Inputs: healthy ones stay grey; color is spent only on a fault. */
 .health { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px; padding: 0; list-style: none; }
 .chip { border: 1px solid var(--rule); border-radius: 999px; padding: 2px 10px; background: var(--panel); font-size: 12px; }
 .chip.ok { color: var(--muted); }
@@ -47,7 +47,7 @@ a { color: inherit; }
 .faults li.degraded { border-left-color: var(--warn); }
 .faults .why { color: var(--muted); }
 
- 
+/* Overview: every workstream as one lane on a shared time axis. */
 .overview { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 12px; }
 .ovrow { display: grid; grid-template-columns: minmax(130px, 210px) 1fr minmax(120px, 170px); gap: 12px; align-items: center; min-height: 26px; }
 .ovrow + .ovrow { border-top: 1px solid var(--rule); }
@@ -69,13 +69,13 @@ a { color: inherit; }
 .mark.joined { border: 2px solid var(--join); background: var(--panel); }
 .lanekey { display: flex; justify-content: space-between; gap: 8px; margin: 0 6px; }
 
- 
+/* Detail on demand: one collapsed section per workstream. */
 .ws { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; margin: 6px 0; padding: 6px 12px; }
 .ws.incomplete { border-color: var(--warn); }
 .ws:target { outline: 2px solid var(--join); }
 summary { cursor: pointer; }
 .name { font-weight: 600; }
- 
+/* The id commands take, beside a title, quieter than the label it names. */
 .wsid { font-family: ui-monospace, monospace; font-size: 11px; font-weight: 400; color: var(--muted); }
 .stats { color: var(--muted); font-size: 12px; margin-left: 8px; }
 .warnband { display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 4px; background: var(--warn-bg); color: var(--warn); font-size: 12px; }

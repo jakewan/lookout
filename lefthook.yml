@@ -9,6 +9,22 @@ pre-commit:
       run: golangci-lint fmt {staged_files}
       stage_fixed: true
       skip: merge
+    page-format:
+      # The files biome.json includes. Root files are named one by one, since
+      # lefthook's default matcher lets a leading `*` cross directories and
+      # `*.json` would catch the published schemas; and its `**/` matches only
+      # below a subdirectory, so the stylesheet needs its own line. `npm exec
+      # --no` runs only the locked Biome.
+      glob:
+        - "internal/htmlview/*.css"
+        - "internal/htmlview/**/*.{js,css,json}"
+        - "playwright.config.js"
+        - "biome.json"
+        - "tsconfig.json"
+        - "package.json"
+      run: npm exec --no -- biome format --write --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+      skip: merge
 
 pre-push:
   piped: true
@@ -34,4 +50,29 @@ pre-push:
       # The same form CI runs, so a push that passes here cannot fail CI's test
       # job for a reason the hook never checked.
       run: just test-race
+      skip: merge
+    # The page commands run only when the push changes one of the page's own
+    # non-Go files, so a push changing only Go needs no Node or browsers. This
+    # is deliberately narrower than CI's page filter, which also covers the Go
+    # the page is rendered through; CI's page job catches a Go change that
+    # breaks the page.
+    page-check:
+      priority: 4
+      # Both forms are needed: lefthook's `**/` matches only below a
+      # subdirectory, so it alone would miss the template and the stylesheet.
+      glob: &page-files
+        - "internal/htmlview/*.{tmpl,css}"
+        - "internal/htmlview/**/*.{tmpl,css,js,json,golden}"
+        - "package.json"
+        - "package-lock.json"
+        - ".npmrc"
+        - "tsconfig.json"
+        - "biome.json"
+        - "playwright.config.js"
+      run: just page-check
+      skip: merge
+    page-test:
+      priority: 5
+      glob: *page-files
+      run: just test-page
       skip: merge

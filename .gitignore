@@ -3,6 +3,11 @@
 /lookout
 coverage.out
 
+# The page's development tools and the browser specs' output
+/node_modules/
+/test-results/
+/playwright-report/
+
 # IDE
 .idea/
 .vscode/

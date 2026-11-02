@@ -1,0 +1,13 @@
+{
+  "name": "lookout-page-tools",
+  "private": true,
+  "description": "Development tools for lookout's page: browser specs, type checks and lint. Nothing here ships in the binary.",
+  "type": "module",
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@biomejs/biome": "2.6.4",
+    "@playwright/test": "1.64.1",
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2"
+  }
+}

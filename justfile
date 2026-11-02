@@ -19,13 +19,33 @@ install: build
     @echo "Installed to ~/.local/bin/lookout"
     @echo "(ensure ~/.local/bin is in your PATH)"
 
-# Run all tests
+# Run the Go tests (the page's browser specs are test-page)
 test:
     go test ./...
 
-# Run all tests under the race detector (what CI and the pre-push hook run)
+# Run the Go tests under the race detector (what CI and the pre-push hook run)
 test-race:
     go test -race ./...
+
+# `npm exec --no` runs only a tool the lockfile installed. Plain npx fetches
+# and runs whatever package carries the name when node_modules lacks it, and
+# the unscoped `tsc` and `biome` packages are not the tools these recipes mean.
+
+# Install the page's development tools from the lockfile, and the browsers its specs drive
+page-setup:
+    go run ./internal/devtools/npmregistry
+    npm ci
+    npm exec --no -- playwright install chromium firefox
+
+# Run the page's browser specs in Chromium and Firefox (needs page-setup)
+test-page:
+    npm exec --no -- playwright test
+
+# Type-check, lint and format-check the page's files, and hold the lockfile to the public registry
+page-check:
+    go run ./internal/devtools/npmregistry
+    npm exec --no -- tsc -p tsconfig.json
+    npm exec --no -- biome ci
 
 # Run tests with coverage
 test-coverage:

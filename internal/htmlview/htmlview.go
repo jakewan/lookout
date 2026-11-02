@@ -22,7 +22,17 @@ import (
 //go:embed page.html.tmpl
 var pageSource string
 
-var pageTemplate = template.Must(template.New("page").Parse(pageSource))
+// pageStyle is inlined into the page's one <style> element, which is why it
+// must never hold that element's closing tag.
+//
+//go:embed page.css
+var pageStyle string
+
+var pageTemplate = template.Must(template.New("page").Funcs(template.FuncMap{
+	// The stylesheet is lookout's own file, not readout text, so it is
+	// trusted as CSS rather than escaped.
+	"style": func() template.CSS { return template.CSS(pageStyle) },
+}).Parse(pageSource))
 
 // readout is the part of a readout.v1 document the page shows. Fields the
 // contract may gain are ignored, as it asks of a renderer.

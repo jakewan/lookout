@@ -44,3 +44,18 @@ jobs:
       # scan's stdlib baseline is the same version the binary is built with.
       - name: Scan dependencies and standard library
         run: go tool govulncheck ./...
+
+  # The page's development tools, none of which ship in the binary. npm audit
+  # reads the committed lockfile against the registry's advisories, so nothing
+  # is installed to scan it.
+  npm-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: mise.toml
+
+      - name: Scan the page's development dependencies
+        run: npm audit --package-lock-only
