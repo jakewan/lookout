@@ -13,10 +13,10 @@ pre-commit:
       # The files biome.json includes. Root files are named one by one, since
       # lefthook's default matcher lets a leading `*` cross directories and
       # `*.json` would catch the published schemas; and its `**/` matches only
-      # below a subdirectory, so the stylesheet needs its own line. `npm exec
-      # --no` runs only the locked Biome.
+      # below a subdirectory, so the stylesheet and the script need their own
+      # line. `npm exec --no` runs only the locked Biome.
       glob:
-        - "internal/htmlview/*.css"
+        - "internal/htmlview/*.{css,js}"
         - "internal/htmlview/**/*.{js,css,json}"
         - "playwright.config.js"
         - "biome.json"
@@ -59,9 +59,10 @@ pre-push:
     page-check:
       priority: 4
       # Both forms are needed: lefthook's `**/` matches only below a
-      # subdirectory, so it alone would miss the template and the stylesheet.
+      # subdirectory, so it alone would miss the template, the stylesheet, the
+      # script and its lint rule.
       glob: &page-files
-        - "internal/htmlview/*.{tmpl,css}"
+        - "internal/htmlview/*.{tmpl,css,js,grit}"
         - "internal/htmlview/**/*.{tmpl,css,js,json,golden}"
         - "package.json"
         - "package-lock.json"

@@ -1,0 +1,638 @@
+package htmlview
+
+import (
+	"encoding/json"
+	"fmt"
+	"slices"
+	"strconv"
+	"strings"
+	"unicode/utf16"
+
+	"github.com/jakewan/lookout/internal/viewrules"
+)
+
+// viewModel is the map the page's script draws: a tree of the setting, its
+// workstreams and their items, and the cross-links the tree does not show.
+// Every order, place, count and cue in it is decided here; the script only
+// lays it out and shows or hides parts of it, so no rule is written twice.
+// It is the page's own and no published contract.
+type viewModel struct {
+	Hub   int         `json:"hub"`
+	Nodes []mapNode   `json:"nodes"`
+	Links []crossLink `json:"links"`
+}
+
+type mapNode struct {
+	// Kind is setting, workstream, item, or unread for a member nothing read.
+	Kind string `json:"kind"`
+	// Handle is what commands take, exactly as the readout gives it: a
+	// workstream's id or an item's <input>:<id>, and empty for the setting.
+	Handle rawText `json:"handle"`
+	// Ref is the handle cleaned, for naming the node in words. Label is
+	// shown on the node, Sub beside it, and Name is everything a screen
+	// reader says for it, cues in words included. All are cleaned.
+	Ref   string   `json:"ref"`
+	Label string   `json:"label"`
+	Sub   string   `json:"sub"`
+	Name  string   `json:"name"`
+	Words []string `json:"words"`
+	// Flag is a mark for a workstream with a cue, so it stands out by shape
+	// as well as color; empty for any other node.
+	Flag string `json:"flag"`
+	// Tone is how loud the node's branch is drawn: fault, behind, unread,
+	// stale, or empty. A workstream takes its loudest cue's, its items take
+	// the workstream's, and a member nothing read is unread.
+	Tone     string `json:"tone"`
+	State    string `json:"state"`
+	Href     string `json:"href"`
+	JoinedBy string `json:"joined_by"`
+	// HiddenChars is set where cleaning changed the handle, so what is shown
+	// is not what is copied.
+	HiddenChars bool `json:"hidden_chars"`
+	// Anchor is the workstream's lane link target, so following a lane
+	// can focus its node.
+	Anchor   string `json:"anchor"`
+	Parent   int    `json:"parent"`
+	Children []int  `json:"children"`
+	// Weight is the number of leaves beneath the node, or 1 for a leaf: the
+	// share of its parent's angle the layout gives it.
+	Weight int `json:"weight"`
+	// Rollup says what a collapsed node holds, cues included, and RollupTone
+	// is the loudest tone beneath it, so a fold never hides a flag.
+	Rollup         string `json:"rollup"`
+	RollupTone     string `json:"rollup_tone"`
+	StartCollapsed bool   `json:"start_collapsed"`
+}
+
+// crossLink is a relation the tree does not show, between two nodes.
+type crossLink struct {
+	From  int    `json:"from"`
+	To    int    `json:"to"`
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
+}
+
+// rawText is readout text carried exactly, for copying. It is written with
+// every character Go does not count as printable escaped, so the page's
+// source holds no bidirectional override or zero-width character while the
+// parsed string keeps them.
+type rawText string
+
+func (s rawText) MarshalJSON() ([]byte, error) {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range string(s) {
+		switch {
+		case r == '"' || r == '\\':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case strconv.IsPrint(r):
+			b.WriteRune(r)
+		default:
+			for _, u := range utf16.Encode([]rune{r}) {
+				fmt.Fprintf(&b, `\u%04x`, u)
+			}
+		}
+	}
+	b.WriteByte('"')
+	return []byte(b.String()), nil
+}
+
+// entry is one thing a workstream holds, in the order its lists show them.
+type entry struct {
+	handle string
+	input  string
+	id     string
+	placed *rawPlaced // nil for a member nothing read
+}
+
+func (e entry) join() *join {
+	if e.placed == nil {
+		return nil
+	}
+	return e.placed.Joined
+}
+
+// mapOf builds the map. shown holds the workstreams as the page lists them,
+// in the same order as r.Workstreams.
+func mapOf(r readout, shown []workstream, order viewrules.Order) viewModel {
+	m := viewModel{Links: []crossLink{}}
+	add := func(n mapNode) int {
+		n.Children = []int{}
+		m.Nodes = append(m.Nodes, n)
+		return len(m.Nodes) - 1
+	}
+	setting := viewrules.Clean(r.Setting)
+	m.Hub = add(mapNode{Kind: "setting", Ref: setting, Label: setting, Name: setting, Parent: -1})
+
+	entries := make([][]entry, len(r.Workstreams))
+	for i, ws := range r.Workstreams {
+		entries[i] = entriesOf(ws, order)
+	}
+	home := homes(entries)
+
+	wsNode := make([]int, len(r.Workstreams))
+	// drawn is each workstream's nodes by handle, for what it draws itself.
+	drawn := make([]map[string]int, len(r.Workstreams))
+	// placed is every item's one node, wherever it is drawn.
+	placed := map[string]int{}
+	for i, ws := range r.Workstreams {
+		wsNode[i] = add(workstreamNode(ws, shown[i], m.Hub))
+		m.Nodes[m.Hub].Children = append(m.Nodes[m.Hub].Children, wsNode[i])
+		drawn[i] = map[string]int{}
+		for _, e := range entries[i] {
+			if e.placed != nil && home[e.handle] != i {
+				continue
+			}
+			n := add(itemNode(e))
+			drawn[i][e.handle] = n
+			if e.placed != nil {
+				placed[e.handle] = n
+			}
+		}
+	}
+	// Every workstream is placed before any relation becomes a link, so a
+	// link is drawn exactly where the tree, finished, does not show it.
+	var rel []relation
+	for i := range r.Workstreams {
+		rel = append(rel, place(&m, entries[i], drawn[i], wsNode[i], placed)...)
+	}
+	links := linkSet{model: &m}
+	for _, r := range rel {
+		links.add(r.from, r.to, r.kind)
+	}
+	byName := map[string]int{}
+	for i, ws := range r.Workstreams {
+		byName[ws.Name] = i
+	}
+	for _, l := range r.Links {
+		from, okFrom := byName[l.From]
+		to, okTo := byName[l.To]
+		if !okFrom || !okTo {
+			continue
+		}
+		switch l.Kind {
+		case "shared_item":
+			// Drawn from what each workstream holds above, once per holder
+			// rather than once per pair of them.
+		case "parent":
+			for _, child := range l.Items {
+				c, ok := placed[child]
+				if !ok {
+					continue
+				}
+				target := wsNode[from]
+				if p := parentHandle(entries[to], child); p != "" {
+					if n, ok := placed[p]; ok {
+						target = n
+					}
+				}
+				links.add(c, target, "parent")
+			}
+		default:
+			for _, it := range l.Items {
+				if n, ok := placed[it]; ok {
+					links.add(n, wsNode[to], l.Kind)
+				} else {
+					links.add(wsNode[from], wsNode[to], l.Kind)
+				}
+			}
+		}
+	}
+	for _, w := range wsNode {
+		tone(&m, w, m.Nodes[w].Tone)
+	}
+	weigh(&m, m.Hub)
+	return m
+}
+
+// tones are the tones in order of loudness, loudest first, with how a rollup
+// names a workstream drawn in each.
+var tones = []struct{ tone, words string }{
+	{"fault", "on a failing input"},
+	{"behind", "behind their rank"},
+	{"unread", "with nothing read"},
+	{"stale", "stale"},
+}
+
+// louder reports whether tone a is louder than tone b; no tone is quietest.
+func louder(a, b string) bool {
+	rank := func(t string) int {
+		for i, x := range tones {
+			if x.tone == t {
+				return i
+			}
+		}
+		return len(tones)
+	}
+	return rank(a) < rank(b)
+}
+
+// tone gives what hangs from n its workstream's tone, so a flagged branch is
+// flagged its whole length; a member nothing read keeps its own.
+func tone(m *viewModel, n int, t string) {
+	for _, c := range m.Nodes[n].Children {
+		if m.Nodes[c].Kind == "unread" {
+			m.Nodes[c].Tone = "unread"
+		} else {
+			m.Nodes[c].Tone = t
+		}
+		tone(m, c, t)
+	}
+}
+
+// entriesOf lists what a workstream holds, in the order the lists show it and
+// the map places it: by input in health's order, each input's members in the
+// configuration's order, then the members no input supplied, then what the
+// workstream joined, so a join never reads as a membership.
+func entriesOf(ws rawStream, order viewrules.Order) []entry {
+	var inputs []string
+	members, unread, joins := map[string][]entry{}, map[string][]entry{}, map[string][]entry{}
+	seen := func(in string) {
+		if !slices.Contains(inputs, in) {
+			inputs = append(inputs, in)
+		}
+	}
+	for i := range ws.Items {
+		p := &ws.Items[i]
+		seen(p.Input)
+		e := entry{handle: p.Input + ":" + p.Item.ID, input: p.Input, id: p.Item.ID, placed: p}
+		if p.Joined != nil {
+			joins[p.Input] = append(joins[p.Input], e)
+			continue
+		}
+		members[p.Input] = append(members[p.Input], e)
+	}
+	for _, m := range ws.MembersUnread {
+		// readout.v1 writes a member as <input>:<id>, and an input's name
+		// holds no colon, so the first one ends it.
+		in, id, _ := strings.Cut(m, ":")
+		seen(in)
+		unread[in] = append(unread[in], entry{handle: m, input: in, id: id})
+	}
+	slices.SortStableFunc(inputs, func(a, b string) int { return order.Rank(a) - order.Rank(b) })
+	var out []entry
+	for _, in := range inputs {
+		out = slices.Concat(out, members[in], unread[in], joins[in])
+	}
+	return out
+}
+
+// homes is the one workstream each item is drawn under: the first in stated
+// order holding it as a member, since membership is what the user stated and
+// a join is what lookout matched; failing that, the first holding it at all.
+func homes(entries [][]entry) map[string]int {
+	home := map[string]int{}
+	member := map[string]bool{}
+	for i, es := range entries {
+		for _, e := range es {
+			if e.placed == nil {
+				continue
+			}
+			isMember := e.placed.Joined == nil
+			if _, ok := home[e.handle]; !ok || (isMember && !member[e.handle]) {
+				home[e.handle] = i
+				member[e.handle] = isMember
+			}
+		}
+	}
+	return home
+}
+
+func parentHandle(es []entry, handle string) string {
+	for _, e := range es {
+		if e.handle == handle && e.placed != nil && e.placed.Item.Parent != "" {
+			return e.input + ":" + e.placed.Item.Parent
+		}
+	}
+	return ""
+}
+
+// pointer is the one place an entry hangs from, as an index into the
+// workstream's entries, or -1 for the workstream itself, with the kind of
+// edge it follows.
+type pointer struct {
+	to   int
+	kind string
+}
+
+// relation is an edge an item occurrence actually follows, by the nodes at
+// its ends once every workstream is placed.
+type relation struct {
+	from, to int
+	kind     string
+}
+
+// place hangs each entry a workstream draws under one parent, the first that
+// applies: the pull request a branch came through, the member a join matched,
+// the item's parent where the same workstream holds it, or the workstream. It
+// returns, in list order, every relation the workstream's entries follow,
+// whether or not the tree ends up drawing it: the edge each one hangs by
+// before any cycle is cut, a join's parent where the workstream holds it, and,
+// for an item drawn under another workstream that hangs from nothing here,
+// its being held here at all. The tree is only a choice among these, so what
+// it does not draw is what the cross-links are; nothing here adds a link.
+func place(m *viewModel, es []entry, drawn map[string]int, ws int, placed map[string]int) []relation {
+	at := map[string]int{}
+	for i, e := range es {
+		if _, ok := at[e.handle]; !ok {
+			at[e.handle] = i
+		}
+	}
+	ptr := make([]pointer, len(es))
+	var rel []relation
+	follows := func(i int, to int, kind string) {
+		target := ws
+		if to >= 0 {
+			target = nodeFor(es[to], drawn, placed, ws)
+		}
+		rel = append(rel, relation{from: nodeFor(es[i], drawn, placed, ws), to: target, kind: kind})
+	}
+	for i, e := range es {
+		ptr[i] = pointer{to: -1}
+		if at[e.handle] != i {
+			continue
+		}
+		j := e.join()
+		parent := -1
+		if e.placed != nil && e.placed.Item.Parent != "" {
+			if k, ok := at[e.input+":"+e.placed.Item.Parent]; ok && k != i {
+				parent = k
+			}
+		}
+		switch {
+		case j != nil && j.By == "pull_request" && j.Via != "" && hasHandle(at, j.Via):
+			ptr[i] = pointer{to: at[j.Via], kind: "joined"}
+		case j != nil && hasHandle(at, j.Member):
+			ptr[i] = pointer{to: at[j.Member], kind: "joined"}
+		case parent >= 0:
+			ptr[i] = pointer{to: parent, kind: "parent"}
+		}
+		_, here := drawn[e.handle]
+		switch {
+		case ptr[i].to >= 0:
+			follows(i, ptr[i].to, ptr[i].kind)
+		case !here:
+			follows(i, -1, "shared")
+		}
+		// A join hangs by how it joined, and also has its parent where this
+		// workstream holds it.
+		if j != nil && parent >= 0 && ptr[i].to != parent {
+			follows(i, parent, "parent")
+		}
+	}
+	breakCycles(es, ptr)
+	for i, e := range es {
+		n, ok := drawn[e.handle]
+		if !ok || at[e.handle] != i {
+			continue
+		}
+		parent := ws
+		// An entry hangs from the nearest one up its pointers that this
+		// workstream draws, so a shared item drawn elsewhere passes what
+		// hangs from it here on to its own place.
+		for k := ptr[i].to; k >= 0; k = ptr[k].to {
+			if p, ok := drawn[es[k].handle]; ok {
+				parent = p
+				break
+			}
+		}
+		m.Nodes[n].Parent = parent
+		m.Nodes[parent].Children = append(m.Nodes[parent].Children, n)
+	}
+	return rel
+}
+
+func hasHandle(at map[string]int, h string) bool { _, ok := at[h]; return ok }
+
+// nodeFor is where an entry is drawn: here, or where its home draws it.
+func nodeFor(e entry, drawn map[string]int, placed map[string]int, ws int) int {
+	if n, ok := drawn[e.handle]; ok {
+		return n
+	}
+	if n, ok := placed[e.handle]; ok {
+		return n
+	}
+	return ws
+}
+
+// breakCycles cuts every cycle the pointers form, joins and parents together,
+// at the cycle's entry earliest in the lists, which then hangs from the
+// workstream. The edge it gives up is still among place's relations, so the
+// map draws it as a cross-link.
+func breakCycles(es []entry, ptr []pointer) {
+	const unseen, onPath, done = 0, 1, 2
+	state := make([]int, len(es))
+	for start := range es {
+		var path []int
+		k := start
+		for k >= 0 && state[k] == unseen {
+			state[k] = onPath
+			path = append(path, k)
+			k = ptr[k].to
+		}
+		if k >= 0 && state[k] == onPath {
+			cycle := path[slices.Index(path, k):]
+			ptr[slices.Min(cycle)] = pointer{to: -1}
+		}
+		for _, p := range path {
+			state[p] = done
+		}
+	}
+}
+
+// linkSet adds each cross-link once, between two different nodes.
+type linkSet struct {
+	model *viewModel
+	seen  map[[2]int]bool
+}
+
+func (s *linkSet) add(from, to int, kind string) {
+	// A relation the tree already draws as a branch, from hangs under to,
+	// needs no cross-link. The reverse is a different relation: in a cycle,
+	// the edge cut from the tree runs against the branch that stays.
+	if from == to || s.model.Nodes[from].Parent == to {
+		return
+	}
+	if s.seen == nil {
+		s.seen = map[[2]int]bool{}
+	}
+	if s.seen[[2]int{from, to}] {
+		return
+	}
+	s.seen[[2]int{from, to}] = true
+	s.model.Links = append(s.model.Links, crossLink{From: from, To: to, Kind: viewrules.Clean(kind), Label: linkLabel(kind)})
+}
+
+func linkLabel(kind string) string {
+	switch kind {
+	case "shared":
+		return "shared"
+	case "parent":
+		return "parent"
+	case "joined":
+		return "joined"
+	}
+	return viewrules.Clean(kind)
+}
+
+func workstreamNode(ws rawStream, shown workstream, hub int) mapNode {
+	n := mapNode{Kind: "workstream", Handle: rawText(ws.Name), Ref: shown.Name, Anchor: shown.Anchor, Parent: hub}
+	n.Label = shown.Name
+	if shown.Title != "" {
+		n.Label, n.Sub = shown.Title, shown.Name
+	}
+	var flag []string
+	if len(shown.Incomplete) > 0 {
+		n.Words = append(n.Words, "draws on a failing input: "+strings.Join(shown.Incomplete, ", "))
+		flag = append(flag, "!")
+	}
+	switch {
+	case shown.Unread:
+		n.Words = append(n.Words, "nothing read")
+		flag = append(flag, "?")
+	case shown.Stale:
+		n.Words = append(n.Words, "stale")
+		flag = append(flag, "\u25f7")
+	}
+	if shown.Behind {
+		n.Words = append(n.Words, "behind its rank")
+		flag = append(flag, "↓")
+	}
+	n.Flag = strings.Join(flag, "")
+	// Loudness follows what a cue asks of the reader: a failing input may
+	// make the figures wrong, behind its rank is drift from the stated order,
+	// nothing read may mean the work is gone, and stale is only quiet, so it
+	// fades rather than calls out. Where every workstream is stale, that
+	// keeps the others standing out.
+	switch {
+	case len(shown.Incomplete) > 0:
+		n.Tone = "fault"
+	case shown.Behind:
+		n.Tone = "behind"
+	case shown.Unread:
+		n.Tone = "unread"
+	case shown.Stale:
+		n.Tone = "stale"
+	}
+	n.HiddenChars = viewrules.Clean(ws.Name) != ws.Name
+	n.Name = nameOf(n.Label, n.Sub, n.Words)
+	return n
+}
+
+func itemNode(e entry) mapNode {
+	id := viewrules.Clean(e.id)
+	// Parent is set when the item is placed; until then it names no node.
+	n := mapNode{Kind: "item", Handle: rawText(e.handle), Ref: viewrules.Clean(e.handle), Label: id, HiddenChars: viewrules.Clean(e.handle) != e.handle, Parent: -1}
+	// The name opens with what the node shows, in its order, so a screen
+	// reader says what a sighted reader sees; the input follows.
+	from := "in " + viewrules.Clean(e.input)
+	if e.placed == nil {
+		n.Kind = "unread"
+		n.Words = []string{from, "not read: no input supplied it"}
+		n.Name = nameOf(id, "", n.Words)
+		return n
+	}
+	shown := itemOf(*e.placed)
+	n.State, n.Href = shown.State, shown.Href
+	// An item is labelled by its title, as a hand-drawn map is by words,
+	// with the id commands take beside it; without a title, by its id.
+	if shown.Title != "" {
+		n.Label, n.Sub = shown.Title, id
+	}
+	n.Words = append(n.Words, from)
+	if shown.State != "" {
+		n.Words = append(n.Words, shown.State)
+	}
+	if shown.Join != nil {
+		n.JoinedBy = shown.Join.By
+		n.Words = append(n.Words, "joined by "+shown.Join.By)
+	}
+	n.Name = nameOf(n.Label, n.Sub, n.Words)
+	return n
+}
+
+func nameOf(label, sub string, words []string) string {
+	name := label
+	if sub != "" {
+		name += " " + sub
+	}
+	if len(words) > 0 {
+		name += ", " + strings.Join(words, ", ")
+	}
+	return name
+}
+
+// weigh sets each node's leaf weight and what it says when collapsed,
+// returning its weight, the nodes beneath it, and how many of those are
+// members nothing read.
+func weigh(m *viewModel, n int) (weight, beneath, unread int) {
+	node := &m.Nodes[n]
+	loudest := ""
+	for _, c := range node.Children {
+		w, b, u := weigh(m, c)
+		weight += w
+		beneath += b + 1
+		unread += u
+		if m.Nodes[c].Kind == "unread" {
+			unread++
+		}
+		for _, t := range []string{m.Nodes[c].Tone, m.Nodes[c].RollupTone} {
+			if louder(t, loudest) {
+				loudest = t
+			}
+		}
+	}
+	node = &m.Nodes[n]
+	if len(node.Children) == 0 {
+		node.Weight = 1
+		return 1, 0, 0
+	}
+	node.Weight = weight
+	node.RollupTone = loudest
+	switch node.Kind {
+	case "setting":
+		node.Rollup = count(len(node.Children), "workstream")
+		var cues []string
+		for _, t := range tones {
+			k := 0
+			for _, c := range node.Children {
+				if m.Nodes[c].Tone == t.tone {
+					k++
+				}
+			}
+			if k > 0 {
+				cues = append(cues, fmt.Sprintf("%d %s", k, t.words))
+			}
+		}
+		if len(cues) > 0 {
+			node.Rollup += ": " + strings.Join(cues, ", ")
+		}
+	default:
+		node.Rollup = count(beneath, "item")
+		if unread > 0 {
+			node.Rollup += fmt.Sprintf(", %d not read", unread)
+		}
+	}
+	return weight, beneath, unread
+}
+
+func count(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return strconv.Itoa(n) + " " + noun + "s"
+}
+
+// MarshalJSON keeps a node's lists from marshaling as null, so the script
+// iterates every one without a check.
+func (n mapNode) MarshalJSON() ([]byte, error) {
+	type plain mapNode
+	if n.Words == nil {
+		n.Words = []string{}
+	}
+	if n.Children == nil {
+		n.Children = []int{}
+	}
+	return json.Marshal(plain(n))
+}

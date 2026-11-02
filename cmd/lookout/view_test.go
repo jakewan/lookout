@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -86,8 +87,59 @@ func TestViewTightensAnExistingPageAndReplacesIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 {
-		t.Errorf("cache directory holds %d entries, want only the page", len(entries))
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if !slices.Equal(names, []string{"view.html", "view.json"}) {
+		t.Errorf("cache directory holds %v, want only the page and its readout", names)
+	}
+}
+
+// view.json is the read the page was drawn from, so an agent reading it and a
+// person reading the page can tell they are looking at the same read: the
+// page names its generated_at exactly.
+func TestViewWritesTheReadoutItDrewBesideThePage(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.supplied("tracker.json", suppliedDoc("tracker", []any{item("ABC-1", 2*time.Hour, nil)}, nil))
+	path, page := f.viewPage()
+	beside := filepath.Join(filepath.Dir(path), "view.json")
+	data, err := os.ReadFile(beside)
+	if err != nil {
+		t.Fatalf("no readout beside the page: %v", err)
+	}
+	assertMode(t, beside, 0o600)
+	var doc struct {
+		Schema      string `json:"schema"`
+		GeneratedAt string `json:"generated_at"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Schema != "readout.v1" || doc.GeneratedAt == "" {
+		t.Fatalf("view.json = %.200s, want a readout", data)
+	}
+	if !strings.Contains(page, doc.GeneratedAt) {
+		t.Errorf("the page does not name the read in view.json, %s", doc.GeneratedAt)
+	}
+}
+
+func TestViewWritesASavedReadoutBesideThePageAsGiven(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	_, saved, _ := f.run("read", "--json")
+	file := filepath.Join(t.TempDir(), "saved.json")
+	if err := os.WriteFile(file, []byte(saved), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := f.viewPage("--readout", file)
+	got, err := os.ReadFile(filepath.Join(filepath.Dir(path), "view.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != saved {
+		t.Error("view.json is not the saved readout byte for byte")
 	}
 }
 

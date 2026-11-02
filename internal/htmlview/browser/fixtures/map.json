@@ -1,0 +1,348 @@
+{
+  "schema": "readout.v1",
+  "setting": "example",
+  "generated_at": "2030-06-15T12:00:00.123456789Z",
+  "event_window_seconds": 604800,
+  "workstreams": [
+    {
+      "name": "platform",
+      "title": "Platform rework",
+      "last_touched": "2030-06-15T11:50:00Z",
+      "idle_seconds": 600,
+      "started_at": "2030-05-01T12:00:00Z",
+      "age_seconds": 3888000,
+      "events": [
+        { "input": "tracker", "id": "P-2", "at": "2030-06-15T11:50:00Z", "title": "Split the scheduler" },
+        {
+          "input": "hub",
+          "id": "owner/app#10",
+          "at": "2030-06-15T11:00:00Z",
+          "title": "P-2: split the scheduler",
+          "joined": { "by": "key", "member": "tracker:P-2" }
+        }
+      ],
+      "inputs_incomplete": ["tracker"],
+      "members_unread": [],
+      "items": [
+        {
+          "input": "tracker",
+          "item": {
+            "id": "P-1",
+            "last_touched": "2030-06-14T12:00:00Z",
+            "state": "In Progress",
+            "links": [{ "rel": "self", "href": "https://tracker.example.com/P-1" }],
+            "attrs": {},
+            "title": "Platform rework"
+          }
+        },
+        {
+          "input": "tracker",
+          "item": {
+            "id": "P-2",
+            "last_touched": "2030-06-15T11:50:00Z",
+            "state": "In Progress",
+            "links": [],
+            "attrs": {},
+            "title": "Split the scheduler",
+            "parent": "P-1"
+          }
+        },
+        {
+          "input": "tracker",
+          "item": {
+            "id": "P-3",
+            "last_touched": "2030-06-13T12:00:00Z",
+            "state": "To Do",
+            "links": [],
+            "attrs": {},
+            "title": "Move the queue",
+            "parent": "P-2"
+          }
+        },
+        {
+          "input": "tracker",
+          "item": {
+            "id": "P-9",
+            "last_touched": "2030-06-12T12:00:00Z",
+            "state": "To Do",
+            "links": [],
+            "attrs": {},
+            "title": "Orphaned story",
+            "parent": "P-404"
+          }
+        },
+        {
+          "input": "tracker",
+          "item": {
+            "id": "C-1",
+            "last_touched": "2030-06-12T12:00:00Z",
+            "state": "To Do",
+            "links": [],
+            "attrs": {},
+            "title": "Cycle one",
+            "parent": "C-2"
+          }
+        },
+        {
+          "input": "tracker",
+          "item": {
+            "id": "C-2",
+            "last_touched": "2030-06-12T12:00:00Z",
+            "state": "To Do",
+            "links": [],
+            "attrs": {},
+            "title": "Cycle two",
+            "parent": "C-1"
+          }
+        },
+        {
+          "input": "tracker",
+          "item": {
+            "id": "J-1",
+            "last_touched": "2030-06-12T12:00:00Z",
+            "state": "To Do",
+            "links": [],
+            "attrs": {},
+            "title": "Member under its own join",
+            "parent": "J-0"
+          }
+        },
+        {
+          "input": "hub",
+          "item": {
+            "id": "owner/app#10",
+            "last_touched": "2030-06-15T11:00:00Z",
+            "state": "open",
+            "links": [{ "rel": "self", "href": "https://github.com/owner/app/pull/10" }],
+            "attrs": {},
+            "title": "P-2: split the scheduler"
+          },
+          "joined": { "by": "key", "member": "tracker:P-2" }
+        },
+        {
+          "input": "hub",
+          "item": {
+            "id": "owner/app#20",
+            "last_touched": "2030-06-14T09:00:00Z",
+            "state": "open",
+            "links": [],
+            "attrs": {},
+            "title": "P-1: shared plumbing"
+          },
+          "joined": { "by": "key", "member": "tracker:P-1" }
+        },
+        {
+          "input": "code",
+          "item": {
+            "id": "owner/app:feature/split",
+            "last_touched": "2030-06-15T10:00:00Z",
+            "state": "open",
+            "links": [],
+            "attrs": {}
+          },
+          "joined": { "by": "pull_request", "member": "tracker:P-2", "via": "hub:owner/app#10" }
+        },
+        {
+          "input": "tracker",
+          "item": {
+            "id": "J-0",
+            "last_touched": "2030-06-12T12:00:00Z",
+            "state": "running",
+            "links": [],
+            "attrs": {},
+            "title": "Joined parent of its member"
+          },
+          "joined": { "by": "notes", "member": "tracker:J-1" }
+        }
+      ]
+    },
+    {
+      "name": "billing",
+      "last_touched": "2030-06-15T10:00:00Z",
+      "idle_seconds": 7200,
+      "started_at": "2030-06-01T12:00:00Z",
+      "age_seconds": 1209600,
+      "events": [
+        { "input": "hub", "id": "owner/app#20", "at": "2030-06-14T09:00:00Z", "title": "P-1: shared plumbing" }
+      ],
+      "inputs_incomplete": [],
+      "members_unread": ["hub:owner/app#21"],
+      "items": [
+        {
+          "input": "hub",
+          "item": {
+            "id": "owner/app#20",
+            "last_touched": "2030-06-14T09:00:00Z",
+            "state": "open",
+            "links": [],
+            "attrs": {},
+            "title": "P-1: shared plumbing"
+          }
+        },
+        {
+          "input": "tracker",
+          "item": {
+            "id": "B-1",
+            "last_touched": "2030-06-15T10:00:00Z",
+            "state": "In Progress",
+            "links": [],
+            "attrs": {},
+            "title": "Invoice runs on the new scheduler",
+            "parent": "P-1"
+          }
+        },
+        {
+          "input": "tracker",
+          "item": {
+            "id": "B-\u200b2",
+            "last_touched": "2030-06-14T10:00:00Z",
+            "state": "To Do",
+            "links": [],
+            "attrs": {},
+            "title": "A key with a hidden character"
+          }
+        },
+        {
+          "input": "tracker",
+          "item": {
+            "id": "B-3",
+            "last_touched": "2030-06-13T10:00:00Z",
+            "state": "running",
+            "links": [],
+            "attrs": {},
+            "title": "Joined child of a member",
+            "parent": "B-1"
+          },
+          "joined": { "by": "notes", "member": "hub:owner/app#20" }
+        }
+      ]
+    },
+    {
+      "name": "ops",
+      "last_touched": "2030-06-05T12:00:00Z",
+      "idle_seconds": 864000,
+      "started_at": "2030-05-20T12:00:00Z",
+      "age_seconds": 2246400,
+      "events": [],
+      "inputs_incomplete": [],
+      "members_unread": [],
+      "items": [
+        {
+          "input": "tracker",
+          "item": {
+            "id": "O-1",
+            "last_touched": "2030-06-05T12:00:00Z",
+            "state": "Blocked",
+            "links": [],
+            "attrs": {},
+            "title": "Roll the scheduler out"
+          }
+        },
+        {
+          "input": "hub",
+          "item": {
+            "id": "owner/app#20",
+            "last_touched": "2030-06-14T09:00:00Z",
+            "state": "open",
+            "links": [],
+            "attrs": {},
+            "title": "P-1: shared plumbing"
+          },
+          "joined": { "by": "key", "member": "tracker:O-1" }
+        },
+        {
+          "input": "code",
+          "item": {
+            "id": "owner/app:feature/rollout",
+            "last_touched": "2030-06-04T12:00:00Z",
+            "state": "open",
+            "links": [],
+            "attrs": {}
+          },
+          "joined": { "by": "pull_request", "member": "tracker:O-1", "via": "hub:owner/app#20" }
+        }
+      ]
+    },
+    {
+      "name": "docs",
+      "last_touched": "2030-06-15T11:00:00Z",
+      "idle_seconds": 3600,
+      "started_at": "2030-06-10T12:00:00Z",
+      "age_seconds": 432000,
+      "events": [{ "input": "code", "id": "owner/docs:guides", "at": "2030-06-15T11:00:00Z" }],
+      "inputs_incomplete": [],
+      "members_unread": [],
+      "items": [
+        {
+          "input": "code",
+          "item": {
+            "id": "owner/docs:guides",
+            "last_touched": "2030-06-15T11:00:00Z",
+            "state": "open",
+            "links": [],
+            "attrs": {}
+          }
+        }
+      ]
+    },
+    {
+      "name": "intake",
+      "last_touched": null,
+      "idle_seconds": null,
+      "started_at": null,
+      "age_seconds": null,
+      "events": [],
+      "inputs_incomplete": [],
+      "members_unread": ["tracker:I-1"],
+      "items": []
+    }
+  ],
+  "workstream_links": [
+    { "from": "platform", "to": "billing", "kind": "parent", "items": ["tracker:B-1"] },
+    { "from": "platform", "to": "billing", "kind": "shared_item", "items": ["hub:owner/app#20"] },
+    { "from": "platform", "to": "ops", "kind": "shared_item", "items": ["hub:owner/app#20"] },
+    { "from": "billing", "to": "ops", "kind": "shared_item", "items": ["hub:owner/app#20"] },
+    { "from": "ops", "to": "platform", "kind": "blocks", "items": ["tracker:O-1"] }
+  ],
+  "unplaced": [],
+  "health": [
+    {
+      "input": "tracker",
+      "status": "degraded",
+      "reasons": ["stale"],
+      "fetched_at": "2030-06-15T11:55:00Z",
+      "record_count": 12,
+      "missing_fields": [],
+      "schema_violations": [],
+      "supplier_reason": null,
+      "details": [],
+      "excluded_count": 0
+    },
+    {
+      "input": "hub",
+      "status": "ok",
+      "reasons": [],
+      "fetched_at": "2030-06-15T11:55:00Z",
+      "record_count": 3,
+      "missing_fields": [],
+      "schema_violations": [],
+      "supplier_reason": null,
+      "details": [],
+      "excluded_count": 0
+    },
+    {
+      "input": "code",
+      "status": "ok",
+      "reasons": [],
+      "fetched_at": "2030-06-15T11:55:00Z",
+      "record_count": 3,
+      "missing_fields": [],
+      "schema_violations": [],
+      "supplier_reason": null,
+      "details": [],
+      "excluded_count": 0
+    }
+  ],
+  "dismissed_count": 0,
+  "completed_count": 0
+}

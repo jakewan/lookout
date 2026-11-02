@@ -1,0 +1,713 @@
+{
+  "hub": 0,
+  "nodes": [
+    {
+      "kind": "setting",
+      "handle": "",
+      "ref": "example",
+      "label": "example",
+      "sub": "",
+      "name": "example",
+      "words": [],
+      "flag": "",
+      "tone": "",
+      "state": "",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": -1,
+      "children": [
+        1,
+        12,
+        18,
+        21,
+        23
+      ],
+      "weight": 12,
+      "rollup": "5 workstreams: 1 on a failing input, 2 behind their rank, 1 with nothing read",
+      "rollup_tone": "fault",
+      "start_collapsed": false
+    },
+    {
+      "kind": "workstream",
+      "handle": "platform",
+      "ref": "platform",
+      "label": "Platform rework",
+      "sub": "platform",
+      "name": "Platform rework platform, draws on a failing input: tracker",
+      "words": [
+        "draws on a failing input: tracker"
+      ],
+      "flag": "!",
+      "tone": "fault",
+      "state": "",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "ws-1",
+      "parent": 0,
+      "children": [
+        2,
+        5,
+        6,
+        8
+      ],
+      "weight": 5,
+      "rollup": "10 items",
+      "rollup_tone": "fault",
+      "start_collapsed": false
+    },
+    {
+      "kind": "item",
+      "handle": "tracker:P-1",
+      "ref": "tracker:P-1",
+      "label": "Platform rework",
+      "sub": "P-1",
+      "name": "Platform rework P-1, in tracker, In Progress",
+      "words": [
+        "in tracker",
+        "In Progress"
+      ],
+      "flag": "",
+      "tone": "fault",
+      "state": "In Progress",
+      "href": "https://tracker.example.com/P-1",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 1,
+      "children": [
+        3
+      ],
+      "weight": 2,
+      "rollup": "4 items",
+      "rollup_tone": "fault",
+      "start_collapsed": false
+    },
+    {
+      "kind": "item",
+      "handle": "tracker:P-2",
+      "ref": "tracker:P-2",
+      "label": "Split the scheduler",
+      "sub": "P-2",
+      "name": "Split the scheduler P-2, in tracker, In Progress",
+      "words": [
+        "in tracker",
+        "In Progress"
+      ],
+      "flag": "",
+      "tone": "fault",
+      "state": "In Progress",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 2,
+      "children": [
+        4,
+        10
+      ],
+      "weight": 2,
+      "rollup": "3 items",
+      "rollup_tone": "fault",
+      "start_collapsed": false
+    },
+    {
+      "kind": "item",
+      "handle": "tracker:P-3",
+      "ref": "tracker:P-3",
+      "label": "Move the queue",
+      "sub": "P-3",
+      "name": "Move the queue P-3, in tracker, To Do",
+      "words": [
+        "in tracker",
+        "To Do"
+      ],
+      "flag": "",
+      "tone": "fault",
+      "state": "To Do",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 3,
+      "children": [],
+      "weight": 1,
+      "rollup": "",
+      "rollup_tone": "",
+      "start_collapsed": false
+    },
+    {
+      "kind": "item",
+      "handle": "tracker:P-9",
+      "ref": "tracker:P-9",
+      "label": "Orphaned story",
+      "sub": "P-9",
+      "name": "Orphaned story P-9, in tracker, To Do",
+      "words": [
+        "in tracker",
+        "To Do"
+      ],
+      "flag": "",
+      "tone": "fault",
+      "state": "To Do",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 1,
+      "children": [],
+      "weight": 1,
+      "rollup": "",
+      "rollup_tone": "",
+      "start_collapsed": false
+    },
+    {
+      "kind": "item",
+      "handle": "tracker:C-1",
+      "ref": "tracker:C-1",
+      "label": "Cycle one",
+      "sub": "C-1",
+      "name": "Cycle one C-1, in tracker, To Do",
+      "words": [
+        "in tracker",
+        "To Do"
+      ],
+      "flag": "",
+      "tone": "fault",
+      "state": "To Do",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 1,
+      "children": [
+        7
+      ],
+      "weight": 1,
+      "rollup": "1 item",
+      "rollup_tone": "fault",
+      "start_collapsed": false
+    },
+    {
+      "kind": "item",
+      "handle": "tracker:C-2",
+      "ref": "tracker:C-2",
+      "label": "Cycle two",
+      "sub": "C-2",
+      "name": "Cycle two C-2, in tracker, To Do",
+      "words": [
+        "in tracker",
+        "To Do"
+      ],
+      "flag": "",
+      "tone": "fault",
+      "state": "To Do",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 6,
+      "children": [],
+      "weight": 1,
+      "rollup": "",
+      "rollup_tone": "",
+      "start_collapsed": false
+    },
+    {
+      "kind": "item",
+      "handle": "tracker:J-1",
+      "ref": "tracker:J-1",
+      "label": "Member under its own join",
+      "sub": "J-1",
+      "name": "Member under its own join J-1, in tracker, To Do",
+      "words": [
+        "in tracker",
+        "To Do"
+      ],
+      "flag": "",
+      "tone": "fault",
+      "state": "To Do",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 1,
+      "children": [
+        9
+      ],
+      "weight": 1,
+      "rollup": "1 item",
+      "rollup_tone": "fault",
+      "start_collapsed": false
+    },
+    {
+      "kind": "item",
+      "handle": "tracker:J-0",
+      "ref": "tracker:J-0",
+      "label": "Joined parent of its member",
+      "sub": "J-0",
+      "name": "Joined parent of its member J-0, in tracker, running, joined by notes",
+      "words": [
+        "in tracker",
+        "running",
+        "joined by notes"
+      ],
+      "flag": "",
+      "tone": "fault",
+      "state": "running",
+      "href": "",
+      "joined_by": "notes",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 8,
+      "children": [],
+      "weight": 1,
+      "rollup": "",
+      "rollup_tone": "",
+      "start_collapsed": false
+    },
+    {
+      "kind": "item",
+      "handle": "hub:owner/app#10",
+      "ref": "hub:owner/app#10",
+      "label": "P-2: split the scheduler",
+      "sub": "owner/app#10",
+      "name": "P-2: split the scheduler owner/app#10, in hub, open, joined by key",
+      "words": [
+        "in hub",
+        "open",
+        "joined by key"
+      ],
+      "flag": "",
+      "tone": "fault",
+      "state": "open",
+      "href": "https://github.com/owner/app/pull/10",
+      "joined_by": "key",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 3,
+      "children": [
+        11
+      ],
+      "weight": 1,
+      "rollup": "1 item",
+      "rollup_tone": "fault",
+      "start_collapsed": false
+    },
+    {
+      "kind": "item",
+      "handle": "code:owner/app:feature/split",
+      "ref": "code:owner/app:feature/split",
+      "label": "owner/app:feature/split",
+      "sub": "",
+      "name": "owner/app:feature/split, in code, open, joined by pull_request",
+      "words": [
+        "in code",
+        "open",
+        "joined by pull_request"
+      ],
+      "flag": "",
+      "tone": "fault",
+      "state": "open",
+      "href": "",
+      "joined_by": "pull_request",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 10,
+      "children": [],
+      "weight": 1,
+      "rollup": "",
+      "rollup_tone": "",
+      "start_collapsed": false
+    },
+    {
+      "kind": "workstream",
+      "handle": "billing",
+      "ref": "billing",
+      "label": "billing",
+      "sub": "",
+      "name": "billing, behind its rank",
+      "words": [
+        "behind its rank"
+      ],
+      "flag": "↓",
+      "tone": "behind",
+      "state": "",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "ws-2",
+      "parent": 0,
+      "children": [
+        13,
+        14,
+        16,
+        17
+      ],
+      "weight": 4,
+      "rollup": "5 items, 1 not read",
+      "rollup_tone": "behind",
+      "start_collapsed": false
+    },
+    {
+      "kind": "item",
+      "handle": "tracker:B-1",
+      "ref": "tracker:B-1",
+      "label": "Invoice runs on the new scheduler",
+      "sub": "B-1",
+      "name": "Invoice runs on the new scheduler B-1, in tracker, In Progress",
+      "words": [
+        "in tracker",
+        "In Progress"
+      ],
+      "flag": "",
+      "tone": "behind",
+      "state": "In Progress",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 12,
+      "children": [],
+      "weight": 1,
+      "rollup": "",
+      "rollup_tone": "",
+      "start_collapsed": false
+    },
+    {
+      "kind": "item",
+      "handle": "tracker:B-\u200b2",
+      "ref": "\"tracker:B-\\u200b2\"",
+      "label": "A key with a hidden character",
+      "sub": "\"B-\\u200b2\"",
+      "name": "A key with a hidden character \"B-\\u200b2\", in tracker, To Do",
+      "words": [
+        "in tracker",
+        "To Do"
+      ],
+      "flag": "",
+      "tone": "behind",
+      "state": "To Do",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": true,
+      "anchor": "",
+      "parent": 12,
+      "children": [],
+      "weight": 1,
+      "rollup": "",
+      "rollup_tone": "",
+      "start_collapsed": false
+    },
+    {
+      "kind": "item",
+      "handle": "tracker:B-3",
+      "ref": "tracker:B-3",
+      "label": "Joined child of a member",
+      "sub": "B-3",
+      "name": "Joined child of a member B-3, in tracker, running, joined by notes",
+      "words": [
+        "in tracker",
+        "running",
+        "joined by notes"
+      ],
+      "flag": "",
+      "tone": "behind",
+      "state": "running",
+      "href": "",
+      "joined_by": "notes",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 16,
+      "children": [],
+      "weight": 1,
+      "rollup": "",
+      "rollup_tone": "",
+      "start_collapsed": false
+    },
+    {
+      "kind": "item",
+      "handle": "hub:owner/app#20",
+      "ref": "hub:owner/app#20",
+      "label": "P-1: shared plumbing",
+      "sub": "owner/app#20",
+      "name": "P-1: shared plumbing owner/app#20, in hub, open",
+      "words": [
+        "in hub",
+        "open"
+      ],
+      "flag": "",
+      "tone": "behind",
+      "state": "open",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 12,
+      "children": [
+        15
+      ],
+      "weight": 1,
+      "rollup": "1 item",
+      "rollup_tone": "behind",
+      "start_collapsed": false
+    },
+    {
+      "kind": "unread",
+      "handle": "hub:owner/app#21",
+      "ref": "hub:owner/app#21",
+      "label": "owner/app#21",
+      "sub": "",
+      "name": "owner/app#21, in hub, not read: no input supplied it",
+      "words": [
+        "in hub",
+        "not read: no input supplied it"
+      ],
+      "flag": "",
+      "tone": "unread",
+      "state": "",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 12,
+      "children": [],
+      "weight": 1,
+      "rollup": "",
+      "rollup_tone": "",
+      "start_collapsed": false
+    },
+    {
+      "kind": "workstream",
+      "handle": "ops",
+      "ref": "ops",
+      "label": "ops",
+      "sub": "",
+      "name": "ops, stale, behind its rank",
+      "words": [
+        "stale",
+        "behind its rank"
+      ],
+      "flag": "◷↓",
+      "tone": "behind",
+      "state": "",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "ws-3",
+      "parent": 0,
+      "children": [
+        19
+      ],
+      "weight": 1,
+      "rollup": "2 items",
+      "rollup_tone": "behind",
+      "start_collapsed": false
+    },
+    {
+      "kind": "item",
+      "handle": "tracker:O-1",
+      "ref": "tracker:O-1",
+      "label": "Roll the scheduler out",
+      "sub": "O-1",
+      "name": "Roll the scheduler out O-1, in tracker, Blocked",
+      "words": [
+        "in tracker",
+        "Blocked"
+      ],
+      "flag": "",
+      "tone": "behind",
+      "state": "Blocked",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 18,
+      "children": [
+        20
+      ],
+      "weight": 1,
+      "rollup": "1 item",
+      "rollup_tone": "behind",
+      "start_collapsed": false
+    },
+    {
+      "kind": "item",
+      "handle": "code:owner/app:feature/rollout",
+      "ref": "code:owner/app:feature/rollout",
+      "label": "owner/app:feature/rollout",
+      "sub": "",
+      "name": "owner/app:feature/rollout, in code, open, joined by pull_request",
+      "words": [
+        "in code",
+        "open",
+        "joined by pull_request"
+      ],
+      "flag": "",
+      "tone": "behind",
+      "state": "open",
+      "href": "",
+      "joined_by": "pull_request",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 19,
+      "children": [],
+      "weight": 1,
+      "rollup": "",
+      "rollup_tone": "",
+      "start_collapsed": false
+    },
+    {
+      "kind": "workstream",
+      "handle": "docs",
+      "ref": "docs",
+      "label": "docs",
+      "sub": "",
+      "name": "docs",
+      "words": [],
+      "flag": "",
+      "tone": "",
+      "state": "",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "ws-4",
+      "parent": 0,
+      "children": [
+        22
+      ],
+      "weight": 1,
+      "rollup": "1 item",
+      "rollup_tone": "",
+      "start_collapsed": false
+    },
+    {
+      "kind": "item",
+      "handle": "code:owner/docs:guides",
+      "ref": "code:owner/docs:guides",
+      "label": "owner/docs:guides",
+      "sub": "",
+      "name": "owner/docs:guides, in code, open",
+      "words": [
+        "in code",
+        "open"
+      ],
+      "flag": "",
+      "tone": "",
+      "state": "open",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 21,
+      "children": [],
+      "weight": 1,
+      "rollup": "",
+      "rollup_tone": "",
+      "start_collapsed": false
+    },
+    {
+      "kind": "workstream",
+      "handle": "intake",
+      "ref": "intake",
+      "label": "intake",
+      "sub": "",
+      "name": "intake, nothing read",
+      "words": [
+        "nothing read"
+      ],
+      "flag": "?",
+      "tone": "unread",
+      "state": "",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "ws-5",
+      "parent": 0,
+      "children": [
+        24
+      ],
+      "weight": 1,
+      "rollup": "1 item, 1 not read",
+      "rollup_tone": "unread",
+      "start_collapsed": false
+    },
+    {
+      "kind": "unread",
+      "handle": "tracker:I-1",
+      "ref": "tracker:I-1",
+      "label": "I-1",
+      "sub": "",
+      "name": "I-1, in tracker, not read: no input supplied it",
+      "words": [
+        "in tracker",
+        "not read: no input supplied it"
+      ],
+      "flag": "",
+      "tone": "unread",
+      "state": "",
+      "href": "",
+      "joined_by": "",
+      "hidden_chars": false,
+      "anchor": "",
+      "parent": 23,
+      "children": [],
+      "weight": 1,
+      "rollup": "",
+      "rollup_tone": "",
+      "start_collapsed": false
+    }
+  ],
+  "links": [
+    {
+      "from": 6,
+      "to": 7,
+      "kind": "parent",
+      "label": "parent"
+    },
+    {
+      "from": 8,
+      "to": 9,
+      "kind": "parent",
+      "label": "parent"
+    },
+    {
+      "from": 16,
+      "to": 2,
+      "kind": "joined",
+      "label": "joined"
+    },
+    {
+      "from": 15,
+      "to": 13,
+      "kind": "parent",
+      "label": "parent"
+    },
+    {
+      "from": 16,
+      "to": 19,
+      "kind": "joined",
+      "label": "joined"
+    },
+    {
+      "from": 20,
+      "to": 16,
+      "kind": "joined",
+      "label": "joined"
+    },
+    {
+      "from": 13,
+      "to": 2,
+      "kind": "parent",
+      "label": "parent"
+    },
+    {
+      "from": 19,
+      "to": 1,
+      "kind": "blocks",
+      "label": "blocks"
+    }
+  ]
+}

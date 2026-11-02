@@ -37,7 +37,8 @@ jobs:
           # them is a Go change too. The page filter covers what the browser
           # specs render the page through (`lookout view --readout`: the
           # command, the view rules, the readout schema it validates against,
-          # the setting-name check, and the Go toolchain go.mod selects) and
+          # the setting-name check, the directory lock it writes under, and
+          # the Go toolchain go.mod selects) and
           # what only the specs and their tools read.
           filters: |
             go:
@@ -51,6 +52,7 @@ jobs:
               - 'internal/htmlview/**'
               - 'internal/devtools/npmregistry/**'
               - 'internal/viewrules/**'
+              - 'internal/dirlock/**'
               - 'internal/config/**'
               - 'schema/**'
               - 'cmd/lookout/**'

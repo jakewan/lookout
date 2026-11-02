@@ -1,13 +1,16 @@
 // Package htmlview renders a readout as one self-contained HTML page for a
 // person to open in a browser. Like textview, it reads the readout only through
 // its published JSON, as any renderer outside lookout would. The page loads
-// nothing: its style and drawings are inline and it carries no script, and a
-// content security policy holds it to that, so opening it reaches no network
-// whatever the readout holds.
+// nothing: its style, drawings and one script are inline, and a content
+// security policy pins that script by its hash and blocks every fetch, so
+// opening it reaches no network whatever the readout holds. The script only
+// lays out and shows or hides a map Go has already decided.
 package htmlview
 
 import (
+	"crypto/sha256"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -28,11 +31,28 @@ var pageSource string
 //go:embed page.css
 var pageStyle string
 
+// pageScript is inlined into the page's one executable <script> element,
+// which is why it must never hold that element's closing tag or open a
+// comment.
+//
+//go:embed page.js
+var pageScript string
+
+// scriptHash is what the page's content security policy admits: the script
+// above and nothing else.
+func scriptHash() string {
+	sum := sha256.Sum256([]byte(pageScript))
+	return "sha256-" + base64.StdEncoding.EncodeToString(sum[:])
+}
+
+// The hash goes into the template's own text before parsing, so it is part of
+// the policy as written rather than a value html/template escapes into it.
 var pageTemplate = template.Must(template.New("page").Funcs(template.FuncMap{
-	// The stylesheet is lookout's own file, not readout text, so it is
-	// trusted as CSS rather than escaped.
-	"style": func() template.CSS { return template.CSS(pageStyle) },
-}).Parse(pageSource))
+	// The stylesheet and the script are lookout's own files, not readout
+	// text, so they are trusted rather than escaped.
+	"style":  func() template.CSS { return template.CSS(pageStyle) },
+	"script": func() template.JS { return template.JS(pageScript) },
+}).Parse(strings.Replace(pageSource, "SCRIPT_HASH", scriptHash(), 1)))
 
 // readout is the part of a readout.v1 document the page shows. Fields the
 // contract may gain are ignored, as it asks of a renderer.
@@ -41,6 +61,7 @@ type readout struct {
 	GeneratedAt        time.Time   `json:"generated_at"`
 	EventWindowSeconds int64       `json:"event_window_seconds"`
 	Workstreams        []rawStream `json:"workstreams"`
+	Links              []rawLink   `json:"workstream_links"`
 	Unplaced           []struct{}  `json:"unplaced"`
 	Health             []rawHealth `json:"health"`
 	DismissedCount     int         `json:"dismissed_count"`
@@ -69,14 +90,22 @@ type rawEvent struct {
 type rawPlaced struct {
 	Input string `json:"input"`
 	Item  struct {
-		ID    string `json:"id"`
-		Title string `json:"title"`
-		State string `json:"state"`
-		Links []struct {
+		ID     string `json:"id"`
+		Title  string `json:"title"`
+		State  string `json:"state"`
+		Parent string `json:"parent"`
+		Links  []struct {
 			Href string `json:"href"`
 		} `json:"links"`
 	} `json:"item"`
 	Joined *join `json:"joined"`
+}
+
+type rawLink struct {
+	From  string   `json:"from"`
+	To    string   `json:"to"`
+	Kind  string   `json:"kind"`
+	Items []string `json:"items"`
 }
 
 type rawHealth struct {
@@ -98,7 +127,13 @@ type rawHealth struct {
 type page struct {
 	Setting string
 	AsOf    string
-	Window  string
+	// Read is the readout's generated_at exactly as written, so a person
+	// and an agent reading view.json can tell they are on the same read.
+	Read   string
+	Window string
+	// Map is what the page's script draws; html/template writes it into the
+	// page's data block escaped as JSON.
+	Map viewModel
 	// Active counts the workstreams with an event within the event window,
 	// as snapshot does, the measure the vision sets beside a
 	// work-in-progress limit.
@@ -197,10 +232,17 @@ func build(data []byte) (page, error) {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return page{}, fmt.Errorf("reading the readout: %w", err)
 	}
+	var as struct {
+		GeneratedAt string `json:"generated_at"`
+	}
+	if err := json.Unmarshal(data, &as); err != nil {
+		return page{}, fmt.Errorf("reading the readout: %w", err)
+	}
 	window := r.EventWindowSeconds
 	p := page{
 		Setting:   viewrules.Clean(r.Setting),
 		AsOf:      stamp(r.GeneratedAt),
+		Read:      viewrules.Clean(as.GeneratedAt),
 		Window:    viewrules.Span(window),
 		Unplaced:  len(r.Unplaced),
 		Dismissed: r.DismissedCount,
@@ -225,6 +267,7 @@ func build(data []byte) (page, error) {
 		}
 		p.Workstreams = append(p.Workstreams, shown)
 	}
+	p.Map = mapOf(r, p.Workstreams, order)
 	return p, nil
 }
 
@@ -279,38 +322,20 @@ func workstreamOf(ws rawStream, order viewrules.Order, generated time.Time, wind
 		Stale:      marker == viewrules.Stale,
 		Incomplete: cleanAll(ws.InputsIncomplete),
 	}
-	// Each input's members come first, in the configuration's order, then the
-	// members no input supplied, then what the workstream joined; so a join
-	// never reads as a membership.
-	members := map[string][]item{}
-	unread := map[string][]item{}
-	joins := map[string][]item{}
-	var inputs []string
-	seen := func(in string) {
-		if !slices.Contains(inputs, in) {
-			inputs = append(inputs, in)
+	// The lists and the map take what a workstream holds in one order, so
+	// the two views of it cannot come to disagree.
+	last := ""
+	for _, e := range entriesOf(ws, order) {
+		shown := item{ID: viewrules.Clean(e.id), Unread: true}
+		if e.placed != nil {
+			shown = itemOf(*e.placed)
 		}
-	}
-	for _, it := range ws.Items {
-		seen(it.Input)
-		shown := itemOf(it)
-		if it.Joined != nil {
-			joins[it.Input] = append(joins[it.Input], shown)
-			continue
+		if len(out.Groups) == 0 || e.input != last {
+			out.Groups = append(out.Groups, group{Input: viewrules.Clean(e.input)})
+			last = e.input
 		}
-		members[it.Input] = append(members[it.Input], shown)
-	}
-	for _, m := range ws.MembersUnread {
-		// readout.v1 writes a member as <input>:<id>, and an input's name
-		// holds no colon, so the first one ends it.
-		in, id, _ := strings.Cut(m, ":")
-		seen(in)
-		unread[in] = append(unread[in], item{ID: viewrules.Clean(id), Unread: true})
-	}
-	slices.SortStableFunc(inputs, func(a, b string) int { return order.Rank(a) - order.Rank(b) })
-	for _, in := range inputs {
-		items := slices.Concat(members[in], unread[in], joins[in])
-		out.Groups = append(out.Groups, group{Input: viewrules.Clean(in), Items: items})
+		g := &out.Groups[len(out.Groups)-1]
+		g.Items = append(g.Items, shown)
 	}
 	for _, e := range ws.Events {
 		out.Lane = append(out.Lane, mark{

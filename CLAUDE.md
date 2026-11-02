@@ -6,7 +6,7 @@ This file orients an AI agent (or a new contributor) working in this repository.
 
 A command-line tool that gives one vantage point over everything you have in flight. It gathers recent activity — git branches and worktrees, GitHub pull requests and issues, AI coding sessions, and files supplied by other tools such as an issue-tracker exporter — groups it into workstreams you define, and reports how recently each one moved and whether every input it relies on is healthy.
 
-It is the data layer: it emits a readout for a renderer to consume. `lookout view` writes a self-contained graphical page and `lookout show` prints a plain-text view over that same readout. Both are drawn only from what the readout publishes, so they stay replaceable. The page is the dashboard's chosen renderer; `docs/vision.md` records why, and that the health, staleness and ranking rules stay in Go: any script the page gains derives only layout and what is shown, never a rule.
+It is the data layer: it emits a readout for a renderer to consume. `lookout view` writes a self-contained graphical page and `lookout show` prints a plain-text view over that same readout. Both are drawn only from what the readout publishes, so they stay replaceable. The page is the dashboard's chosen renderer; `docs/vision.md` records why, and that the health, staleness and ranking rules stay in Go: the page's script derives only layout and what is shown, never a rule.
 
 ## Status and layout
 
@@ -29,6 +29,7 @@ internal/htmlview/        # the self-contained browser page of a readout, read o
 internal/htmlview/browser/ # the page's browser specs (Playwright, plain JavaScript); not part of the binary
 internal/viewrules/       # the age, staleness and health rules every view draws the same way
 internal/state/           # one setting's tool history: the gesture log, the dismissals replayed from it, and the baseline
+internal/dirlock/         # the advisory lock state and the page's directory are written under
 internal/baseline/        # deriving each day's baseline record from a readout, the configuration and the gesture log
 internal/devtools/sweep/  # disclosure sweep run before every push; not part of the binary
 internal/devtools/npmregistry/ # fails a package-lock.json that resolves anywhere but the public npm registry

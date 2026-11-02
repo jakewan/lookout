@@ -10,7 +10,8 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
+    "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["playwright.config.js", "internal/htmlview/browser/**/*.js"]
+  "include": ["playwright.config.js", "internal/htmlview/*.js", "internal/htmlview/browser/**/*.js"]
 }

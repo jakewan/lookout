@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 
 	"github.com/jakewan/lookout/internal/config"
+	"github.com/jakewan/lookout/internal/dirlock"
 	"github.com/jakewan/lookout/internal/htmlview"
 	"github.com/jakewan/lookout/schema"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -81,7 +82,7 @@ func viewPage(getenv func(string) string, data []byte) (string, error) {
 	if renderErr := htmlview.Render(&page, data); renderErr != nil {
 		return "", renderErr
 	}
-	return writePage(getenv, head.Setting, page.Bytes())
+	return writeView(getenv, head.Setting, page.Bytes(), data)
 }
 
 func liveReadout(ctx context.Context, env environment, setting string) ([]byte, error) {
@@ -124,13 +125,20 @@ func savedReadout(name string, stdin io.Reader) ([]byte, error) {
 	return data, nil
 }
 
-// writePage writes the page under the cache directory and returns its path.
-// The page is derived from a readout and safe to lose, so it is cache rather
-// than state. It holds work data, so it is kept to its owner, and the modes
+// writeView writes the page, and the readout it was drawn from as view.json
+// beside it, under the cache directory, and returns the page's path. Both are
+// derived from a readout and safe to lose, so they are cache rather than
+// state. They hold work data, so they are kept to their owner, and the modes
 // are set explicitly because creating a path never tightens one that exists.
-// It is written beside its final name and renamed into place, so a browser
-// reloading it never reads half a page.
-func writePage(getenv func(string) string, setting string, page []byte) (string, error) {
+//
+// Each is written beside its final name and renamed into place, so a browser
+// or an agent reading one never reads half of it. Both are written under an
+// exclusive lock on the directory, so two views written at once cannot leave
+// one's page beside the other's readout; where no such lock exists, off Unix
+// or on a filesystem without flock, they are written without it. The page
+// names the read it shows exactly, so a reader of either can still tell the
+// two apart.
+func writeView(getenv func(string) string, setting string, page, readout []byte) (path string, err error) {
 	base, err := cacheRoot(getenv)
 	if err != nil {
 		return "", err
@@ -142,21 +150,40 @@ func writePage(getenv func(string) string, setting string, page []byte) (string,
 	if chErr := os.Chmod(dir, 0o700); chErr != nil {
 		return "", fmt.Errorf("restricting the page's directory: %w", chErr)
 	}
-	tmp, err := os.CreateTemp(dir, ".view-*.html")
-	if err != nil {
-		return "", fmt.Errorf("writing the page: %w", err)
+	lock, err := dirlock.Lock(dir, "the page's directory", true)
+	switch {
+	case errors.Is(err, dirlock.ErrUnsupported):
+	case err != nil:
+		return "", err
+	default:
+		defer func() { err = errors.Join(err, lock.Close()) }()
 	}
-	_, writeErr := tmp.Write(page)
+	if err = replace(dir, "view.json", readout); err != nil {
+		return "", err
+	}
+	if err = replace(dir, "view.html", page); err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "view.html"), nil
+}
+
+// replace writes data to name in dir, readable only by its owner, beside its
+// final name and then renamed into place.
+func replace(dir, name string, data []byte) error {
+	tmp, err := os.CreateTemp(dir, "."+name+"-*")
+	if err != nil {
+		return fmt.Errorf("writing %s: %w", name, err)
+	}
+	_, writeErr := tmp.Write(data)
 	chmodErr := tmp.Chmod(0o600)
 	closeErr := tmp.Close()
 	if err := errors.Join(writeErr, chmodErr, closeErr); err != nil {
-		return "", errors.Join(fmt.Errorf("writing the page: %w", err), os.Remove(tmp.Name()))
+		return errors.Join(fmt.Errorf("writing %s: %w", name, err), os.Remove(tmp.Name()))
 	}
-	path := filepath.Join(dir, "view.html")
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		return "", errors.Join(fmt.Errorf("writing the page: %w", err), os.Remove(tmp.Name()))
+	if err := os.Rename(tmp.Name(), filepath.Join(dir, name)); err != nil {
+		return errors.Join(fmt.Errorf("writing %s: %w", name, err), os.Remove(tmp.Name()))
 	}
-	return path, nil
+	return nil
 }
 
 // cacheRoot is lookout's directory under the XDG cache base, resolved from

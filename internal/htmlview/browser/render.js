@@ -6,10 +6,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-/** The readouts the specs open, by name: one beside the Go golden, one with nothing in it. */
+/**
+ * The readouts the specs open, by name: one beside the Go golden, one with
+ * nothing in it, and one holding every shape the map places.
+ */
 const fixtures = {
   busy: "internal/htmlview/testdata/busy.json",
   empty: "internal/htmlview/browser/fixtures/empty.json",
+  map: "internal/htmlview/browser/fixtures/map.json",
 };
 
 export default function render() {
