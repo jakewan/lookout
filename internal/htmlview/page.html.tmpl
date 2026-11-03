@@ -96,12 +96,33 @@
 {{- if .Workstreams}}
 </div>
 {{- end}}
+{{- if .UnplacedItems}}
+
+<section class="ws unplaced" id="unplaced" aria-label="Unplaced">
+  <details>
+    <summary>
+      <span class="name">{{len .UnplacedItems}} unplaced</span>
+      <span class="stats">no live workstream holds these; newest touch first</span>
+    </summary>
+    <ul>
+    {{- range .UnplacedItems}}
+      <li>
+        {{- if .Href}}<a href="{{.Href}}" target="_blank" rel="noreferrer noopener">{{template "token" .}}</a>{{else}}{{template "token" .}}{{end}}
+        {{- if .Title}} <bdi>{{.Title}}</bdi>{{end}}
+        {{- if .State}} <span class="state">{{.State}}</span>{{end}} <span class="state">{{if eq .Touched "--"}}last touch unreadable{{else}}{{.Touched}} ago{{end}}</span>
+      </li>
+    {{- end}}
+    </ul>
+  </details>
+</section>
+{{- end}}
 
 <footer{{if .AnyUnhealthy}} class="flagged"{{end}}>
-  {{if .AnyUnhealthy}}&#9650; inputs are failing, so these counts may be short: {{end}}{{.Unplaced}} unplaced{{if .Dismissed}}, {{.Dismissed}} dismissed{{end}}{{if .Completed}}, {{.Completed}} workstream{{if gt .Completed 1}}s{{end}} completed{{end}}
+  {{if .AnyUnhealthy}}&#9650; inputs are failing, so these counts may be short: {{end}}{{len .UnplacedItems}} unplaced{{if .Dismissed}}, {{.Dismissed}} dismissed{{end}}{{if .Completed}}, {{.Completed}} workstream{{if gt .Completed 1}}s{{end}} completed{{end}}
 </footer>
 </main>
 <script type="application/json" id="lookout-map">{{.Map}}</script>
 <script type="module">{{script}}</script>
 </body>
 </html>
+{{- define "token"}}<span class="id"{{if .ShellQuote}} title="pass it to the shell in single quotes"{{end}}><bdi>{{.Token}}</bdi></span>{{end}}

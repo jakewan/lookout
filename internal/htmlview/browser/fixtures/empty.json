@@ -4,7 +4,28 @@
   "generated_at": "2030-06-15T12:00:00Z",
   "event_window_seconds": 604800,
   "workstreams": [],
-  "unplaced": [],
+  "unplaced": [
+    {
+      "input": "code",
+      "item": {
+        "id": "owner/app:spike/first",
+        "last_touched": "2030-06-15T11:00:00Z",
+        "state": "open",
+        "links": [],
+        "attrs": {}
+      }
+    },
+    {
+      "input": "tracker",
+      "item": {
+        "id": "two  spaces",
+        "last_touched": "2030-06-15T10:00:00Z",
+        "state": "open",
+        "links": [],
+        "attrs": {}
+      }
+    }
+  ],
   "health": [],
   "dismissed_count": 0,
   "completed_count": 0,

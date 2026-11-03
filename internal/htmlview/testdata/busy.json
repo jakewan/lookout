@@ -460,9 +460,30 @@
         "id": "owner/app#60",
         "last_touched": "2030-06-15T04:00:00Z",
         "state": "open",
-        "links": [],
+        "links": [
+          {
+            "rel": "self",
+            "href": "https://example.com/owner/app/pull/60"
+          }
+        ],
         "attrs": {},
         "title": "Bump the linter"
+      }
+    },
+    {
+      "input": "code",
+      "item": {
+        "id": "owner/app:fix/\u200bcache",
+        "last_touched": "2030-06-15T10:00:00Z",
+        "state": "open",
+        "links": [
+          {
+            "rel": "self",
+            "href": "javascript:alert(1)"
+          }
+        ],
+        "attrs": {},
+        "title": "Cache the build"
       }
     },
     {

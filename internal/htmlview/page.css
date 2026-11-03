@@ -76,6 +76,14 @@ summary { cursor: pointer; }
 .group li.join { padding-left: 10px; border-left: 2px solid var(--join); }
 .group li.unread { color: var(--muted); font-style: italic; }
 .joinbadge { color: var(--join); font-size: 11px; font-weight: 600; }
+/* What no workstream holds sits below them all, in the map's view and the
+   lists' alike, so it reads as one more group rather than part of either. */
+.unplaced { margin-top: 14px; }
+.unplaced ul { margin: 8px 0 4px; padding: 0; list-style: none; }
+.unplaced li { padding: 2px 0; border-top: 1px dashed var(--rule); }
+/* A token is what a command takes, so its spaces show as written, not
+   collapsed into one. */
+.unplaced .id { white-space: pre-wrap; }
 .state { color: var(--muted); font-size: 11px; }
 
 /* The map, drawn as a hand-drawn mind map is: branches leave the center to

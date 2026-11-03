@@ -139,6 +139,74 @@ func TestWorkstreamsKeepTheStatedOrder(t *testing.T) {
 	}
 }
 
+func TestUnplacedItemsListNewestTouchFirstByTheTokenAdoptTakes(t *testing.T) {
+	p := pageOf(t, busy(t))
+	want := []unplacedItem{
+		{Token: "sessions:owner/tools:main", State: "open", Touched: "30m"},
+		{Token: `"code:owner/app:fix/\u200bcache"`, ShellQuote: true, Title: "Cache the build", State: "open", Touched: "2h"},
+		{Token: "code:owner/app:spike/cache", State: "open", Touched: "3h"},
+		{Token: "hub:owner/app#60", Title: "Bump the linter", State: "open", Touched: "8h", Href: "https://example.com/owner/app/pull/60"},
+	}
+	if !slices.Equal(p.UnplacedItems, want) {
+		t.Errorf("unplaced items =\n%+v\nwant\n%+v", p.UnplacedItems, want)
+	}
+}
+
+func TestATokenHoldingASpaceIsMarkedForShellQuoting(t *testing.T) {
+	doc := busy(t)
+	record(record(doc["unplaced"].([]any)[0])["item"])["id"] = "owner/app:two  spaces"
+	p := pageOf(t, doc)
+	i := slices.IndexFunc(p.UnplacedItems, func(u unplacedItem) bool { return u.Token == "code:owner/app:two  spaces" })
+	if i < 0 || !p.UnplacedItems[i].ShellQuote {
+		t.Errorf("unplaced items = %+v, want code:owner/app:two  spaces kept as written and marked for shell quoting", p.UnplacedItems)
+	}
+}
+
+func TestUnplacedItemsTouchedTogetherKeepTheReadoutsOrder(t *testing.T) {
+	doc := busy(t)
+	for _, u := range doc["unplaced"].([]any) {
+		record(record(u)["item"])["last_touched"] = "2030-06-15T09:00:00Z"
+	}
+	p := pageOf(t, doc)
+	var got []string
+	for _, u := range p.UnplacedItems {
+		got = append(got, u.Token)
+	}
+	want := []string{"code:owner/app:spike/cache", "hub:owner/app#60", `"code:owner/app:fix/\u200bcache"`, "sessions:owner/tools:main"}
+	if !slices.Equal(got, want) {
+		t.Errorf("order = %v, want %v", got, want)
+	}
+}
+
+// readout.v1 admits an RFC 3339 time Go's parser refuses, such as one written
+// with a lowercase t and z, so the page shows how long since such an item was
+// touched as unknown rather than refusing the readout.
+func TestATouchGoCannotParseLeavesTheItemListedLast(t *testing.T) {
+	doc := busy(t)
+	record(record(record(workstreams(doc)[0])["items"].([]any)[0])["item"])["last_touched"] = "2030-06-15t09:00:00z"
+	unplaced := doc["unplaced"].([]any)
+	record(record(unplaced[3])["item"])["last_touched"] = "2030-06-15t11:59:00z"
+	p := pageOf(t, doc)
+	last := p.UnplacedItems[len(p.UnplacedItems)-1]
+	if last.Token != "sessions:owner/tools:main" || last.Touched != "--" {
+		t.Errorf("last unplaced item = %+v, want sessions:owner/tools:main touched --", last)
+	}
+	if out := render(t, doc); !strings.Contains(out, "last touch unreadable") || strings.Contains(out, "-- ago") {
+		t.Error("an item whose touch cannot be read is not said to be so")
+	}
+}
+
+func TestNoUnplacedSectionWhereNothingIsUnplaced(t *testing.T) {
+	doc := busy(t)
+	doc["unplaced"] = []any{}
+	if out := render(t, doc); strings.Contains(out, `id="unplaced"`) {
+		t.Error("the page draws an unplaced section with nothing in it")
+	}
+	if out := render(t, busy(t)); !strings.Contains(out, `id="unplaced"`) {
+		t.Error("the page draws no unplaced section where items are unplaced")
+	}
+}
+
 func TestAgeAndMarkerTellFreshStaleAndUnread(t *testing.T) {
 	p := pageOf(t, busy(t))
 	for _, tc := range []struct {
@@ -378,8 +446,8 @@ func TestTheWindowIsLabelledExactly(t *testing.T) {
 func TestCountsAreFlaggedWhileAnyInputIsUnhealthy(t *testing.T) {
 	doc := busy(t)
 	p := pageOf(t, doc)
-	if p.Unplaced != 3 || p.Dismissed != 2 || p.Completed != 1 || !p.AnyUnhealthy {
-		t.Errorf("counts %d/%d/%d flagged %v", p.Unplaced, p.Dismissed, p.Completed, p.AnyUnhealthy)
+	if len(p.UnplacedItems) != 4 || p.Dismissed != 2 || p.Completed != 1 || !p.AnyUnhealthy {
+		t.Errorf("counts %d/%d/%d flagged %v", len(p.UnplacedItems), p.Dismissed, p.Completed, p.AnyUnhealthy)
 	}
 	for _, h := range health(doc) {
 		if record(h)["status"] != "absent_by_design" {

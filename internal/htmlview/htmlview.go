@@ -62,7 +62,7 @@ type readout struct {
 	EventWindowSeconds int64       `json:"event_window_seconds"`
 	Workstreams        []rawStream `json:"workstreams"`
 	Links              []rawLink   `json:"workstream_links"`
-	Unplaced           []struct{}  `json:"unplaced"`
+	Unplaced           []rawPlaced `json:"unplaced"`
 	Health             []rawHealth `json:"health"`
 	DismissedCount     int         `json:"dismissed_count"`
 	CompletedCount     int         `json:"completed_count"`
@@ -90,11 +90,12 @@ type rawEvent struct {
 type rawPlaced struct {
 	Input string `json:"input"`
 	Item  struct {
-		ID     string `json:"id"`
-		Title  string `json:"title"`
-		State  string `json:"state"`
-		Parent string `json:"parent"`
-		Links  []struct {
+		ID          string `json:"id"`
+		Title       string `json:"title"`
+		State       string `json:"state"`
+		Parent      string `json:"parent"`
+		LastTouched string `json:"last_touched"`
+		Links       []struct {
 			Href string `json:"href"`
 		} `json:"links"`
 	} `json:"item"`
@@ -121,9 +122,10 @@ type rawHealth struct {
 }
 
 // page is what the template draws. Every string in it taken from the readout
-// has been made safe to show by viewrules.Clean, except an item's link
-// address, which is admitted only as a web address and left to the
-// template's URL escaping.
+// has been made safe to show by viewrules.Clean, except two: an unplaced
+// item's token, made safe by viewrules.Token so it stays what the commands
+// accept, and an item's link address, which is admitted only as a web address
+// and left to the template's URL escaping.
 type page struct {
 	Setting string
 	AsOf    string
@@ -137,13 +139,17 @@ type page struct {
 	// Active counts the workstreams with an event within the event window,
 	// as snapshot does, the measure the vision sets beside a
 	// work-in-progress limit.
-	Active       int
-	Health       []input
-	Workstreams  []workstream
-	Unplaced     int
-	Dismissed    int
-	Completed    int
-	AnyUnhealthy bool
+	Active      int
+	Health      []input
+	Workstreams []workstream
+	// UnplacedItems is what no live workstream holds, most recently touched
+	// first, so what is moving now leads when the user reconciles their
+	// workstreams against it. The page counts them from this list, so a count
+	// and the list it counts cannot disagree.
+	UnplacedItems []unplacedItem
+	Dismissed     int
+	Completed     int
+	AnyUnhealthy  bool
 }
 
 type input struct {
@@ -196,6 +202,24 @@ type item struct {
 	Join   *join
 }
 
+// unplacedItem is an item no live workstream holds. Token is the handle adopt
+// and dismiss take, quoted as lookout unplaced quotes it, so the user or an
+// agent can act on what the page shows; Touched is the time since its last
+// touch.
+type unplacedItem struct {
+	Token string
+	// ShellQuote marks a token a shell would change on its way to the
+	// command: one viewrules.Token quoted, whose double quotes a shell
+	// strips, or one holding a space, which a shell splits. The page says to
+	// pass such a token in single quotes, or adopt and dismiss would read
+	// another id.
+	ShellQuote bool
+	Title      string
+	State      string
+	Touched    string
+	Href       string
+}
+
 // join is why a workstream holds an item it does not name. By is shown as
 // given, so a kind of join this version does not know still reads as a join.
 type join struct {
@@ -244,7 +268,6 @@ func build(data []byte) (page, error) {
 		AsOf:      stamp(r.GeneratedAt),
 		Read:      viewrules.Clean(as.GeneratedAt),
 		Window:    viewrules.Span(window),
-		Unplaced:  len(r.Unplaced),
 		Dismissed: r.DismissedCount,
 		Completed: r.CompletedCount,
 	}
@@ -268,7 +291,59 @@ func build(data []byte) (page, error) {
 		p.Workstreams = append(p.Workstreams, shown)
 	}
 	p.Map = mapOf(r, p.Workstreams, order)
+	p.UnplacedItems = unplacedOf(r.Unplaced, r.GeneratedAt)
 	return p, nil
+}
+
+// unplacedOf lists the unplaced items newest touch first; items touched at
+// the same moment keep the readout's order, so the same readout lists the
+// same way. readout.v1 admits RFC 3339 times Go's parser refuses, such as a
+// lowercase t or a leap second, so an item whose touch cannot be parsed is
+// listed after every other, its age unknown, rather than the page refusing a
+// readout that meets the contract.
+func unplacedOf(placed []rawPlaced, generated time.Time) []unplacedItem {
+	type touched struct {
+		p  rawPlaced
+		at *time.Time
+	}
+	all := make([]touched, 0, len(placed))
+	for _, p := range placed {
+		t := touched{p: p}
+		if at, err := time.Parse(time.RFC3339, p.Item.LastTouched); err == nil {
+			t.at = &at
+		}
+		all = append(all, t)
+	}
+	slices.SortStableFunc(all, func(a, b touched) int {
+		switch {
+		case a.at == nil && b.at == nil:
+			return 0
+		case a.at == nil:
+			return 1
+		case b.at == nil:
+			return -1
+		}
+		return b.at.Compare(*a.at)
+	})
+	out := make([]unplacedItem, 0, len(all))
+	for _, t := range all {
+		shown := itemOf(t.p)
+		var idle *int64
+		if t.at != nil {
+			s := max(int64(generated.Sub(*t.at).Seconds()), 0)
+			idle = &s
+		}
+		token := viewrules.Token(t.p.Input, t.p.Item.ID)
+		out = append(out, unplacedItem{
+			Token:      token,
+			ShellQuote: strings.HasPrefix(token, `"`) || strings.Contains(token, " "),
+			Title:      shown.Title,
+			State:      shown.State,
+			Touched:    viewrules.Age(idle),
+			Href:       shown.Href,
+		})
+	}
+	return out
 }
 
 // behind reports whether the workstream at i has gone quieter than one the
