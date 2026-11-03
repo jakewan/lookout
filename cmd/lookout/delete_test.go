@@ -6,10 +6,11 @@ import (
 	"testing"
 )
 
-// withSpares is a hand-written file whose first and last workstreams name no
-// members, with the comments a person leaves around them: a header under the
-// workstreams key, a commented-out member under a workstream, a commented-out
-// workstream at dash level, blank separators and a trailer.
+// withSpares is a hand-written file where every workstream but billing names
+// no members, with the comments a person leaves around them: a header under
+// the workstreams key, a commented-out member under a workstream, commented-out
+// workstreams at dash level after one workstream and directly above another,
+// blank separators and a trailer.
 const withSpares = `inputs:
   - name: tracker
     kind: supplied
@@ -28,8 +29,11 @@ workstreams:
       - tracker:ABC-1
       # - tracker:ABC-8
 
+  # - name: parked
   - name: later   # nothing yet
     members: []
+
+  - name: tail
 
 # Edited by hand and by lookout.
 `
@@ -39,8 +43,9 @@ func TestDeleteRemovesAnEmptyWorkstreamAndKeepsEveryOtherComment(t *testing.T) {
 		workstream string
 		owned      string
 	}{
-		"the first, under the header":  {"spare", "  - name: spare\n    title: Left over from the re-seed\n    # - tracker:OLD-1\n"},
-		"the last, before the trailer": {"later", "  - name: later   # nothing yet\n    members: []\n"},
+		"the first, under the header":              {"spare", "  - name: spare\n    title: Left over from the re-seed\n    # - tracker:OLD-1\n"},
+		"one under a commented-out workstream":     {"later", "  - name: later   # nothing yet\n    members: []\n"},
+		"the last, with one blank line kept above": {"tail", "  - name: tail\n\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
@@ -91,13 +96,30 @@ func TestDeleteRefusesAWorkstreamThatNamesAMember(t *testing.T) {
 }
 
 func TestTheMemberRefusalNamesTheWaysOut(t *testing.T) {
-	f := newFixture(t)
-	f.write("personal.yml", withSpares)
-	_, _, stderr := f.run("delete", "billing")
-	for _, way := range []string{"remove", "move", "complete"} {
-		if !strings.Contains(stderr, way) {
-			t.Errorf("stderr = %q, want it to name %q", stderr, way)
-		}
+	completed := strings.Replace(withSpares, "  - name: billing\n", "  - name: billing\n    completed: 2030-06-01\n", 1)
+	for name, tc := range map[string]struct {
+		config       string
+		ways, absent []string
+	}{
+		"a live workstream": {withSpares, []string{"lookout remove", "lookout move", "lookout complete"}, nil},
+		// complete refuses a workstream already complete, so it is no way out.
+		"a completed workstream": {completed, []string{"lookout remove", "lookout move"}, []string{"lookout complete"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.write("personal.yml", tc.config)
+			_, _, stderr := f.run("delete", "billing")
+			for _, way := range tc.ways {
+				if !strings.Contains(stderr, way) {
+					t.Errorf("stderr = %q, want it to name %q", stderr, way)
+				}
+			}
+			for _, way := range tc.absent {
+				if strings.Contains(stderr, way) {
+					t.Errorf("stderr = %q, want it not to suggest %q", stderr, way)
+				}
+			}
+		})
 	}
 }
 

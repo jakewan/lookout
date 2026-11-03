@@ -1204,6 +1204,7 @@ func TestAnExplicitOnlySettingIsNeverChosenByDefault(t *testing.T) {
 		{"rename", "--clear", "billing"},
 		{"order", "onboarding"},
 		{"complete", "billing"},
+		{"delete", "billing"},
 		{"dismiss", "tracker:ABC-3"},
 		{"read", "--json"},
 		{"unplaced"},

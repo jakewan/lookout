@@ -424,6 +424,9 @@ func (d *Document) Delete(workstream string) error {
 		return Refuse("no workstream %q", workstream)
 	}
 	if n := len(d.cfg.Workstreams[idx].Members); n > 0 {
+		if d.cfg.Workstreams[idx].Completed != "" {
+			return Refuse("workstream %q is complete and names %d member(s): take them out with lookout remove or lookout move first, or leave it in place to keep its history", workstream, n)
+		}
 		return Refuse("workstream %q names %d member(s): take them out with lookout remove or lookout move first, or keep its history with lookout complete", workstream, n)
 	}
 	l, err := parseLayout(d.data)
@@ -433,9 +436,15 @@ func (d *Document) Delete(workstream string) error {
 	// Only the workstream's own lines go, from its dash to the end of its block.
 	// The comments and blank lines above the dash, which blocks() counts in the
 	// block so that they travel with it on a reorder, may be a header for the
-	// whole list or a commented-out neighbor, so they stay.
+	// whole list or a commented-out neighbor, and a comment is not lookout's to
+	// throw away, so they stay, even one describing this workstream, which then
+	// reads as the next one's. Where a blank line stays above the dash, one
+	// directly after the block goes with it, so blank separators don't pile up.
 	_, spans, _ := l.blocks()
 	from, to := l.items[idx].dash, spans[idx][1]
+	if from > 0 && to < len(l.lines) && isBlank(l.lines[from-1]) && isBlank(l.lines[to]) {
+		to++
+	}
 	want := d.cfg.clone()
 	want.Workstreams = Deleted(d.cfg.Workstreams, workstream)
 	return d.apply([]byte(l.join(l.lines[:from], l.lines[to:])), want)
@@ -555,7 +564,9 @@ func cloneWorkstreams(ws []Workstream) []Workstream {
 // ws; a replay onto workstreams a hand edit has since changed can break that,
 // and then hides the hand edit a later gesture overwrote rather than reporting
 // one that never happened. An item placed by hand and then moved by command is
-// hidden that way, and is not counted as arriving either.
+// hidden that way, and is not counted as arriving either, and so is a member
+// removed by hand from a workstream then deleted by command, since Deleted takes
+// the workstream whatever it still holds.
 
 // Adopted is ws with member added to the named workstream, or to a new one at
 // the end when none has that name, and moved out of any completed workstream
@@ -884,6 +895,8 @@ func (l *layout) lineHoldsOnly(key *yaml.Node) bool {
 func isComment(line string) bool { return strings.HasPrefix(strings.TrimSpace(line), "#") }
 
 func indentOf(line string) int { return len(line) - len(strings.TrimLeft(line, " ")) }
+
+func isBlank(line string) bool { return strings.TrimSpace(line) == "" }
 
 func isFiller(line string) bool {
 	t := strings.TrimSpace(line)
