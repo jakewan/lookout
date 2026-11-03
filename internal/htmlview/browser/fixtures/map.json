@@ -11,6 +11,8 @@
       "idle_seconds": 600,
       "started_at": "2030-05-01T12:00:00Z",
       "age_seconds": 3888000,
+      "active": true,
+      "behind": false,
       "events": [
         { "input": "tracker", "id": "P-2", "at": "2030-06-15T11:50:00Z", "title": "Split the scheduler" },
         {
@@ -162,6 +164,8 @@
       "idle_seconds": 7200,
       "started_at": "2030-06-01T12:00:00Z",
       "age_seconds": 1209600,
+      "active": true,
+      "behind": true,
       "events": [
         { "input": "hub", "id": "owner/app#20", "at": "2030-06-14T09:00:00Z", "title": "P-1: shared plumbing" }
       ],
@@ -223,6 +227,8 @@
       "idle_seconds": 864000,
       "started_at": "2030-05-20T12:00:00Z",
       "age_seconds": 2246400,
+      "active": false,
+      "behind": true,
       "events": [],
       "inputs_incomplete": [],
       "members_unread": [],
@@ -269,6 +275,8 @@
       "idle_seconds": 3600,
       "started_at": "2030-06-10T12:00:00Z",
       "age_seconds": 432000,
+      "active": true,
+      "behind": false,
       "events": [{ "input": "code", "id": "owner/docs:guides", "at": "2030-06-15T11:00:00Z" }],
       "inputs_incomplete": [],
       "members_unread": [],
@@ -291,6 +299,8 @@
       "idle_seconds": null,
       "started_at": null,
       "age_seconds": null,
+      "active": false,
+      "behind": false,
       "events": [],
       "inputs_incomplete": [],
       "members_unread": ["tracker:I-1"],

@@ -81,9 +81,57 @@
         "started_at",
         "age_seconds",
         "events",
+        "active",
+        "behind",
         "inputs_incomplete",
         "members_unread",
         "items"
+      ],
+      "allOf": [
+        {
+          "$comment": "active is true exactly when the workstream has an event, so a renderer showing the verdict and one drawing events cannot disagree.",
+          "if": {
+            "properties": {
+              "active": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "events": {
+                "minItems": 1
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "events": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "$comment": "A workstream with nothing read is neither active nor behind.",
+          "if": {
+            "properties": {
+              "idle_seconds": {
+                "type": "null"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "active": {
+                "const": false
+              },
+              "behind": {
+                "const": false
+              }
+            }
+          }
+        }
       ],
       "properties": {
         "name": {
@@ -127,6 +175,14 @@
             "null"
           ],
           "minimum": 0
+        },
+        "active": {
+          "description": "Whether the workstream has an event: an item touched within the event window. A workstream read but not active is stale. A renderer should show this verdict rather than compare idle_seconds with the window itself, so every view agrees at the window's edge.",
+          "type": "boolean"
+        },
+        "behind": {
+          "description": "Whether a workstream listed after this one, so ranked below it, was touched more recently, compared by idle_seconds, so touches within the same second count as one moment. A workstream with nothing read is never behind and puts no other behind.",
+          "type": "boolean"
         },
         "events": {
           "description": "The latest touch of each item in items, member or joined, where it falls within the event window, newest first.",

@@ -91,16 +91,20 @@ const (
 
 // Workstream is one workstream's figures.
 type Workstream struct {
-	Name             string     `json:"name"`
-	Title            string     `json:"title,omitempty"`
-	LastTouched      *time.Time `json:"last_touched"`
-	IdleSeconds      *int64     `json:"idle_seconds"`
-	StartedAt        *time.Time `json:"started_at"`
-	AgeSeconds       *int64     `json:"age_seconds"`
-	Events           []Event    `json:"events"`
-	InputsIncomplete []string   `json:"inputs_incomplete"`
-	MembersUnread    []string   `json:"members_unread"`
-	Items            []Placed   `json:"items"`
+	Name        string     `json:"name"`
+	Title       string     `json:"title,omitempty"`
+	LastTouched *time.Time `json:"last_touched"`
+	IdleSeconds *int64     `json:"idle_seconds"`
+	StartedAt   *time.Time `json:"started_at"`
+	AgeSeconds  *int64     `json:"age_seconds"`
+	Events      []Event    `json:"events"`
+	// Active and Behind are decided here, once, so that no view compares an
+	// idle time with the window, or one workstream with another, on its own.
+	Active           bool     `json:"active"`
+	Behind           bool     `json:"behind"`
+	InputsIncomplete []string `json:"inputs_incomplete"`
+	MembersUnread    []string `json:"members_unread"`
+	Items            []Placed `json:"items"`
 }
 
 // Event is one touch within the event window.
@@ -362,9 +366,13 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 			return cmp.Compare(inputIndex(cfg, a), inputIndex(cfg, b))
 		})
 		slices.SortStableFunc(w.Events, func(a, b Event) int { return b.At.Compare(a.At) })
+		w.Active = len(w.Events) > 0
 		w.IdleSeconds = since(now, w.LastTouched)
 		w.AgeSeconds = since(now, w.StartedAt)
 		out.Workstreams = append(out.Workstreams, w)
+	}
+	for i := range out.Workstreams {
+		out.Workstreams[i].Behind = behind(out.Workstreams, i)
 	}
 
 	// A link gathers its items as it finds them, then each is sorted once. A
@@ -413,6 +421,20 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 
 func inputIndex(cfg *config.Config, name string) int {
 	return slices.IndexFunc(cfg.Inputs, func(i config.Input) bool { return i.Name == name })
+}
+
+// behind reports whether the workstream at i has gone quieter than one the
+// stated order ranks below it. The vision ranks by stated order and lets
+// observed staleness flag a workstream falling behind it; a workstream with
+// nothing read has no touch to compare either way.
+func behind(all []Workstream, i int) bool {
+	idle := all[i].IdleSeconds
+	if idle == nil {
+		return false
+	}
+	return slices.ContainsFunc(all[i+1:], func(below Workstream) bool {
+		return below.IdleSeconds != nil && *below.IdleSeconds < *idle
+	})
 }
 
 // since is whole seconds from t to now, never negative: a touch stamped ahead

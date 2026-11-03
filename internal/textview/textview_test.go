@@ -38,6 +38,10 @@ type lane struct {
 	incomplete []string
 	// joined are items, as <input>:<id>, that tracker:ABC-1's key joined.
 	joined []string
+	// active is the readout's verdict where a case sets it. Left nil, a lane
+	// read within the window is active, as the readout's verdict is everywhere
+	// but within a second of the window's start.
+	active *bool
 	extra  map[string]any
 }
 
@@ -79,6 +83,8 @@ func (f fixture) readout() map[string]any {
 			"started_at":        nil,
 			"age_seconds":       nil,
 			"events":            []any{},
+			"active":            false,
+			"behind":            false,
 			"inputs_incomplete": nonNil(l.incomplete),
 			"members_unread":    nonNil(l.unread),
 			"items":             items,
@@ -86,6 +92,15 @@ func (f fixture) readout() map[string]any {
 		if l.idle != unread {
 			w["last_touched"] = generated.Add(-time.Duration(l.idle) * time.Second).Format(time.RFC3339)
 			w["idle_seconds"] = l.idle
+			w["active"] = l.idle <= f.window
+		}
+		if l.active != nil {
+			w["active"] = *l.active
+		}
+		// readout.v1 holds an active workstream to at least one event, so the
+		// lane's last touch is given as one.
+		if w["active"] == true {
+			w["events"] = []any{map[string]any{"input": "tracker", "id": "ABC-1", "at": w["last_touched"]}}
 		}
 		maps.Copy(w, l.extra)
 		lanes = append(lanes, w)
@@ -183,11 +198,14 @@ var cases = map[string]fixture{
 		dismissed: 1,
 		completed: 2,
 	},
+	// show marks stale what the readout calls not active, even a workstream
+	// whose idle time, floored to whole seconds, equals the window: its touch
+	// fell in the second before the window opened.
 	"staleness": {
 		window: hour,
 		lanes: []lane{
 			{name: "under", idle: hour - 1, items: []string{"tracker:ABC-1"}},
-			{name: "equal", idle: hour, items: []string{"tracker:ABC-2"}},
+			{name: "edge", idle: hour, active: new(false), items: []string{"tracker:ABC-2"}},
 			{name: "over", idle: hour + 1, items: []string{"tracker:ABC-3"}},
 			{name: "nothing", idle: unread, unread: []string{"tracker:ABC-9"}},
 		},

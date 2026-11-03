@@ -34,20 +34,20 @@ const (
 // view is the part of a readout the view shows. Fields readout.v1 may gain
 // are ignored, as the contract asks of a renderer.
 type view struct {
-	Setting            string       `json:"setting"`
-	GeneratedAt        time.Time    `json:"generated_at"`
-	EventWindowSeconds int64        `json:"event_window_seconds"`
-	Workstreams        []workstream `json:"workstreams"`
-	Unplaced           []struct{}   `json:"unplaced"`
-	Health             []health     `json:"health"`
-	DismissedCount     int          `json:"dismissed_count"`
-	CompletedCount     int          `json:"completed_count"`
+	Setting        string       `json:"setting"`
+	GeneratedAt    time.Time    `json:"generated_at"`
+	Workstreams    []workstream `json:"workstreams"`
+	Unplaced       []struct{}   `json:"unplaced"`
+	Health         []health     `json:"health"`
+	DismissedCount int          `json:"dismissed_count"`
+	CompletedCount int          `json:"completed_count"`
 }
 
 type workstream struct {
 	Name             string   `json:"name"`
 	Title            string   `json:"title"`
 	IdleSeconds      *int64   `json:"idle_seconds"`
+	Active           bool     `json:"active"`
 	InputsIncomplete []string `json:"inputs_incomplete"`
 	MembersUnread    []string `json:"members_unread"`
 	Items            []struct {
@@ -118,7 +118,7 @@ func writeWorkstreams(b *strings.Builder, v view) {
 		if len(ws.InputsIncomplete) > 0 {
 			flag = "! "
 		}
-		lead := fmt.Sprintf("%s%-*s  %*s  %-*s  ", flag, nameWidth, names[i], ageWidth, viewrules.Age(ws.IdleSeconds), markerWidth, viewrules.Marker(ws.IdleSeconds, v.EventWindowSeconds))
+		lead := fmt.Sprintf("%s%-*s  %*s  %-*s  ", flag, nameWidth, names[i], ageWidth, viewrules.Age(ws.IdleSeconds), markerWidth, viewrules.Marker(ws.IdleSeconds, ws.Active))
 		cont := strings.Repeat(" ", utf8.RuneCountInString(lead))
 		b.WriteString(whole(wrap(counts(ws, order), lead, cont), ids[i], cont))
 	}

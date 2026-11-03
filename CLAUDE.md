@@ -23,11 +23,11 @@ internal/execpath/        # finding an executable on the invocation's own PATH
 internal/fsx/             # the one rule filesystem errors are sorted by
 internal/supplied/        # reading a supplied file and judging its input's health
 internal/health/          # the health record every input reports
-internal/readout/         # assembling the readout
+internal/readout/         # assembling the readout, and deciding each workstream's active and behind verdicts
 internal/textview/        # the plain-text view of a readout, read only through its published JSON
 internal/htmlview/        # the self-contained browser page of a readout, read only through its published JSON
 internal/htmlview/browser/ # the page's browser specs (Playwright, plain JavaScript); not part of the binary
-internal/viewrules/       # the age, staleness and health rules every view draws the same way
+internal/viewrules/       # how every view marks age, staleness and health, the same way
 internal/state/           # one setting's tool history: the gesture log, the dismissals replayed from it, and the baseline
 internal/dirlock/         # the advisory lock state and the page's directory are written under
 internal/baseline/        # deriving each day's baseline record from a readout, the configuration and the gesture log

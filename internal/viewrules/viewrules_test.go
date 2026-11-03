@@ -25,20 +25,20 @@ func TestAgeIsTheLargestWholeUnitFloored(t *testing.T) {
 	}
 }
 
+// Staleness is read from the readout's active verdict, so no view can call a
+// workstream stale that the readout counts as active, nor leave one neither.
 func TestMarkerTellsUnreadFromStale(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		idle   *int64
-		window int64
+		active bool
 		want   string
 	}{
-		{"nothing read", nil, 100, Unread},
-		{"inside the window", ptr(50), 100, ""},
-		{"at the window", ptr(100), 100, ""},
-		{"past the window", ptr(101), 100, Stale},
-		{"a zero window", ptr(1), 0, Stale},
+		{"nothing read", nil, false, Unread},
+		{"active", ptr(50), true, ""},
+		{"read but not active", ptr(100), false, Stale},
 	} {
-		if got := Marker(tc.idle, tc.window); got != tc.want {
+		if got := Marker(tc.idle, tc.active); got != tc.want {
 			t.Errorf("%s: Marker = %q, want %q", tc.name, got, tc.want)
 		}
 	}

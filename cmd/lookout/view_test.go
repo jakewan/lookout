@@ -223,6 +223,31 @@ func TestViewRefusesAReadoutItCannotTrust(t *testing.T) {
 			edit: func(doc map[string]any) { doc["setting"] = "../../escaped" },
 			want: "setting",
 		},
+		// A workstream's verdicts must agree with its own figures, so no
+		// renderer can show a count its lanes contradict.
+		"active with nothing read": {
+			edit: func(doc map[string]any) { firstWorkstream(doc)["active"] = true },
+			want: "readout.v1",
+		},
+		"behind with nothing read": {
+			edit: func(doc map[string]any) { firstWorkstream(doc)["behind"] = true },
+			want: "readout.v1",
+		},
+		"active with no event": {
+			edit: func(doc map[string]any) {
+				w := firstWorkstream(doc)
+				w["last_touched"], w["idle_seconds"], w["active"] = stamp(time.Hour), 3600, true
+			},
+			want: "readout.v1",
+		},
+		"not active with an event": {
+			edit: func(doc map[string]any) {
+				w := firstWorkstream(doc)
+				w["last_touched"], w["idle_seconds"] = stamp(time.Hour), 3600
+				w["events"] = []any{map[string]any{"input": "tracker", "id": "ABC-1", "at": stamp(time.Hour)}}
+			},
+			want: "readout.v1",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			doc := valid(t)
@@ -251,6 +276,11 @@ func TestViewRefusesAReadoutItCannotTrust(t *testing.T) {
 			}
 		})
 	}
+}
+
+// firstWorkstream is a decoded readout's first workstream, for a spec to edit.
+func firstWorkstream(doc map[string]any) map[string]any {
+	return doc["workstreams"].([]any)[0].(map[string]any)
 }
 
 func TestViewRefusesBadUsage(t *testing.T) {

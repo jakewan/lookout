@@ -80,6 +80,8 @@
           "title": "Ranking tweaks"
         }
       ],
+      "active": true,
+      "behind": false,
       "inputs_incomplete": [
         "tracker",
         "chat"
@@ -251,6 +253,8 @@
           "at": "2030-06-15T05:00:00Z"
         }
       ],
+      "active": true,
+      "behind": false,
       "inputs_incomplete": [],
       "members_unread": [
         "hub:owner/billing#5"
@@ -310,6 +314,8 @@
           }
         }
       ],
+      "active": true,
+      "behind": true,
       "inputs_incomplete": [
         "tracker",
         "chat"
@@ -370,6 +376,8 @@
           }
         }
       ],
+      "active": true,
+      "behind": false,
       "inputs_incomplete": [],
       "members_unread": [],
       "items": [
@@ -410,6 +418,8 @@
       "started_at": "2030-05-16T12:00:00Z",
       "age_seconds": 2592000,
       "events": [],
+      "active": false,
+      "behind": false,
       "inputs_incomplete": [],
       "members_unread": [],
       "items": [
@@ -433,6 +443,8 @@
       "started_at": null,
       "age_seconds": null,
       "events": [],
+      "active": false,
+      "behind": false,
       "inputs_incomplete": [
         "tracker"
       ],

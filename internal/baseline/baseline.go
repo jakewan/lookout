@@ -251,7 +251,7 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 	}
 
 	for _, w := range out.Workstreams {
-		if len(w.Events) > 0 {
+		if w.Active {
 			r.ActiveWorkstreams++
 		}
 	}
