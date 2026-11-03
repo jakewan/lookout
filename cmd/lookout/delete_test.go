@@ -69,6 +69,19 @@ func TestDeleteRemovesAnEmptyWorkstreamAndKeepsEveryOtherComment(t *testing.T) {
 	}
 }
 
+func TestDeleteKeepsWhatFollowsADocumentEndMarker(t *testing.T) {
+	f := newFixture(t)
+	head := "inputs:\n  - name: tracker\n    kind: supplied\n    supplied: tracker.json\n    max_age: 24h\nworkstreams:\n  - name: billing\n    members:\n      - tracker:ABC-1\n"
+	footer := "\n# A note for the whole file.\n...\n# After the document.\n"
+	f.write("personal.yml", head+"  - name: spare\n"+footer)
+
+	f.mustRun("delete", "spare")
+
+	if got, want := f.config("personal.yml"), head+footer; got != want {
+		t.Errorf("configuration after delete:\n%q\nwant the footer and the end marker kept:\n%q", got, want)
+	}
+}
+
 func TestDeleteRefusesAWorkstreamThatNamesAMember(t *testing.T) {
 	completed := strings.Replace(withSpares, "  - name: billing\n", "  - name: billing\n    completed: 2030-06-01\n", 1)
 	for name, tc := range map[string]struct {

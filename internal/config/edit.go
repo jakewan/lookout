@@ -782,6 +782,17 @@ func parseLayout(data []byte) (*layout, error) {
 			l.regionEnd = l.root.Content[i+2].Line - 1
 		}
 	}
+	// A document end marker after the last key closes the workstreams region
+	// too; what follows it, and a footer above it, are the file's, not the last
+	// workstream's.
+	if l.wsKey != nil {
+		for j := l.wsKey.Line; j < l.regionEnd; j++ {
+			if isDocumentEnd(l.lines[j]) {
+				l.regionEnd = j
+				break
+			}
+		}
+	}
 	if l.wsValue == nil || l.wsValue.Kind != yaml.SequenceNode {
 		return l, nil
 	}
@@ -897,6 +908,13 @@ func isComment(line string) bool { return strings.HasPrefix(strings.TrimSpace(li
 func indentOf(line string) int { return len(line) - len(strings.TrimLeft(line, " ")) }
 
 func isBlank(line string) bool { return strings.TrimSpace(line) == "" }
+
+// isDocumentEnd reports YAML's document end marker: three dots at the start
+// of a line, alone or followed by white space.
+func isDocumentEnd(line string) bool {
+	rest, ok := strings.CutPrefix(strings.TrimRight(line, "\r\n"), "...")
+	return ok && (rest == "" || rest[0] == ' ' || rest[0] == '\t')
+}
 
 func isFiller(line string) bool {
 	t := strings.TrimSpace(line)
