@@ -224,6 +224,32 @@ func TestASharedItemLinksToWhatItFollowsNotToANearerNode(t *testing.T) {
 	}
 }
 
+// parentJoined adds a supplied tracker item to the workstream at index i,
+// joined by parent to member, with parent as its own parent.
+func parentJoined(doc map[string]any, i int, id, parent, member string) {
+	w := record(workstreams(doc)[i])
+	it := map[string]any{"id": id, "last_touched": "2030-06-10T12:00:00Z", "state": "To Do", "links": []any{}, "attrs": map[string]any{}, "parent": parent}
+	w["items"] = append(w["items"].([]any), map[string]any{"input": "tracker", "item": it, "joined": map[string]any{"by": "parent", "member": member}})
+}
+
+// An item a parent joined hangs under its own parent where the workstream
+// holds it, so a sub-task sits under its story rather than beside it under
+// the epic the two joined.
+func TestAParentJoinHangsUnderItsParent(t *testing.T) {
+	doc := mapReadout(t)
+	member(doc, 1, "E-1", "")
+	parentJoined(doc, 1, "E-2", "E-1", "tracker:E-1")
+	parentJoined(doc, 1, "E-3", "E-2", "tracker:E-1")
+	parentJoined(doc, 1, "E-4", "E-404", "tracker:E-1")
+	m := pageOf(t, doc).Map
+	for handle, want := range map[string]string{"tracker:E-2": "tracker:E-1", "tracker:E-3": "tracker:E-2", "tracker:E-4": "tracker:E-1"} {
+		_, n := nodeAt(t, m, handle)
+		if got := string(m.Nodes[n.Parent].Handle); got != want {
+			t.Errorf("%s hangs under %q, want %q", handle, got, want)
+		}
+	}
+}
+
 // held adds a supplied item to the workstream at index i, joined through
 // member (and via, where it is not empty) when member is not empty.
 func held(doc map[string]any, i int, input, id, member, via string) {
@@ -262,6 +288,11 @@ func TestEveryEdgeAnOccurrenceFollowsIsDrawn(t *testing.T) {
 			member(doc, 1, "E-2", "E-1")
 			member(doc, 2, "E-1", "")
 			member(doc, 2, "E-2", "E-1")
+		},
+		"a chain a parent joined": func(doc map[string]any) {
+			member(doc, 1, "E-1", "")
+			parentJoined(doc, 1, "E-2", "E-1", "tracker:E-1")
+			parentJoined(doc, 1, "E-3", "E-2", "tracker:E-1")
 		},
 		"a join through a member nothing read": func(doc map[string]any) {
 			held(doc, 4, "hub", "owner/app#99", "tracker:I-1", "")
@@ -307,6 +338,8 @@ func TestEveryEdgeAnOccurrenceFollowsIsDrawn(t *testing.T) {
 						switch {
 						case j["by"] == "pull_request" && via != "" && holds[via]:
 							follows, kind = via, "joined"
+						case j["by"] == "parent" && parent != "":
+							follows, kind = parent, "parent"
 						case holds[j["member"].(string)]:
 							follows, kind = j["member"].(string), "joined"
 						}

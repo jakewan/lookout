@@ -367,8 +367,10 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 		}
 		// A workstream a key or a pull request places work in draws on every
 		// input that work can come from, so one that failed may have kept a
-		// join from it. A supplied item joins only through the keys in its
-		// notes, so only a workstream a key places work in draws on one.
+		// join from it. Apart from its parent, which is in its member's own
+		// input, a supplied item joins only through the keys in its notes, so
+		// only a workstream a key places work in draws on another supplied
+		// input.
 		if placed := keys.Places(ws.Name); placed || sourced[ws.Name] {
 			for _, in := range cfg.Inputs {
 				if placed || in.Kind != config.KindSupplied {

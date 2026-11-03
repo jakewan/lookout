@@ -321,12 +321,12 @@
       },
       "properties": {
         "by": {
-          "description": "How the item was matched to the member: key, where the key the item carries in a branch name or pull request title is the member's id; description, where a pull request's description names the member's id; notes, where a supplied item's notes name the member's id; pull_request, where the item is the branch, or a session on the branch, that an open pull request the workstream holds was made from, named in via. A renderer should show a value it does not know as a join rather than drop the item.",
+          "description": "How the item was matched to the member: key, where the key the item carries in a branch name or pull request title is the member's id; description, where a pull request's description names the member's id; notes, where a supplied item's notes name the member's id; pull_request, where the item is the branch, or a session on the branch, that an open pull request the workstream holds was made from, named in via; parent, where the member is the item's parent, or an ancestor reached through parents its input supplied, and is the nearest ancestor a live workstream names, the first such workstream in stated order. A renderer should show a value it does not know as a join rather than drop the item.",
           "type": "string",
           "minLength": 1
         },
         "member": {
-          "description": "The member the item was matched to, as <input>:<id>: for pull_request, the member the pull request was matched to, or the pull request itself where it is a member.",
+          "description": "The member the item was matched to, as <input>:<id>: for pull_request, the member the pull request was matched to, or the pull request itself where it is a member; for parent, that ancestor, which the input need not have supplied.",
           "type": "string",
           "minLength": 1
         },
