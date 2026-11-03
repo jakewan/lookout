@@ -208,14 +208,16 @@ type item struct {
 // touch.
 type unplacedItem struct {
 	Token string
-	// Quoted marks a token viewrules.Token quoted. A shell strips double
-	// quotes before the command sees them, so the page says to pass such a
-	// token in single quotes, or adopt and dismiss would read another id.
-	Quoted  bool
-	Title   string
-	State   string
-	Touched string
-	Href    string
+	// ShellQuote marks a token a shell would change on its way to the
+	// command: one viewrules.Token quoted, whose double quotes a shell
+	// strips, or one holding a space, which a shell splits. The page says to
+	// pass such a token in single quotes, or adopt and dismiss would read
+	// another id.
+	ShellQuote bool
+	Title      string
+	State      string
+	Touched    string
+	Href       string
 }
 
 // join is why a workstream holds an item it does not name. By is shown as
@@ -333,12 +335,12 @@ func unplacedOf(placed []rawPlaced, generated time.Time) []unplacedItem {
 		}
 		token := viewrules.Token(t.p.Input, t.p.Item.ID)
 		out = append(out, unplacedItem{
-			Token:   token,
-			Quoted:  strings.HasPrefix(token, `"`),
-			Title:   shown.Title,
-			State:   shown.State,
-			Touched: viewrules.Age(idle),
-			Href:    shown.Href,
+			Token:      token,
+			ShellQuote: strings.HasPrefix(token, `"`) || strings.Contains(token, " "),
+			Title:      shown.Title,
+			State:      shown.State,
+			Touched:    viewrules.Age(idle),
+			Href:       shown.Href,
 		})
 	}
 	return out

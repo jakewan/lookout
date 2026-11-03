@@ -143,12 +143,22 @@ func TestUnplacedItemsListNewestTouchFirstByTheTokenAdoptTakes(t *testing.T) {
 	p := pageOf(t, busy(t))
 	want := []unplacedItem{
 		{Token: "sessions:owner/tools:main", State: "open", Touched: "30m"},
-		{Token: `"code:owner/app:fix/\u200bcache"`, Quoted: true, Title: "Cache the build", State: "open", Touched: "2h"},
+		{Token: `"code:owner/app:fix/\u200bcache"`, ShellQuote: true, Title: "Cache the build", State: "open", Touched: "2h"},
 		{Token: "code:owner/app:spike/cache", State: "open", Touched: "3h"},
 		{Token: "hub:owner/app#60", Title: "Bump the linter", State: "open", Touched: "8h", Href: "https://example.com/owner/app/pull/60"},
 	}
 	if !slices.Equal(p.UnplacedItems, want) {
 		t.Errorf("unplaced items =\n%+v\nwant\n%+v", p.UnplacedItems, want)
+	}
+}
+
+func TestATokenHoldingASpaceIsMarkedForShellQuoting(t *testing.T) {
+	doc := busy(t)
+	record(record(doc["unplaced"].([]any)[0])["item"])["id"] = "owner/app:two  spaces"
+	p := pageOf(t, doc)
+	i := slices.IndexFunc(p.UnplacedItems, func(u unplacedItem) bool { return u.Token == "code:owner/app:two  spaces" })
+	if i < 0 || !p.UnplacedItems[i].ShellQuote {
+		t.Errorf("unplaced items = %+v, want code:owner/app:two  spaces kept as written and marked for shell quoting", p.UnplacedItems)
 	}
 }
 

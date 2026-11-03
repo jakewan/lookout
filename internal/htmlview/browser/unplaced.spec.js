@@ -27,7 +27,7 @@ test.describe("the unplaced items", () => {
     await expect(section.locator("li").nth(3)).toContainText("8h ago");
   });
 
-  test("say a quoted token goes to the shell in single quotes, and only a quoted one", async ({ page }) => {
+  test("say a quoted token goes to the shell in single quotes, and not a plain one", async ({ page }) => {
     await page.goto(pageURL("busy"));
     await unplaced(page).locator("summary").click();
     const hinted = unplaced(page).getByTitle("pass it to the shell in single quotes");
@@ -65,7 +65,19 @@ test.describe("the unplaced items", () => {
     await page.goto(pageURL("empty"));
     await expect(page.getByText("No workstreams.")).toBeVisible();
     await unplaced(page).locator("summary").click();
-    await expect(unplaced(page).locator("li .id")).toHaveText(["code:owner/app:spike/first"]);
+    await expect(unplaced(page).locator("li .id")).toHaveText(["code:owner/app:spike/first", "tracker:two spaces"]);
+  });
+
+  test("show a token's spaces as written, and say one holding a space goes to the shell in single quotes", async ({
+    page,
+  }) => {
+    await page.goto(pageURL("empty"));
+    await unplaced(page).locator("summary").click();
+    // toHaveText collapses whitespace, so the rendered text is read as is.
+    const spaced = unplaced(page).locator("li .id").nth(1);
+    // biome-ignore lint/performance/useDomNodeTextContent: the rendered text is the point; textContent ignores the CSS that collapses or keeps spaces.
+    expect(await spaced.innerText()).toBe("tracker:two  spaces");
+    await expect(spaced).toHaveAttribute("title", "pass it to the shell in single quotes");
   });
 
   test("are not shown where nothing is unplaced", async ({ page }) => {

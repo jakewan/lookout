@@ -125,4 +125,4 @@
 <script type="module">{{script}}</script>
 </body>
 </html>
-{{- define "token"}}<span class="id"{{if .Quoted}} title="pass it to the shell in single quotes"{{end}}><bdi>{{.Token}}</bdi></span>{{end}}
+{{- define "token"}}<span class="id"{{if .ShellQuote}} title="pass it to the shell in single quotes"{{end}}><bdi>{{.Token}}</bdi></span>{{end}}
