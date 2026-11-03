@@ -324,7 +324,8 @@ type relation struct {
 }
 
 // place hangs each entry a workstream draws under one parent, the first that
-// applies: the pull request a branch came through, the member a join matched,
+// applies: the pull request a branch came through, the parent a parent join
+// came through where the same workstream holds it, the member a join matched,
 // the item's parent where the same workstream holds it, or the workstream. It
 // returns, in list order, every relation the workstream's entries follow,
 // whether or not the tree ends up drawing it: the edge each one hangs by
@@ -363,6 +364,10 @@ func place(m *viewModel, es []entry, drawn map[string]int, ws int, placed map[st
 		switch {
 		case j != nil && j.By == "pull_request" && j.Via != "" && hasHandle(at, j.Via):
 			ptr[i] = pointer{to: at[j.Via], kind: "joined"}
+		case j != nil && j.By == "parent" && parent >= 0:
+			// The parent is the nearer step toward the member it joined, so a
+			// sub-task hangs under its story rather than beside it.
+			ptr[i] = pointer{to: parent, kind: "parent"}
 		case j != nil && hasHandle(at, j.Member):
 			ptr[i] = pointer{to: at[j.Member], kind: "joined"}
 		case parent >= 0:

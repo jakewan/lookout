@@ -135,13 +135,15 @@ type Joined struct {
 
 // The values of Joined.By: an item whose title or branch key is a member's id,
 // a pull request whose description names a member's id, a supplied item whose
-// notes name a member's id, and a branch or session an open pull request the
-// workstream holds was made from.
+// notes name a member's id, a branch or session an open pull request the
+// workstream holds was made from, and an item whose parent, or an ancestor
+// reached through parents, is a member.
 const (
 	byKey         = "key"
 	byDescription = "description"
 	byNotes       = "notes"
 	byPullRequest = "pull_request"
+	byParent      = "parent"
 )
 
 // Build assembles the readout for cfg from each expected input's reading,
@@ -183,10 +185,24 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 		}
 	}
 
+	// liveOwner is the first live workstream, in stated order, naming each
+	// member, so the nearest adopted ancestor of an item can place it.
+	liveOwner := map[string]string{}
+	for _, ws := range cfg.Workstreams {
+		if ws.Completed != "" {
+			continue
+		}
+		for _, m := range ws.Members {
+			if _, ok := liveOwner[m.Input+":"+m.ID]; !ok {
+				liveOwner[m.Input+":"+m.ID] = ws.Name
+			}
+		}
+	}
+
 	// Each item no claim holds is left out where a windowed supplier holds it
 	// past the window and nothing joins it, kept out by a dismissal it has not
-	// moved since, joined to every workstream a key places it in, at most once
-	// each, or offered.
+	// moved since, joined to every workstream a key places it in and to that
+	// of its nearest adopted ancestor, at most once each, or offered.
 	keys := cfg.Keys()
 	type join struct {
 		input  string
@@ -215,6 +231,10 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 	for _, in := range cfg.Inputs {
 		reading := readings[in.Name]
 		out.Health = append(out.Health, reading.Health)
+		byID := make(map[string]Item, len(reading.Items))
+		for _, it := range reading.Items {
+			byID[it.ID] = it
+		}
 		for _, it := range reading.Items {
 			if until, ok := claimed[key{in.Name, it.ID}]; ok && (until.IsZero() || it.LastTouched.Before(until)) {
 				continue
@@ -232,6 +252,12 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 				if owner, ok := keys.Owner(k); ok {
 					places = append(places, placement{owner.Workstream, Joined{By: byNotes, Member: owner.Member.Input + ":" + owner.Member.ID}})
 				}
+			}
+			// A key, description or notes join to the same workstream comes
+			// first, and add keeps one join per workstream, so this marks only
+			// what nothing else placed there.
+			if ws, member, ok := ancestor(in.Name, it, byID, liveOwner); ok {
+				places = append(places, placement{ws, Joined{By: byParent, Member: member}})
 			}
 			// A windowed supplier's item that nothing places and that has not
 			// moved within the window is never offered, so neither is it counted
@@ -344,8 +370,10 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 		}
 		// A workstream a key or a pull request places work in draws on every
 		// input that work can come from, so one that failed may have kept a
-		// join from it. A supplied item joins only through the keys in its
-		// notes, so only a workstream a key places work in draws on one.
+		// join from it. Apart from its parent, which is in its member's own
+		// input, a supplied item joins only through the keys in its notes, so
+		// only a workstream a key places work in draws on another supplied
+		// input.
 		if placed := keys.Places(ws.Name); placed || sourced[ws.Name] {
 			for _, in := range cfg.Inputs {
 				if placed || in.Kind != config.KindSupplied {
@@ -417,6 +445,30 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 		return cmp.Or(cmp.Compare(rank(a.From), rank(b.From)), cmp.Compare(rank(a.To), rank(b.To)), cmp.Compare(a.Kind, b.Kind))
 	})
 	return out
+}
+
+// ancestor finds the nearest of its ancestors in the same input that a live
+// workstream names, returning that workstream and the ancestor as
+// <input>:<id>, the form liveOwner is keyed by. A parent is checked against
+// liveOwner before it is looked up, so an adopted parent the input did not
+// supply still places its children; one that is neither adopted nor supplied
+// ends the chain, as does a loop. byID holds every item the input read,
+// dismissed and claimed ones too, since a dismissal or a claim keeps out only
+// the item it names, never what sits beneath it.
+func ancestor(input string, it Item, byID map[string]Item, liveOwner map[string]string) (string, string, bool) {
+	seen := map[string]bool{it.ID: true}
+	for parent := it.Parent; parent != "" && !seen[parent]; {
+		if ws, ok := liveOwner[input+":"+parent]; ok {
+			return ws, input + ":" + parent, true
+		}
+		seen[parent] = true
+		next, ok := byID[parent]
+		if !ok {
+			break
+		}
+		parent = next.Parent
+	}
+	return "", "", false
 }
 
 func inputIndex(cfg *config.Config, name string) int {

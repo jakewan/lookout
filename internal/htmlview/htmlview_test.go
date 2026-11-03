@@ -363,6 +363,21 @@ func TestAJoinSaysHowAndThroughWhat(t *testing.T) {
 	}
 }
 
+// A parent join is listed as the other joins are, by how it joined and the
+// adopted ancestor it joined, though the readout names no via.
+func TestAParentJoinIsListedByTheAncestorItJoined(t *testing.T) {
+	doc := busy(t)
+	i := slices.IndexFunc(workstreams(doc), func(w any) bool { return record(w)["name"] == "search-revamp" })
+	if i < 0 {
+		t.Fatal("busy has no search-revamp workstream")
+	}
+	parentJoined(doc, i, "TASK-77", "ABC-12", "tracker:ABC-12")
+	out := render(t, doc)
+	if want := `joined by parent &rarr; <bdi>tracker:ABC-12</bdi></span>`; !strings.Contains(out, want) {
+		t.Errorf("page lacks %q for the parent-joined item", want)
+	}
+}
+
 func TestAWorkstreamOnAFailingInputSaysWhichInputs(t *testing.T) {
 	p := pageOf(t, busy(t))
 	if got := lane(t, p, "search-revamp").Incomplete; !slices.Equal(got, []string{"tracker", "chat"}) {

@@ -48,8 +48,8 @@ type Record struct {
 	HandPlaced   []string `json:"hand_placed"`
 	UnloggedEdit bool     `json:"unlogged_edit"`
 	// Joined is every item a workstream holds on this record without naming
-	// it, as a key or a pull request placed it, each once however many
-	// workstreams hold it; no gesture placed it and no member names it.
+	// it, as a key, a pull request or a parent placed it, each once however
+	// many workstreams hold it; no gesture placed it and no member names it.
 	Joined []string `json:"joined"`
 	// DiscoveryDigest stands for the configuration that decides what inputs
 	// offer, and DiscoveryChanged reports that it differs from the previous
@@ -472,9 +472,14 @@ func handPlaced(replayed, current []config.Workstream) []string {
 // place moves it on.
 const joinRules = 3
 
+// parentRules is the version of the rules by which an item joins the
+// workstream of an adopted ancestor; changing what they place moves it on.
+const parentRules = 1
+
 // discoveryDigest stands for the configuration that decides what inputs offer
-// and where a key places it: the inputs themselves, the discovery window, the
-// owner fence, the key pattern, and the rules that pattern places work by. A
+// and where a key or a parent places it: the inputs themselves, the discovery
+// window, the owner fence, the key pattern, the rules that pattern places work
+// by, and the rules a parent places work by. A
 // change to any of them changes what is unplaced with no item having moved.
 // Whether an input expects records, or may find no repository, is left out:
 // each decides only the input's health, and adopting or removing a supplied
@@ -491,13 +496,23 @@ func discoveryDigest(cfg *config.Config) (string, error) {
 	if cfg.KeyPattern != "" {
 		rules = joinRules
 	}
+	// A parent joins work with no pattern set, so its rules are kept apart
+	// from the key's, and left out where no input fills parent, so a setting
+	// a parent can place nothing in keeps its digest.
+	parents := 0
+	if slices.ContainsFunc(cfg.Inputs, func(in config.Input) bool {
+		return in.Kind == config.KindSupplied || in.Kind == config.KindGitHub
+	}) {
+		parents = parentRules
+	}
 	data, err := json.Marshal(struct {
 		Inputs          []config.Input
 		DiscoveryWindow time.Duration
 		ForgeOwners     []config.Owner
 		KeyPattern      string `json:",omitempty"`
 		JoinRules       int    `json:",omitempty"`
-	}{inputs, cfg.DiscoveryWindow, cfg.ForgeOwners, cfg.KeyPattern, rules})
+		ParentRules     int    `json:",omitempty"`
+	}{inputs, cfg.DiscoveryWindow, cfg.ForgeOwners, cfg.KeyPattern, rules, parents})
 	if err != nil {
 		return "", fmt.Errorf("encoding the discovery configuration: %w", err)
 	}
