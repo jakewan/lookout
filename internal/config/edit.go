@@ -413,6 +413,34 @@ func (d *Document) Complete(workstream, date string) error {
 	return d.apply([]byte(l.addKey(idx, "completed: "+date)), want)
 }
 
+// Delete takes the named workstream out of the file. It refuses one that names
+// any member, live or completed, since deleting it would let those items go
+// unplaced without anyone deciding so, and a completed workstream's members
+// are its history. Every join hangs from a member, so an empty workstream holds
+// nothing a read could place there.
+func (d *Document) Delete(workstream string) error {
+	idx := slices.IndexFunc(d.cfg.Workstreams, func(w Workstream) bool { return w.Name == workstream })
+	if idx < 0 {
+		return Refuse("no workstream %q", workstream)
+	}
+	if n := len(d.cfg.Workstreams[idx].Members); n > 0 {
+		return Refuse("workstream %q names %d member(s): take them out with lookout remove or lookout move first, or keep its history with lookout complete", workstream, n)
+	}
+	l, err := parseLayout(d.data)
+	if err != nil {
+		return err
+	}
+	// Only the workstream's own lines go, from its dash to the end of its block.
+	// The comments and blank lines above the dash, which blocks() counts in the
+	// block so that they travel with it on a reorder, may be a header for the
+	// whole list or a commented-out neighbor, so they stay.
+	_, spans, _ := l.blocks()
+	from, to := l.items[idx].dash, spans[idx][1]
+	want := d.cfg.clone()
+	want.Workstreams = Deleted(d.cfg.Workstreams, workstream)
+	return d.apply([]byte(l.join(l.lines[:from], l.lines[to:])), want)
+}
+
 // apply accepts edited text only when it parses to exactly want, so a splice
 // that went wrong is caught before anything is written.
 func (d *Document) apply(text []byte, want *Config) error {
@@ -610,6 +638,16 @@ func Renamed(ws []Workstream, workstream, name string) []Workstream {
 		if out[i].Name == workstream {
 			out[i].Name = name
 		}
+	}
+	return out
+}
+
+// Deleted is ws without the named workstream; an emptied list is nil, as Parse
+// reads a workstreams key with nothing under it.
+func Deleted(ws []Workstream, workstream string) []Workstream {
+	out := slices.DeleteFunc(cloneWorkstreams(ws), func(w Workstream) bool { return w.Name == workstream })
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

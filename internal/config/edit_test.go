@@ -125,7 +125,7 @@ func TestSaveReplacesASymlinksTarget(t *testing.T) {
 }
 
 func TestEveryEditKeepsExplicitOnly(t *testing.T) {
-	const workstreams = "workstreams:\n  - name: billing\n    members:\n      - tracker:ABC-1\n  - name: onboarding\n    members:\n      - tracker:ABC-9\n"
+	const workstreams = "workstreams:\n  - name: billing\n    members:\n      - tracker:ABC-1\n  - name: onboarding\n    members:\n      - tracker:ABC-9\n  - name: spare\n"
 	const inputs = "inputs:\n  - name: tracker\n    kind: supplied\n    supplied: tracker.json\n    max_age: 24h\n"
 	const key = "explicit_only: true\n"
 	edits := map[string]func(*Document) error{
@@ -148,6 +148,7 @@ func TestEveryEditKeepsExplicitOnly(t *testing.T) {
 		"rename":   func(d *Document) error { return d.Rename("billing", "payments") },
 		"order":    func(d *Document) error { return d.Order([]string{"onboarding"}) },
 		"complete": func(d *Document) error { return d.Complete("billing", "2030-06-15") },
+		"delete":   func(d *Document) error { return d.Delete("spare") },
 	}
 	for place, text := range map[string]string{
 		"before the workstreams": key + inputs + workstreams,

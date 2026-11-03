@@ -496,6 +496,8 @@ func TestUsageErrorsRecordNothing(t *testing.T) {
 		"move with a bare id":        {"move", "ABC-1", "onboarding"},
 		"remove with two items":      {"remove", "tracker:ABC-1", "tracker:ABC-2"},
 		"rename with one name":       {"rename", "billing"},
+		"delete with no name":        {"delete"},
+		"delete with two names":      {"delete", "a", "b"},
 		"unknown flag":               {"dismiss", "--force", "tracker:ABC-3"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -518,7 +520,7 @@ func TestUsageListsEveryCommand(t *testing.T) {
 	if code != exitUsage {
 		t.Errorf("exit code = %d", code)
 	}
-	for _, cmd := range []string{"read", "show", "unplaced", "adopt", "dismiss", "order", "complete", "move", "remove", "rename", "snapshot"} {
+	for _, cmd := range []string{"read", "show", "unplaced", "adopt", "dismiss", "order", "complete", "move", "remove", "rename", "delete", "snapshot"} {
 		if !strings.Contains(stderr, "lookout "+cmd) {
 			t.Errorf("usage = %q, want it to list %q", stderr, cmd)
 		}

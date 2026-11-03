@@ -332,8 +332,8 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 }
 
 // namesBefore maps a workstream's current name to the one it had before the
-// logged renames, reporting false for a name a rename freed, which no longer
-// stands for the workstream that held it.
+// logged renames, reporting false for a name a rename or a delete freed, which
+// no longer stands for the workstream that held it.
 func namesBefore(gestures []state.Gesture) func(string) (string, bool) {
 	type origin struct {
 		name string
@@ -347,12 +347,14 @@ func namesBefore(gestures []state.Gesture) func(string) (string, bool) {
 		return name, true
 	}
 	for _, g := range gestures {
-		if g.Gesture != "rename" {
-			continue
+		switch g.Gesture {
+		case "rename":
+			name, ok := lookup(g.Workstream)
+			renamed[g.To] = origin{name, ok}
+			renamed[g.Workstream] = origin{}
+		case "delete":
+			renamed[g.Workstream] = origin{}
 		}
-		name, ok := lookup(g.Workstream)
-		renamed[g.To] = origin{name, ok}
-		renamed[g.Workstream] = origin{}
 	}
 	return lookup
 }
@@ -547,6 +549,8 @@ func replay(held []Workstream, gestures []state.Gesture) []config.Workstream {
 			ws = config.Removed(ws, member(g.Item))
 		case "rename":
 			ws = config.Renamed(ws, g.Workstream, g.To)
+		case "delete":
+			ws = config.Deleted(ws, g.Workstream)
 		}
 	}
 	return ws
