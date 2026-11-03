@@ -118,7 +118,7 @@
 {{- end}}
 
 <footer{{if .AnyUnhealthy}} class="flagged"{{end}}>
-  {{if .AnyUnhealthy}}&#9650; inputs are failing, so these counts may be short: {{end}}{{.Unplaced}} unplaced{{if .Dismissed}}, {{.Dismissed}} dismissed{{end}}{{if .Completed}}, {{.Completed}} workstream{{if gt .Completed 1}}s{{end}} completed{{end}}
+  {{if .AnyUnhealthy}}&#9650; inputs are failing, so these counts may be short: {{end}}{{len .UnplacedItems}} unplaced{{if .Dismissed}}, {{.Dismissed}} dismissed{{end}}{{if .Completed}}, {{.Completed}} workstream{{if gt .Completed 1}}s{{end}} completed{{end}}
 </footer>
 </main>
 <script type="application/json" id="lookout-map">{{.Map}}</script>

@@ -150,9 +150,6 @@ func TestUnplacedItemsListNewestTouchFirstByTheTokenAdoptTakes(t *testing.T) {
 	if !slices.Equal(p.UnplacedItems, want) {
 		t.Errorf("unplaced items =\n%+v\nwant\n%+v", p.UnplacedItems, want)
 	}
-	if p.Unplaced != len(want) {
-		t.Errorf("unplaced count = %d, want %d", p.Unplaced, len(want))
-	}
 }
 
 func TestUnplacedItemsTouchedTogetherKeepTheReadoutsOrder(t *testing.T) {
@@ -421,8 +418,8 @@ func TestTheWindowIsLabelledExactly(t *testing.T) {
 func TestCountsAreFlaggedWhileAnyInputIsUnhealthy(t *testing.T) {
 	doc := busy(t)
 	p := pageOf(t, doc)
-	if p.Unplaced != 4 || p.Dismissed != 2 || p.Completed != 1 || !p.AnyUnhealthy {
-		t.Errorf("counts %d/%d/%d flagged %v", p.Unplaced, p.Dismissed, p.Completed, p.AnyUnhealthy)
+	if len(p.UnplacedItems) != 4 || p.Dismissed != 2 || p.Completed != 1 || !p.AnyUnhealthy {
+		t.Errorf("counts %d/%d/%d flagged %v", len(p.UnplacedItems), p.Dismissed, p.Completed, p.AnyUnhealthy)
 	}
 	for _, h := range health(doc) {
 		if record(h)["status"] != "absent_by_design" {

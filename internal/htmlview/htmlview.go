@@ -143,9 +143,9 @@ type page struct {
 	Workstreams []workstream
 	// UnplacedItems is what no live workstream holds, most recently touched
 	// first, so what is moving now leads when the user reconciles their
-	// workstreams against it.
+	// workstreams against it. The page counts them from this list, so a count
+	// and the list it counts cannot disagree.
 	UnplacedItems []unplacedItem
-	Unplaced      int
 	Dismissed     int
 	Completed     int
 	AnyUnhealthy  bool
@@ -261,7 +261,6 @@ func build(data []byte) (page, error) {
 		AsOf:      stamp(r.GeneratedAt),
 		Read:      viewrules.Clean(as.GeneratedAt),
 		Window:    viewrules.Span(window),
-		Unplaced:  len(r.Unplaced),
 		Dismissed: r.DismissedCount,
 		Completed: r.CompletedCount,
 	}
