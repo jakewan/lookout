@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jakewan/lookout/schema"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -374,65 +373,44 @@ func TestAWorkstreamOnAFailingInputSaysWhichInputs(t *testing.T) {
 	}
 }
 
-// setIdle gives the workstream at index i an idle time, or none where idle is
-// negative, keeping last_touched in step as readout.v1 does.
-func setIdle(doc map[string]any, i int, idle int64) {
-	w := record(workstreams(doc)[i])
-	if idle < 0 {
-		w["idle_seconds"], w["last_touched"] = nil, nil
-		return
-	}
-	w["idle_seconds"] = idle
-	w["last_touched"] = time.Date(2030, 6, 15, 12, 0, 0, 0, time.UTC).Add(-time.Duration(idle) * time.Second).Format(time.RFC3339)
-}
-
-func TestAWorkstreamTouchedLessRecentlyThanOneRankedBelowItIsBehind(t *testing.T) {
-	for name, tc := range map[string]struct {
-		idles []int64
-		want  []bool
-	}{
-		"freshest first":      {[]int64{10, 20, 30, 40, 50, 60}, []bool{false, false, false, false, false, false}},
-		"one overtaken":       {[]int64{10, 50, 20, 30, 40, 60}, []bool{false, true, false, false, false, false}},
-		"the top one quiet":   {[]int64{90, 10, 20, 30, 40, 60}, []bool{true, false, false, false, false, false}},
-		"a tie is not behind": {[]int64{10, 20, 20, 30, 40, 60}, []bool{false, false, false, false, false, false}},
-		// An unread workstream has no touch to compare, so it neither falls
-		// behind nor puts another behind.
-		"unread on either side": {[]int64{-1, 20, 10, -1, 40, 60}, []bool{false, true, false, false, false, false}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			doc := busy(t)
-			for i, idle := range tc.idles {
-				setIdle(doc, i, idle)
-			}
-			var got []bool
-			for _, ws := range pageOf(t, doc).Workstreams {
-				got = append(got, ws.Behind)
-			}
-			if !slices.Equal(got, tc.want) {
-				t.Errorf("behind = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-// Active is the count snapshot records as the workstreams that moved within
-// the event window: those with an event there. idle_seconds is floored, so a
-// touch just past the window's start can read as exactly a window ago with
-// no event left to draw; counting by events keeps the count and the lanes in
-// agreement.
-func TestActiveCountsWorkstreamsWithAnEventInTheWindow(t *testing.T) {
+// The page draws the readout's active and behind verdicts rather than
+// deciding them again, so it agrees with show, snapshot and an agent reading
+// the readout. Each verdict here is set against what the workstream's events
+// and idle time would suggest, so a page that re-derived them would fail.
+func TestThePageDrawsTheReadoutsActiveAndBehindVerdicts(t *testing.T) {
 	doc := busy(t)
-	// search-revamp, billing-export, release-train and infra-upgrade; docs-site
-	// is stale and onboarding unread.
-	if got := pageOf(t, doc).Active; got != 4 {
-		t.Errorf("active = %d, want 4", got)
+	// search-revamp has events and is the freshest, docs-site has none and is
+	// past the window.
+	search, docs := record(workstreams(doc)[0]), record(readoutWorkstream(doc, "docs-site"))
+	search["active"], search["behind"] = false, true
+	docs["active"], docs["behind"] = true, false
+	before := pageOf(t, busy(t)).Active
+	p := pageOf(t, doc)
+	if got := lane(t, p, "search-revamp"); !got.Stale || !got.Behind {
+		t.Errorf("search-revamp: stale %v, behind %v; want both, as the readout says", got.Stale, got.Behind)
 	}
-	billing := record(workstreams(doc)[1])
-	billing["events"] = []any{}
-	setIdle(doc, 1, 604800)
-	if got := pageOf(t, doc).Active; got != 3 {
-		t.Errorf("a workstream with no event in the window: active = %d, want 3", got)
+	if got := lane(t, p, "docs-site"); got.Stale || got.Behind {
+		t.Errorf("docs-site: stale %v, behind %v; want neither, as the readout says", got.Stale, got.Behind)
 	}
+	if p.Active != before {
+		t.Errorf("active = %d, want %d: one workstream turned active and one inactive", p.Active, before)
+	}
+	for _, w := range workstreams(doc) {
+		record(w)["active"] = false
+	}
+	if got := pageOf(t, doc).Active; got != 0 {
+		t.Errorf("active = %d, want 0 when the readout calls none active", got)
+	}
+}
+
+// readoutWorkstream is the readout's workstream named name.
+func readoutWorkstream(doc map[string]any, name string) any {
+	for _, w := range workstreams(doc) {
+		if record(w)["name"] == name {
+			return w
+		}
+	}
+	panic("no workstream " + name)
 }
 
 func TestTheWindowIsLabelledExactly(t *testing.T) {

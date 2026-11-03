@@ -74,6 +74,8 @@ type rawStream struct {
 	IdleSeconds      *int64      `json:"idle_seconds"`
 	AgeSeconds       *int64      `json:"age_seconds"`
 	Events           []rawEvent  `json:"events"`
+	Active           bool        `json:"active"`
+	Behind           bool        `json:"behind"`
 	InputsIncomplete []string    `json:"inputs_incomplete"`
 	MembersUnread    []string    `json:"members_unread"`
 	Items            []rawPlaced `json:"items"`
@@ -136,9 +138,8 @@ type page struct {
 	// Map is what the page's script draws; html/template writes it into the
 	// page's data block escaped as JSON.
 	Map viewModel
-	// Active counts the workstreams with an event within the event window,
-	// as snapshot does, the measure the vision sets beside a
-	// work-in-progress limit.
+	// Active counts the workstreams the readout calls active, as snapshot
+	// does, the measure the vision sets beside a work-in-progress limit.
 	Active      int
 	Health      []input
 	Workstreams []workstream
@@ -284,8 +285,8 @@ func build(data []byte) (page, error) {
 	for i, ws := range r.Workstreams {
 		shown := workstreamOf(ws, order, r.GeneratedAt, window)
 		shown.Anchor = fmt.Sprintf("ws-%d", i+1)
-		shown.Behind = behind(r.Workstreams, i)
-		if len(ws.Events) > 0 {
+		shown.Behind = ws.Behind
+		if ws.Active {
 			p.Active++
 		}
 		p.Workstreams = append(p.Workstreams, shown)
@@ -346,20 +347,6 @@ func unplacedOf(placed []rawPlaced, generated time.Time) []unplacedItem {
 	return out
 }
 
-// behind reports whether the workstream at i has gone quieter than one the
-// stated order ranks below it. The vision ranks by stated order and lets
-// observed staleness flag a workstream falling behind it; a workstream with
-// nothing read has no touch to compare either way.
-func behind(all []rawStream, i int) bool {
-	idle := all[i].IdleSeconds
-	if idle == nil {
-		return false
-	}
-	return slices.ContainsFunc(all[i+1:], func(below rawStream) bool {
-		return below.IdleSeconds != nil && *below.IdleSeconds < *idle
-	})
-}
-
 func healthOf(h rawHealth) input {
 	in := input{
 		Input:         viewrules.Clean(h.Input),
@@ -387,7 +374,7 @@ func healthOf(h rawHealth) input {
 }
 
 func workstreamOf(ws rawStream, order viewrules.Order, generated time.Time, window int64) workstream {
-	marker := viewrules.Marker(ws.IdleSeconds, window)
+	marker := viewrules.Marker(ws.IdleSeconds, ws.Active)
 	out := workstream{
 		Name:       viewrules.Clean(ws.Name),
 		Title:      viewrules.Clean(ws.Title),

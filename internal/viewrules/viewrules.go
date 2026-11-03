@@ -15,7 +15,7 @@ const (
 	// Unread marks a workstream nothing was read for on this read, which
 	// says nothing of its past.
 	Unread = "unread"
-	// Stale marks a workstream idle for longer than the event window.
+	// Stale marks a workstream read but with no touch within the event window.
 	Stale = "stale"
 )
 
@@ -37,13 +37,16 @@ func Age(idle *int64) string {
 	return strconv.FormatInt(s/(24*60*60), 10) + "d"
 }
 
-// Marker is Unread, Stale, or empty for a workstream idle for idle seconds
-// against an event window of window seconds.
-func Marker(idle *int64, window int64) string {
+// Marker is Unread, Stale, or empty for a workstream idle for idle seconds,
+// with active the readout's verdict on it. Staleness follows that verdict
+// rather than comparing idle with the window: idle is floored to whole
+// seconds, so a touch just before the window opens would read neither active
+// nor stale.
+func Marker(idle *int64, active bool) string {
 	switch {
 	case idle == nil:
 		return Unread
-	case *idle > window:
+	case !active:
 		return Stale
 	}
 	return ""

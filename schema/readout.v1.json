@@ -81,6 +81,8 @@
         "started_at",
         "age_seconds",
         "events",
+        "active",
+        "behind",
         "inputs_incomplete",
         "members_unread",
         "items"
@@ -127,6 +129,14 @@
             "null"
           ],
           "minimum": 0
+        },
+        "active": {
+          "description": "Whether the workstream has an event: an item touched within the event window. A workstream read but not active is stale. A renderer should show this verdict rather than compare idle_seconds with the window itself, so every view agrees at the window's edge.",
+          "type": "boolean"
+        },
+        "behind": {
+          "description": "Whether a workstream listed after this one, so ranked below it, was touched more recently. A workstream with nothing read is never behind and puts no other behind.",
+          "type": "boolean"
         },
         "events": {
           "description": "The latest touch of each item in items, member or joined, where it falls within the event window, newest first.",

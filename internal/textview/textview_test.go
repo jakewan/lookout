@@ -79,6 +79,8 @@ func (f fixture) readout() map[string]any {
 			"started_at":        nil,
 			"age_seconds":       nil,
 			"events":            []any{},
+			"active":            false,
+			"behind":            false,
 			"inputs_incomplete": nonNil(l.incomplete),
 			"members_unread":    nonNil(l.unread),
 			"items":             items,
@@ -86,6 +88,9 @@ func (f fixture) readout() map[string]any {
 		if l.idle != unread {
 			w["last_touched"] = generated.Add(-time.Duration(l.idle) * time.Second).Format(time.RFC3339)
 			w["idle_seconds"] = l.idle
+			// The readout calls a workstream active when it has a touch within
+			// the window; a lane's single touch stands in for its events.
+			w["active"] = l.idle <= f.window
 		}
 		maps.Copy(w, l.extra)
 		lanes = append(lanes, w)
