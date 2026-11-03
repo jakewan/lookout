@@ -133,6 +133,58 @@ func TestAParentJoinKeepsToTheOtherJoinsLimits(t *testing.T) {
 	}
 }
 
+func TestDismissingAnIntermediateKeepsOutOnlyThatItem(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", epics)
+	f.supplied("tracker.json", suppliedDoc("tracker", []any{
+		item("EPIC-1", time.Hour, nil),
+		item("STORY-1", time.Hour, map[string]any{"parent": "EPIC-1"}),
+		item("TASK-1", time.Hour, map[string]any{"parent": "STORY-1"}),
+	}, nil))
+	f.mustRun("dismiss", "tracker:STORY-1")
+
+	if got, want := joins(t, f.read(), "invoicing"), map[string]joinedDoc{"tracker:TASK-1": byParent("tracker:EPIC-1")}; !equalJoins(got, want) {
+		t.Errorf("invoicing joins = %v, want %v: a dismissal keeps out the item it names, never what sits beneath it", got, want)
+	}
+}
+
+func TestChildrenAnAdoptedEpicPullsInDoNotArrive(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", `
+inputs:
+  - name: tracker
+    kind: supplied
+    supplied: tracker.json
+    max_age: 24h
+workstreams:
+  - name: invoicing
+    members:
+      - tracker:EPIC-1
+`)
+	children := func() {
+		fetched := f.clock.Add(-time.Minute).Format(time.RFC3339)
+		f.supplied("tracker.json", suppliedDoc("tracker", []any{
+			item("EPIC-9", time.Hour, nil),
+			item("STORY-1", time.Hour, map[string]any{"parent": "EPIC-9"}),
+			item("TASK-1", time.Hour, map[string]any{"parent": "STORY-1"}),
+		}, map[string]any{"fetched_at": fetched, "attempted_at": fetched}))
+	}
+	children()
+	f.snapshot()
+
+	f.nextDay()
+	children()
+	f.mustRun("adopt", "tracker:EPIC-9", "invoicing")
+	b := f.snapshot()
+
+	if want := []string{"tracker:STORY-1", "tracker:TASK-1"}; !slices.Equal(b.Joined, want) {
+		t.Errorf("day 2 joined = %v, want %v", b.Joined, want)
+	}
+	if len(b.Arrivals) != 0 || len(b.HandPlaced) != 0 {
+		t.Errorf("day 2 arrivals = %v, hand_placed = %v, want neither: the epic and its children were already showing, and a join is not a hand placement", b.Arrivals, b.HandPlaced)
+	}
+}
+
 func TestAWindowedSupplierKeepsAnOldChildItsParentJoins(t *testing.T) {
 	f := newFixture(t)
 	f.write("personal.yml", strings.Replace(epics, "    max_age: 24h\n", "    max_age: 24h\n    windowed: true\n", 1)+"discovery_window: 72h\n")

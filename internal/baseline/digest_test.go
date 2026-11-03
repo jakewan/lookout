@@ -31,7 +31,8 @@ workstreams:
 `
 
 // parentlessFixture is a setting none of whose inputs fill parent, pinned so
-// that the rules a parent joins by never move it.
+// that the rules a parent joins by never move it. Its pin is the digest the
+// code gave before parents joined work, checked against that code.
 const parentlessFixture = `
 discovery_window: 72h
 forge_owners: [alice]
@@ -60,7 +61,7 @@ func digestOf(t *testing.T, src string) string {
 	return d
 }
 
-func TestDiscoveryDigestOfASettingWithoutAKeyPatternIsUnchanged(t *testing.T) {
+func TestDiscoveryDigestOfASettingWithoutAKeyPatternIsPinned(t *testing.T) {
 	for name, tc := range map[string]struct{ src, want string }{
 		"inputs that fill parent": {digestFixture, "19731599d38f7038ebb9dceffe2051225da24446f851966d81d8a186163c3918"},
 		"no input fills parent":   {parentlessFixture, "31fcf341a21b08c3f46f010dab157965aeb170f658e069bca2e1d05d82174d08"},

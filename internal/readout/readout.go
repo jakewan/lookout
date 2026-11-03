@@ -185,16 +185,16 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 		}
 	}
 
-	// owner is the first live workstream, in stated order, naming each member,
-	// so the nearest adopted ancestor of an item can place it.
-	owner := map[string]string{}
+	// liveOwner is the first live workstream, in stated order, naming each
+	// member, so the nearest adopted ancestor of an item can place it.
+	liveOwner := map[string]string{}
 	for _, ws := range cfg.Workstreams {
 		if ws.Completed != "" {
 			continue
 		}
 		for _, m := range ws.Members {
-			if _, ok := owner[m.Input+":"+m.ID]; !ok {
-				owner[m.Input+":"+m.ID] = ws.Name
+			if _, ok := liveOwner[m.Input+":"+m.ID]; !ok {
+				liveOwner[m.Input+":"+m.ID] = ws.Name
 			}
 		}
 	}
@@ -253,7 +253,10 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 					places = append(places, placement{owner.Workstream, Joined{By: byNotes, Member: owner.Member.Input + ":" + owner.Member.ID}})
 				}
 			}
-			if ws, member, ok := ancestor(in.Name, it, byID, owner); ok {
+			// A key, description or notes join to the same workstream comes
+			// first, and add keeps one join per workstream, so this marks only
+			// what nothing else placed there.
+			if ws, member, ok := ancestor(in.Name, it, byID, liveOwner); ok {
 				places = append(places, placement{ws, Joined{By: byParent, Member: member}})
 			}
 			// A windowed supplier's item that nothing places and that has not
@@ -446,13 +449,16 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 
 // ancestor finds the nearest of its ancestors in the same input that a live
 // workstream names, returning that workstream and the ancestor as
-// <input>:<id>, the form owner is keyed by. A parent is checked against owner before it is looked up, so
-// an adopted parent the input did not supply still places its children; one
-// that is neither adopted nor supplied ends the chain, as does a loop.
-func ancestor(input string, it Item, byID map[string]Item, owner map[string]string) (string, string, bool) {
+// <input>:<id>, the form liveOwner is keyed by. A parent is checked against
+// liveOwner before it is looked up, so an adopted parent the input did not
+// supply still places its children; one that is neither adopted nor supplied
+// ends the chain, as does a loop. byID holds every item the input read,
+// dismissed and claimed ones too, since a dismissal or a claim keeps out only
+// the item it names, never what sits beneath it.
+func ancestor(input string, it Item, byID map[string]Item, liveOwner map[string]string) (string, string, bool) {
 	seen := map[string]bool{it.ID: true}
 	for parent := it.Parent; parent != "" && !seen[parent]; {
-		if ws, ok := owner[input+":"+parent]; ok {
+		if ws, ok := liveOwner[input+":"+parent]; ok {
 			return ws, input + ":" + parent, true
 		}
 		seen[parent] = true
