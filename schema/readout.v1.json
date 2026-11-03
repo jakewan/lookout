@@ -135,7 +135,7 @@
           "type": "boolean"
         },
         "behind": {
-          "description": "Whether a workstream listed after this one, so ranked below it, was touched more recently. A workstream with nothing read is never behind and puts no other behind.",
+          "description": "Whether a workstream listed after this one, so ranked below it, was touched more recently, compared by idle_seconds, so touches within the same second count as one moment. A workstream with nothing read is never behind and puts no other behind.",
           "type": "boolean"
         },
         "events": {

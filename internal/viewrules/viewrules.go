@@ -1,7 +1,7 @@
 // Package viewrules holds the rules every view of a readout draws the same
 // way, so the plain-text and the browser views cannot come to disagree on how
-// old a workstream is, whether it is stale, or which inputs are worth a
-// warning.
+// old a workstream is, how its staleness is marked from the readout's verdict,
+// or which inputs are worth a warning.
 package viewrules
 
 import (

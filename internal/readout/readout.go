@@ -423,8 +423,6 @@ func inputIndex(cfg *config.Config, name string) int {
 	return slices.IndexFunc(cfg.Inputs, func(i config.Input) bool { return i.Name == name })
 }
 
-// since is whole seconds from t to now, never negative: a touch stamped ahead
-// of this machine's clock counts as just now.
 // behind reports whether the workstream at i has gone quieter than one the
 // stated order ranks below it. The vision ranks by stated order and lets
 // observed staleness flag a workstream falling behind it; a workstream with
@@ -439,6 +437,8 @@ func behind(all []Workstream, i int) bool {
 	})
 }
 
+// since is whole seconds from t to now, never negative: a touch stamped ahead
+// of this machine's clock counts as just now.
 func since(now time.Time, t *time.Time) *int64 {
 	if t == nil {
 		return nil
