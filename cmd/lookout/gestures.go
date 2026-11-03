@@ -209,8 +209,9 @@ func dismiss(_ context.Context, args []string, env environment, _ io.Writer, dia
 	})
 }
 
-// memberArg reads an <input>:<id> argument. A token lookout unplaced printed
-// quoted, because its id holds a tab or line break, is decoded; an input name
+// memberArg reads an <input>:<id> argument. A token lookout unplaced or the
+// page printed quoted, because it holds a character that does not print, is
+// decoded (viewrules.Token decides which are quoted); an input name
 // never starts with a quote, so a quoted token cannot be read as another. The
 // decoding takes any Go escape, so a decoded id can hold control characters,
 // and every message naming the item shows it escaped.

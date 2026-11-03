@@ -107,9 +107,9 @@
     <ul>
     {{- range .UnplacedItems}}
       <li>
-        {{- if .Href}}<a href="{{.Href}}" target="_blank" rel="noreferrer noopener"><span class="id"><bdi>{{.Token}}</bdi></span></a>{{else}}<span class="id"><bdi>{{.Token}}</bdi></span>{{end}}
+        {{- if .Href}}<a href="{{.Href}}" target="_blank" rel="noreferrer noopener">{{template "token" .}}</a>{{else}}{{template "token" .}}{{end}}
         {{- if .Title}} <bdi>{{.Title}}</bdi>{{end}}
-        {{- if .State}} <span class="state">{{.State}}</span>{{end}} <span class="state">{{.Touched}} ago</span>
+        {{- if .State}} <span class="state">{{.State}}</span>{{end}} <span class="state">{{if eq .Touched "--"}}last touch unreadable{{else}}{{.Touched}} ago{{end}}</span>
       </li>
     {{- end}}
     </ul>
@@ -125,3 +125,4 @@
 <script type="module">{{script}}</script>
 </body>
 </html>
+{{- define "token"}}<span class="id"{{if .Quoted}} title="pass it to the shell in single quotes"{{end}}><bdi>{{.Token}}</bdi></span>{{end}}

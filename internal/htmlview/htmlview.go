@@ -90,11 +90,11 @@ type rawEvent struct {
 type rawPlaced struct {
 	Input string `json:"input"`
 	Item  struct {
-		ID          string    `json:"id"`
-		Title       string    `json:"title"`
-		State       string    `json:"state"`
-		Parent      string    `json:"parent"`
-		LastTouched time.Time `json:"last_touched"`
+		ID          string `json:"id"`
+		Title       string `json:"title"`
+		State       string `json:"state"`
+		Parent      string `json:"parent"`
+		LastTouched string `json:"last_touched"`
 		Links       []struct {
 			Href string `json:"href"`
 		} `json:"links"`
@@ -122,9 +122,10 @@ type rawHealth struct {
 }
 
 // page is what the template draws. Every string in it taken from the readout
-// has been made safe to show by viewrules.Clean, except an item's link
-// address, which is admitted only as a web address and left to the
-// template's URL escaping.
+// has been made safe to show by viewrules.Clean, except two: an unplaced
+// item's token, made safe by viewrules.Token so it stays what the commands
+// accept, and an item's link address, which is admitted only as a web address
+// and left to the template's URL escaping.
 type page struct {
 	Setting string
 	AsOf    string
@@ -206,7 +207,11 @@ type item struct {
 // agent can act on what the page shows; Touched is the time since its last
 // touch.
 type unplacedItem struct {
-	Token   string
+	Token string
+	// Quoted marks a token viewrules.Token quoted. A shell strips double
+	// quotes before the command sees them, so the page says to pass such a
+	// token in single quotes, or adopt and dismiss would read another id.
+	Quoted  bool
 	Title   string
 	State   string
 	Touched string
@@ -290,21 +295,49 @@ func build(data []byte) (page, error) {
 
 // unplacedOf lists the unplaced items newest touch first; items touched at
 // the same moment keep the readout's order, so the same readout lists the
-// same way.
+// same way. readout.v1 admits RFC 3339 times Go's parser refuses, such as a
+// lowercase t or a leap second, so an item whose touch cannot be parsed is
+// listed after every other, its age unknown, rather than the page refusing a
+// readout that meets the contract.
 func unplacedOf(placed []rawPlaced, generated time.Time) []unplacedItem {
-	sorted := slices.Clone(placed)
-	slices.SortStableFunc(sorted, func(a, b rawPlaced) int {
-		return b.Item.LastTouched.Compare(a.Item.LastTouched)
+	type touched struct {
+		p  rawPlaced
+		at *time.Time
+	}
+	all := make([]touched, 0, len(placed))
+	for _, p := range placed {
+		t := touched{p: p}
+		if at, err := time.Parse(time.RFC3339, p.Item.LastTouched); err == nil {
+			t.at = &at
+		}
+		all = append(all, t)
+	}
+	slices.SortStableFunc(all, func(a, b touched) int {
+		switch {
+		case a.at == nil && b.at == nil:
+			return 0
+		case a.at == nil:
+			return 1
+		case b.at == nil:
+			return -1
+		}
+		return b.at.Compare(*a.at)
 	})
-	out := make([]unplacedItem, 0, len(sorted))
-	for _, p := range sorted {
-		shown := itemOf(p)
-		idle := max(int64(generated.Sub(p.Item.LastTouched).Seconds()), 0)
+	out := make([]unplacedItem, 0, len(all))
+	for _, t := range all {
+		shown := itemOf(t.p)
+		var idle *int64
+		if t.at != nil {
+			s := max(int64(generated.Sub(*t.at).Seconds()), 0)
+			idle = &s
+		}
+		token := viewrules.Token(t.p.Input, t.p.Item.ID)
 		out = append(out, unplacedItem{
-			Token:   viewrules.Token(p.Input, p.Item.ID),
+			Token:   token,
+			Quoted:  strings.HasPrefix(token, `"`),
 			Title:   shown.Title,
 			State:   shown.State,
-			Touched: viewrules.Age(&idle),
+			Touched: viewrules.Age(idle),
 			Href:    shown.Href,
 		})
 	}

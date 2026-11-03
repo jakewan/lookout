@@ -414,7 +414,7 @@ footer.flagged { color: var(--warn); font-weight: 600; }
     <ul>
       <li><span class="id"><bdi>sessions:owner/tools:main</bdi></span> <span class="state">open</span> <span class="state">30m ago</span>
       </li>
-      <li><span class="id"><bdi>&#34;code:owner/app:fix/\u200bcache&#34;</bdi></span> <bdi>Cache the build</bdi> <span class="state">open</span> <span class="state">2h ago</span>
+      <li><span class="id" title="pass it to the shell in single quotes"><bdi>&#34;code:owner/app:fix/\u200bcache&#34;</bdi></span> <bdi>Cache the build</bdi> <span class="state">open</span> <span class="state">2h ago</span>
       </li>
       <li><span class="id"><bdi>code:owner/app:spike/cache</bdi></span> <span class="state">open</span> <span class="state">3h ago</span>
       </li>

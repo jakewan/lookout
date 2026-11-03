@@ -143,7 +143,7 @@ func TestUnplacedItemsListNewestTouchFirstByTheTokenAdoptTakes(t *testing.T) {
 	p := pageOf(t, busy(t))
 	want := []unplacedItem{
 		{Token: "sessions:owner/tools:main", State: "open", Touched: "30m"},
-		{Token: `"code:owner/app:fix/\u200bcache"`, Title: "Cache the build", State: "open", Touched: "2h"},
+		{Token: `"code:owner/app:fix/\u200bcache"`, Quoted: true, Title: "Cache the build", State: "open", Touched: "2h"},
 		{Token: "code:owner/app:spike/cache", State: "open", Touched: "3h"},
 		{Token: "hub:owner/app#60", Title: "Bump the linter", State: "open", Touched: "8h", Href: "https://example.com/owner/app/pull/60"},
 	}
@@ -165,6 +165,24 @@ func TestUnplacedItemsTouchedTogetherKeepTheReadoutsOrder(t *testing.T) {
 	want := []string{"code:owner/app:spike/cache", "hub:owner/app#60", `"code:owner/app:fix/\u200bcache"`, "sessions:owner/tools:main"}
 	if !slices.Equal(got, want) {
 		t.Errorf("order = %v, want %v", got, want)
+	}
+}
+
+// readout.v1 admits an RFC 3339 time Go's parser refuses, such as one written
+// with a lowercase t and z, so the page shows how long since such an item was
+// touched as unknown rather than refusing the readout.
+func TestATouchGoCannotParseLeavesTheItemListedLast(t *testing.T) {
+	doc := busy(t)
+	record(record(record(workstreams(doc)[0])["items"].([]any)[0])["item"])["last_touched"] = "2030-06-15t09:00:00z"
+	unplaced := doc["unplaced"].([]any)
+	record(record(unplaced[3])["item"])["last_touched"] = "2030-06-15t11:59:00z"
+	p := pageOf(t, doc)
+	last := p.UnplacedItems[len(p.UnplacedItems)-1]
+	if last.Token != "sessions:owner/tools:main" || last.Touched != "--" {
+		t.Errorf("last unplaced item = %+v, want sessions:owner/tools:main touched --", last)
+	}
+	if out := render(t, doc); !strings.Contains(out, "last touch unreadable") || strings.Contains(out, "-- ago") {
+		t.Error("an item whose touch cannot be read is not said to be so")
 	}
 }
 

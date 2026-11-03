@@ -11,12 +11,8 @@ const unplaced = (page) => page.getByRole("region", { name: "Unplaced" });
 // Newest touch first, each named by the token lookout adopt and dismiss take:
 // one holding a character that does not print is quoted, as lookout unplaced
 // quotes it.
-const tokens = [
-  "sessions:owner/tools:main",
-  '"code:owner/app:fix/\\u200bcache"',
-  "code:owner/app:spike/cache",
-  "hub:owner/app#60",
-];
+const quoted = '"code:owner/app:fix/\\u200bcache"';
+const tokens = ["sessions:owner/tools:main", quoted, "code:owner/app:spike/cache", "hub:owner/app#60"];
 
 test.describe("the unplaced items", () => {
   test("list every one, newest touch first, by the token adopt takes", async ({ page }) => {
@@ -29,6 +25,14 @@ test.describe("the unplaced items", () => {
     await expect(section.locator("li").nth(1)).toContainText("Cache the build");
     await expect(section.locator("li").nth(3)).toContainText("Bump the linter");
     await expect(section.locator("li").nth(3)).toContainText("8h ago");
+  });
+
+  test("say a quoted token goes to the shell in single quotes, and only a quoted one", async ({ page }) => {
+    await page.goto(pageURL("busy"));
+    await unplaced(page).locator("summary").click();
+    const hinted = unplaced(page).getByTitle("pass it to the shell in single quotes");
+    await expect(hinted).toHaveCount(1);
+    await expect(hinted).toHaveText(quoted);
   });
 
   test("start closed, and Enter on their summary opens them", async ({ page }) => {
@@ -55,6 +59,13 @@ test.describe("the unplaced items", () => {
     await expect(links).toHaveAttribute("href", "https://example.com/owner/app/pull/60");
     await expect(links).toHaveAttribute("target", "_blank");
     await expect(links).toHaveAttribute("rel", "noreferrer noopener");
+  });
+
+  test("show on a setting with no workstreams yet, where everything is unplaced", async ({ page }) => {
+    await page.goto(pageURL("empty"));
+    await expect(page.getByText("No workstreams.")).toBeVisible();
+    await unplaced(page).locator("summary").click();
+    await expect(unplaced(page).locator("li .id")).toHaveText(["code:owner/app:spike/first"]);
   });
 
   test("are not shown where nothing is unplaced", async ({ page }) => {
