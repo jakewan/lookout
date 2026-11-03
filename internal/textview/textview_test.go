@@ -97,6 +97,11 @@ func (f fixture) readout() map[string]any {
 		if l.active != nil {
 			w["active"] = *l.active
 		}
+		// readout.v1 holds an active workstream to at least one event, so the
+		// lane's last touch is given as one.
+		if w["active"] == true {
+			w["events"] = []any{map[string]any{"input": "tracker", "id": "ABC-1", "at": w["last_touched"]}}
+		}
 		maps.Copy(w, l.extra)
 		lanes = append(lanes, w)
 	}

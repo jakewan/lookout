@@ -87,6 +87,52 @@
         "members_unread",
         "items"
       ],
+      "allOf": [
+        {
+          "$comment": "active is true exactly when the workstream has an event, so a renderer showing the verdict and one drawing events cannot disagree.",
+          "if": {
+            "properties": {
+              "active": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "events": {
+                "minItems": 1
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "events": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "$comment": "A workstream with nothing read is neither active nor behind.",
+          "if": {
+            "properties": {
+              "idle_seconds": {
+                "type": "null"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "active": {
+                "const": false
+              },
+              "behind": {
+                "const": false
+              }
+            }
+          }
+        }
+      ],
       "properties": {
         "name": {
           "description": "The workstream's id, which lookout's commands take.",

@@ -375,31 +375,28 @@ func TestAWorkstreamOnAFailingInputSaysWhichInputs(t *testing.T) {
 
 // The page draws the readout's active and behind verdicts rather than
 // deciding them again, so it agrees with show, snapshot and an agent reading
-// the readout. Each verdict here is set against what the workstream's events
-// and idle time would suggest, so a page that re-derived them would fail.
+// the readout. Each verdict here is one the page would not reach from the
+// workstream's idle time, so a page that re-derived them would fail.
 func TestThePageDrawsTheReadoutsActiveAndBehindVerdicts(t *testing.T) {
 	doc := busy(t)
-	// search-revamp has events and is the freshest, docs-site has none and is
-	// past the window.
-	search, docs := record(workstreams(doc)[0]), record(readoutWorkstream(doc, "docs-site"))
-	search["active"], search["behind"] = false, true
-	docs["active"], docs["behind"] = true, false
-	before := pageOf(t, busy(t)).Active
+	before := pageOf(t, doc).Active
+	// docs-site was idle past the window; an event at the window's start makes
+	// it active while its idle time, compared with the window, would call it
+	// stale. search-revamp is the freshest, so no comparison of idle times
+	// would put it behind.
+	docs := record(readoutWorkstream(doc, "docs-site"))
+	docs["active"] = true
+	docs["events"] = []any{map[string]any{"input": "tracker", "id": "DOC-1", "at": "2030-06-08T12:00:00Z"}}
+	record(workstreams(doc)[0])["behind"] = true
 	p := pageOf(t, doc)
-	if got := lane(t, p, "search-revamp"); !got.Stale || !got.Behind {
-		t.Errorf("search-revamp: stale %v, behind %v; want both, as the readout says", got.Stale, got.Behind)
+	if got := lane(t, p, "docs-site"); got.Stale {
+		t.Error("docs-site is marked stale, but the readout calls it active")
 	}
-	if got := lane(t, p, "docs-site"); got.Stale || got.Behind {
-		t.Errorf("docs-site: stale %v, behind %v; want neither, as the readout says", got.Stale, got.Behind)
+	if got := lane(t, p, "search-revamp"); !got.Behind {
+		t.Error("search-revamp is not marked behind, but the readout says it is")
 	}
-	if p.Active != before {
-		t.Errorf("active = %d, want %d: one workstream turned active and one inactive", p.Active, before)
-	}
-	for _, w := range workstreams(doc) {
-		record(w)["active"] = false
-	}
-	if got := pageOf(t, doc).Active; got != 0 {
-		t.Errorf("active = %d, want 0 when the readout calls none active", got)
+	if p.Active != before+1 {
+		t.Errorf("active = %d, want %d: the readout calls docs-site active", p.Active, before+1)
 	}
 }
 
