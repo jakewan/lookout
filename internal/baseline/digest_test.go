@@ -10,7 +10,8 @@ import (
 // digestFixture is a setting with no key pattern. Its digest is pinned so that
 // a field added to what the digest covers cannot change it for settings that
 // do not use the field, which would report discovery_changed on the first
-// snapshot after an upgrade.
+// snapshot after an upgrade. Its supplied and github inputs fill parent, so a
+// change to what a parent joins moves it.
 const digestFixture = `
 discovery_window: 72h
 forge_owners: [alice]
@@ -29,18 +30,53 @@ workstreams:
     members: ["tracker:ABC-1"]
 `
 
+// parentlessFixture is a setting none of whose inputs fill parent, pinned so
+// that the rules a parent joins by never move it.
+const parentlessFixture = `
+discovery_window: 72h
+forge_owners: [alice]
+inputs:
+  - name: code
+    kind: git
+    repos: ["/code/*"]
+  - name: claude
+    kind: claude_code
+    config_dirs: ["~/.claude"]
+workstreams:
+  - name: billing
+    members: ["code:alice/app:main"]
+`
+
+func digestOf(t *testing.T, src string) string {
+	t.Helper()
+	cfg, err := config.Parse([]byte(src), "/settings/personal.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := discoveryDigest(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
 func TestDiscoveryDigestOfASettingWithoutAKeyPatternIsUnchanged(t *testing.T) {
-	cfg, err := config.Parse([]byte(digestFixture), "/settings/personal.yml")
-	if err != nil {
-		t.Fatal(err)
+	for name, tc := range map[string]struct{ src, want string }{
+		"inputs that fill parent": {digestFixture, "19731599d38f7038ebb9dceffe2051225da24446f851966d81d8a186163c3918"},
+		"no input fills parent":   {parentlessFixture, "31fcf341a21b08c3f46f010dab157965aeb170f658e069bca2e1d05d82174d08"},
+	} {
+		if got := digestOf(t, tc.src); got != tc.want {
+			t.Errorf("%s: digest = %s, want %s", name, got, tc.want)
+		}
 	}
-	got, err := discoveryDigest(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	const want = "955f9a64d30839668e3de25f77eb8b48053bebbc48cf6b29df426796673cb80c"
-	if got != want {
-		t.Errorf("digest = %s, want %s", got, want)
+}
+
+// TestDiscoveryDigestFollowsTheParentRule pins that a setting whose inputs
+// fill parent has moved on from the digest it had before a parent joined
+// work, so its first snapshot after the upgrade reports discovery_changed.
+func TestDiscoveryDigestFollowsTheParentRule(t *testing.T) {
+	if got := digestOf(t, digestFixture); got == "955f9a64d30839668e3de25f77eb8b48053bebbc48cf6b29df426796673cb80c" {
+		t.Errorf("digest = %s, the digest before parents joined work", got)
 	}
 }
 
@@ -77,16 +113,7 @@ func TestDiscoveryDigestFollowsWhetherASupplierIsWindowed(t *testing.T) {
 	if windowed == digestFixture {
 		t.Fatal("the fixture no longer holds the supplied input this spec windows")
 	}
-	cfg, err := config.Parse([]byte(windowed), "/settings/personal.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, err := discoveryDigest(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The digest TestDiscoveryDigestOfASettingWithoutAKeyPatternIsUnchanged pins.
-	if d == "955f9a64d30839668e3de25f77eb8b48053bebbc48cf6b29df426796673cb80c" {
+	if d := digestOf(t, windowed); d == digestOf(t, digestFixture) {
 		t.Errorf("digest = %s, the unwindowed setting's: windowed changes what is offered", d)
 	}
 }
