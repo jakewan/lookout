@@ -95,6 +95,23 @@ func complete(_ context.Context, args []string, env environment, _ io.Writer, di
 	})
 }
 
+// deleteWorkstream takes a workstream that names no members out of the file.
+func deleteWorkstream(_ context.Context, args []string, env environment, _ io.Writer, diag *log.Logger) int {
+	fs, setting := newFlags("delete")
+	pos, ok := parseFlags(fs, setting, args, diag)
+	if !ok {
+		return exitUsage
+	}
+	if len(pos) != 1 {
+		diag.Printf("lookout delete: name one workstream\n%s", usage)
+		return exitUsage
+	}
+	g := state.Gesture{Gesture: "delete", Workstream: pos[0]}
+	return record(env, diag, fs.Name(), *setting, g, func(path string, _ *state.Gesture) error {
+		return edit(path, func(d *config.Document) error { return d.Delete(pos[0]) })
+	})
+}
+
 // move takes an item out of its workstream and into another.
 func move(_ context.Context, args []string, env environment, _ io.Writer, diag *log.Logger) int {
 	return place("move", args, env, diag, (*config.Document).Move)

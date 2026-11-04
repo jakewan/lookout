@@ -411,6 +411,12 @@ func TestSnapshotFindsEditsNoGestureExplains(t *testing.T) {
 		"a removal by hand": {handWritten, func(f *fixture) {
 			f.write("personal.yml", strings.Replace(handWritten, "      - tracker:ABC-2\n", "", 1))
 		}, true},
+		"a delete": {handWritten + "  - name: spare\n", func(f *fixture) {
+			f.mustRun("delete", "spare")
+		}, false},
+		"a delete by hand": {handWritten + "  - name: spare\n", func(f *fixture) {
+			f.write("personal.yml", handWritten)
+		}, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
@@ -956,6 +962,23 @@ func TestSnapshotCountsACompletionUnderANameARenameFreed(t *testing.T) {
 
 	if b := f.snapshot(); b.CompletedSincePrevious != 1 {
 		t.Errorf("completed_since_previous = %d, want the new workstream under the freed name counted", b.CompletedSincePrevious)
+	}
+}
+
+func TestSnapshotCountsACompletionUnderANameADeleteFreed(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten+"  - name: spare\n    completed: 2030-06-01\n")
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	f.snapshot()
+
+	f.nextDay()
+	f.mustRun("delete", "spare")
+	f.mustRun("adopt", "--new", "tracker:ABC-3", "spare")
+	f.mustRun("complete", "spare")
+	f.tracker(map[string]time.Time{"ABC-1": now})
+
+	if b := f.snapshot(); b.CompletedSincePrevious != 1 || b.UnloggedEdit {
+		t.Errorf("completed_since_previous = %d, unlogged_edit = %v, want the new workstream under the freed name counted, by logged gestures", b.CompletedSincePrevious, b.UnloggedEdit)
 	}
 }
 
