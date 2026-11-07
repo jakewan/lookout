@@ -30,7 +30,7 @@ test.describe("the read's age", () => {
     await expect(cue(page)).toHaveClass(/\bold\b/);
   });
 
-  test("sits on the as-of line, with the note and the exact read each on a line below", async ({ page }) => {
+  test("sits on the as-of line, with the note on a line below", async ({ page }) => {
     await page.clock.install({ time: read + 5 * minute });
     await page.goto(pageURL("busy"));
     const box = async (/** @type {string} */ selector) => {
@@ -41,11 +41,18 @@ test.describe("the read's age", () => {
     const asof = await box(".asof");
     const age = await box(".readage");
     const note = await box(".note");
-    const exact = await box(".exact");
     expect(age.y).toBeLessThan(asof.y + asof.height);
     expect(age.y + age.height).toBeGreaterThan(asof.y);
     expect(note.y).toBeGreaterThanOrEqual(asof.y + asof.height);
-    expect(exact.y).toBeGreaterThanOrEqual(note.y + note.height);
+  });
+
+  test("shows one time, carrying the exact read for a hover and an agent", async ({ page }) => {
+    await page.goto(pageURL("busy"));
+    const asof = page.locator("header time.asof");
+    await expect(asof).toHaveText("as of 2030-06-15 12:00 UTC");
+    await expect(asof).toHaveAttribute("datetime", "2030-06-15T12:00:00Z");
+    await expect(asof).toHaveAttribute("title", "read 2030-06-15T12:00:00Z, as in view.json beside this page");
+    await expect(page.locator("header")).not.toContainText("2030-06-15T12:00:00Z");
   });
 
   test("is shown on a page with no workstreams too", async ({ page }) => {
@@ -58,15 +65,15 @@ test.describe("the read's age", () => {
     await page.clock.install({ time: read - hour });
     await page.goto(pageURL("busy"));
     await expect(cue(page)).toBeHidden();
-    await expect(page.locator(".read")).toHaveText("2030-06-15T12:00:00Z");
+    await expect(page.locator("header time.asof")).toBeVisible();
   });
 
-  test("leaves only the exact read with script off", async ({ browser }) => {
+  test("leaves only the as-of time with script off", async ({ browser }) => {
     const context = await browser.newContext({ javaScriptEnabled: false });
     const page = await context.newPage();
     await page.goto(pageURL("busy"));
     await expect(page.locator(".readage")).toBeHidden();
-    await expect(page.locator(".read")).toHaveText("2030-06-15T12:00:00Z");
+    await expect(page.locator("header time.asof")).toHaveText("as of 2030-06-15 12:00 UTC");
     await context.close();
   });
 
