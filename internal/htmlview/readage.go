@@ -2,6 +2,7 @@ package htmlview
 
 import (
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/jakewan/lookout/internal/viewrules"
@@ -15,7 +16,7 @@ const DefaultReadOldAfter = 2 * time.Hour
 // draws.
 type Options struct {
 	// ReadOldAfter is how long after its read the page marks the read old;
-	// zero takes DefaultReadOldAfter.
+	// zero or less takes DefaultReadOldAfter.
 	ReadOldAfter time.Duration
 }
 
@@ -30,13 +31,13 @@ type ageStep struct {
 	Old  bool   `json:"old"`
 }
 
-// The schedule's horizon and grain: each minute for the first hour, each hour
-// to two days, then each day to a month, after which the last step stands.
-// Each step changes what the page says, so none is wasted, and the whole
-// schedule stays a few kilobytes inline.
+// The schedule's grain follows viewrules.Age's units, a step wherever the age
+// it prints changes, up to ageDays; the step at ageDays stands for every age
+// after it, so it says so. That keeps the whole schedule a few kilobytes
+// inline.
 const (
 	ageMinutes = 59
-	ageHours   = 47
+	ageHours   = 23
 	ageDays    = 30
 )
 
@@ -50,7 +51,7 @@ func readAge(read time.Time, oldAfter time.Duration) []ageStep {
 	for h := 1; h <= ageHours; h++ {
 		offsets = append(offsets, time.Duration(h)*time.Hour)
 	}
-	for d := 2; d <= ageDays; d++ {
+	for d := 1; d <= ageDays; d++ {
 		offsets = append(offsets, time.Duration(d)*24*time.Hour)
 	}
 	slices.Sort(offsets)
@@ -72,7 +73,10 @@ func readAge(read time.Time, oldAfter time.Duration) []ageStep {
 // well, so an old read says only that it is old.
 func ageText(off time.Duration, old bool) string {
 	text := "under a minute ago"
-	if off >= time.Minute {
+	switch {
+	case off >= ageDays*24*time.Hour:
+		text = strconv.Itoa(ageDays) + "d or more ago"
+	case off >= time.Minute:
 		s := int64(off / time.Second)
 		text = viewrules.Age(&s) + " ago"
 	}

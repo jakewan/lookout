@@ -599,8 +599,9 @@ export function age() {
   const show = () => {
     const step = ageAt(steps, Date.now());
     slot.hidden = step === null;
-    // The slot is a status a screen reader announces on change, so it is
-    // written only when what it says changes.
+    // The slot is not a live region: it changes each minute for the first
+    // hour, and announcing each change would interrupt a screen reader that
+    // often. A reader finds the age where the header says it.
     if (step && slot.textContent !== step.text) {
       slot.textContent = step.text;
       slot.classList.toggle("old", step.old);

@@ -538,7 +538,7 @@ func TestTheReadIsNamedExactly(t *testing.T) {
 	// The exact read rides on the as-of time, as its machine-readable value
 	// and its tooltip, so the header shows one time while an agent reading
 	// the page and a person hovering it can still match it to view.json.
-	want := `<time class="asof" datetime="2030-06-15T12:00:00.123456789Z" title="read 2030-06-15T12:00:00.123456789Z, as in view.json beside this page">as of 2030-06-15 12:00 UTC</time>`
+	want := `<time class="asof" datetime="2030-06-15T12:00:00.123Z" title="read 2030-06-15T12:00:00.123456789Z, as in view.json beside this page">as of 2030-06-15 12:00 UTC</time>`
 	if !strings.Contains(render(t, doc), want) {
 		t.Errorf("the page does not carry the exact read on its as-of time, want %s", want)
 	}

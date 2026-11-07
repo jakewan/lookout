@@ -18,8 +18,8 @@ func ageOf(t *testing.T, opts Options) []ageStep {
 	return p.Map.ReadAge
 }
 
-// stepAt is the step a page shows once the read is after old, the latest whose
-// moment has passed.
+// stepAt is the step a page shows once its read is after old: the latest
+// whose moment has passed.
 func stepAt(t *testing.T, steps []ageStep, after time.Duration) ageStep {
 	t.Helper()
 	now := busyRead.Add(after)
@@ -101,11 +101,39 @@ func TestTheStepsRunInOrderAndStayFew(t *testing.T) {
 		if steps[i].At <= steps[i-1].At {
 			t.Fatalf("step %d at %s does not follow %s", i, steps[i].At, steps[i-1].At)
 		}
+		// A step that says what the one before it said is carried for
+		// nothing.
+		if steps[i].Text == steps[i-1].Text {
+			t.Errorf("steps %d and %d both say %q", i-1, i, steps[i].Text)
+		}
 	}
 	// The page carries every step inline, so the schedule thins out as the
 	// read ages rather than ticking each minute for ever.
 	if len(steps) > 200 {
-		t.Errorf("%d steps; the schedule should stay a few hundred bytes of JSON per step at most", len(steps))
+		t.Errorf("%d steps, want at most 200", len(steps))
+	}
+}
+
+func TestPastTheScheduleTheLastStepStaysTrue(t *testing.T) {
+	steps := ageOf(t, Options{})
+	if got := stepAt(t, steps, 400*24*time.Hour).Text; got != "30d or more ago, old" {
+		t.Errorf("a read 400 days old shows %q, which must not name an age it has passed", got)
+	}
+	if got := stepAt(t, steps, 29*24*time.Hour).Text; got != "29d ago, old" {
+		t.Errorf("a read 29 days old shows %q", got)
+	}
+}
+
+func TestTheAsOfTimeCarriesAValidDatetimeAndTheExactReadInItsTooltip(t *testing.T) {
+	doc := busy(t)
+	doc["generated_at"] = "2030-06-15T12:00:00.123456789Z"
+	out := render(t, doc)
+	// HTML's date-time grammar takes at most three fractional digits, so the
+	// datetime is the read to the millisecond and the tooltip carries it
+	// exactly.
+	want := `<time class="asof" datetime="2030-06-15T12:00:00.123Z" title="read 2030-06-15T12:00:00.123456789Z, as in view.json beside this page">`
+	if !strings.Contains(out, want) {
+		t.Errorf("the as-of time is not %s", want)
 	}
 }
 
@@ -114,7 +142,7 @@ func TestThePageCarriesTheScheduleForItsScriptAndShowsNothingWithout(t *testing.
 	if !strings.Contains(out, `"read_age":[{"at":"2030-06-15T12:00:00Z"`) {
 		t.Error("the page's data block holds no read-age schedule")
 	}
-	if !strings.Contains(out, `<span class="readage" role="status" hidden></span>`) {
+	if !strings.Contains(out, `<span class="readage" hidden></span>`) {
 		t.Error("the page holds no hidden read-age slot for its script to fill")
 	}
 }

@@ -11,7 +11,7 @@ const minute = 60 * 1000;
 const hour = 60 * minute;
 
 /** @param {import("@playwright/test").Page} page */
-const cue = (page) => page.getByRole("status");
+const cue = (page) => page.locator("header .readage");
 
 test.describe("the read's age", () => {
   test("says how long ago the page was read", async ({ page }) => {
@@ -50,7 +50,7 @@ test.describe("the read's age", () => {
     await page.goto(pageURL("busy"));
     const asof = page.locator("header time.asof");
     await expect(asof).toHaveText("as of 2030-06-15 12:00 UTC");
-    await expect(asof).toHaveAttribute("datetime", "2030-06-15T12:00:00Z");
+    await expect(asof).toHaveAttribute("datetime", "2030-06-15T12:00:00.000Z");
     await expect(asof).toHaveAttribute("title", "read 2030-06-15T12:00:00Z, as in view.json beside this page");
     await expect(page.locator("header")).not.toContainText("2030-06-15T12:00:00Z");
   });
@@ -77,14 +77,26 @@ test.describe("the read's age", () => {
     await context.close();
   });
 
+  test("is not a live region, so a screen reader is not interrupted each minute", async ({ page }) => {
+    await page.clock.install({ time: read + 5 * minute });
+    await page.goto(pageURL("busy"));
+    await expect(cue(page)).not.toHaveAttribute("role", /./);
+    await expect(cue(page)).not.toHaveAttribute("aria-live", /^(polite|assertive)$/);
+  });
+
   for (const colorScheme of /** @type {const} */ (["light", "dark"])) {
-    test(`passes an accessibility audit once old, in its ${colorScheme} colors`, async ({ page }) => {
-      await page.emulateMedia({ colorScheme });
-      await page.clock.install({ time: read + 3 * hour });
-      await page.goto(pageURL("busy"));
-      await expect(cue(page)).toBeVisible();
-      const results = await new AxeBuilder({ page }).include(".readage").analyze();
-      expect(results.violations.map((v) => v.id)).toEqual([]);
-    });
+    for (const [state, after] of /** @type {const} */ ([
+      ["fresh", 5 * minute],
+      ["old", 3 * hour],
+    ])) {
+      test(`passes an accessibility audit while ${state}, in its ${colorScheme} colors`, async ({ page }) => {
+        await page.emulateMedia({ colorScheme });
+        await page.clock.install({ time: read + after });
+        await page.goto(pageURL("busy"));
+        await expect(cue(page)).toBeVisible();
+        const results = await new AxeBuilder({ page }).include(".readage").analyze();
+        expect(results.violations.map((v) => v.id)).toEqual([]);
+      });
+    }
   }
 });
