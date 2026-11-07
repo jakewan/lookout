@@ -18,6 +18,11 @@ h1 { font-size: 20px; margin: 0; }
 h2 { font-size: 13px; margin: 22px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .asof { font-size: 16px; font-weight: 600; }
 .note { color: var(--muted); font-size: 12px; }
+/* An old read is drawn in ink, boxed, rather than in a tone: amber and red
+   already mean a workstream behind its rank and a failing input, and the age
+   of the page is neither. */
+.readage { color: var(--muted); font-size: 12px; }
+.readage.old { color: var(--ink); font-weight: 700; border: 1px solid var(--ink); border-radius: 4px; padding: 1px 6px; }
 .id { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
 a { color: inherit; }
 

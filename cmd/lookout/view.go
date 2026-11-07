@@ -26,6 +26,7 @@ import (
 func view(ctx context.Context, args []string, env environment, stdout io.Writer, diag *log.Logger) int {
 	fs, setting := newFlags("view")
 	from := fs.String("readout", "", "")
+	oldAfter := fs.Duration("read-old-after", htmlview.DefaultReadOldAfter, "")
 	pos, ok := parseFlags(fs, setting, args, diag)
 	if !ok {
 		return exitUsage
@@ -44,6 +45,9 @@ func view(ctx context.Context, args []string, env environment, stdout io.Writer,
 		// disagree with it.
 		diag.Printf("lookout view: --readout and --setting cannot be combined\n%s", usage)
 		return exitUsage
+	case *oldAfter <= 0:
+		diag.Printf("lookout view: --read-old-after needs a positive duration, such as 2h\n%s", usage)
+		return exitUsage
 	}
 	var data []byte
 	var err error
@@ -54,7 +58,7 @@ func view(ctx context.Context, args []string, env environment, stdout io.Writer,
 	}
 	if err == nil {
 		var path string
-		path, err = viewPage(env.getenv, data)
+		path, err = viewPage(env.getenv, data, htmlview.Options{ReadOldAfter: *oldAfter})
 		if err == nil {
 			_, err = fmt.Fprintln(stdout, path)
 		}
@@ -68,7 +72,7 @@ func view(ctx context.Context, args []string, env environment, stdout io.Writer,
 
 // viewPage renders data, a readout.v1 document, and writes the page under the
 // directory its setting names, returning the page's path.
-func viewPage(getenv func(string) string, data []byte) (string, error) {
+func viewPage(getenv func(string) string, data []byte, opts htmlview.Options) (string, error) {
 	var head struct {
 		Setting string `json:"setting"`
 	}
@@ -79,7 +83,7 @@ func viewPage(getenv func(string) string, data []byte) (string, error) {
 		return "", fmt.Errorf("the readout's %w", nameErr)
 	}
 	var page bytes.Buffer
-	if renderErr := htmlview.Render(&page, data); renderErr != nil {
+	if renderErr := htmlview.Render(&page, data, opts); renderErr != nil {
 		return "", renderErr
 	}
 	return writeView(getenv, head.Setting, page.Bytes(), data)

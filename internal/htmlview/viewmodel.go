@@ -20,6 +20,10 @@ type viewModel struct {
 	Hub   int         `json:"hub"`
 	Nodes []mapNode   `json:"nodes"`
 	Links []crossLink `json:"links"`
+	// ReadAge is what the page says about its read's age as time passes. It
+	// rides in the map's data block, the page's one, and is shown even where
+	// there are no workstreams to map.
+	ReadAge []ageStep `json:"read_age"`
 }
 
 type mapNode struct {

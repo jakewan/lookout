@@ -241,8 +241,8 @@ type mark struct {
 func (m mark) Left() string { return fmt.Sprintf("%.2f%%", m.X*100) }
 
 // Render writes the page for data, a readout.v1 document, to w.
-func Render(w io.Writer, data []byte) error {
-	p, err := build(data)
+func Render(w io.Writer, data []byte, opts Options) error {
+	p, err := build(data, opts)
 	if err != nil {
 		return err
 	}
@@ -252,7 +252,7 @@ func Render(w io.Writer, data []byte) error {
 	return nil
 }
 
-func build(data []byte) (page, error) {
+func build(data []byte, opts Options) (page, error) {
 	var r readout
 	if err := json.Unmarshal(data, &r); err != nil {
 		return page{}, fmt.Errorf("reading the readout: %w", err)
@@ -292,6 +292,11 @@ func build(data []byte) (page, error) {
 		p.Workstreams = append(p.Workstreams, shown)
 	}
 	p.Map = mapOf(r, p.Workstreams, order)
+	oldAfter := opts.ReadOldAfter
+	if oldAfter <= 0 {
+		oldAfter = DefaultReadOldAfter
+	}
+	p.Map.ReadAge = readAge(r.GeneratedAt, oldAfter)
 	p.UnplacedItems = unplacedOf(r.Unplaced, r.GeneratedAt)
 	return p, nil
 }

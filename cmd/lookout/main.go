@@ -24,7 +24,7 @@ const (
 const usage = `usage:
   lookout read --json [--setting <name>]
   lookout show [--setting <name>]
-  lookout view [--setting <name> | --readout <file|->]
+  lookout view [--setting <name> | --readout <file|->] [--read-old-after <duration>]
   lookout unplaced [--setting <name>]
   lookout adopt [--setting <name>] [--new [--title <title>]] <input>:<id> <workstream>
   lookout dismiss [--setting <name>] <input>:<id>

@@ -283,11 +283,89 @@ func firstWorkstream(doc map[string]any) map[string]any {
 	return doc["workstreams"].([]any)[0].(map[string]any)
 }
 
+// readAgeSteps is the read-age schedule the page carries for its script.
+func readAgeSteps(t *testing.T, page string) []struct {
+	At  string `json:"at"`
+	Old bool   `json:"old"`
+} {
+	t.Helper()
+	_, rest, found := strings.Cut(page, `<script type="application/json" id="lookout-map">`)
+	if !found {
+		t.Fatal("the page holds no data block")
+	}
+	block, _, _ := strings.Cut(rest, "</script>")
+	var model struct {
+		ReadAge []struct {
+			At  string `json:"at"`
+			Old bool   `json:"old"`
+		} `json:"read_age"`
+	}
+	if err := json.Unmarshal([]byte(block), &model); err != nil {
+		t.Fatal(err)
+	}
+	return model.ReadAge
+}
+
+// firstOld is how long after the first step the schedule first marks the read
+// old.
+func firstOld(t *testing.T, page string) time.Duration {
+	t.Helper()
+	steps := readAgeSteps(t, page)
+	start, err := time.Parse(time.RFC3339, steps[0].At)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range steps {
+		if s.Old {
+			at, err := time.Parse(time.RFC3339, s.At)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return at.Sub(start)
+		}
+	}
+	t.Fatal("no step marks the read old")
+	return 0
+}
+
+func TestViewMarksTheReadOldAfterTwoHoursUnlessToldOtherwise(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	_, page := f.viewPage()
+	if got := firstOld(t, page); got != 2*time.Hour {
+		t.Errorf("by default the read turns old after %s, want 2h", got)
+	}
+	_, page = f.viewPage("--read-old-after", "45m")
+	if got := firstOld(t, page); got != 45*time.Minute {
+		t.Errorf("with --read-old-after 45m the read turns old after %s", got)
+	}
+}
+
+func TestViewTakesTheThresholdForASavedReadoutToo(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	code, saved, stderr := f.run("read", "--json")
+	if code != 0 {
+		t.Fatalf("read: exit code = %d, stderr = %q", code, stderr)
+	}
+	file := filepath.Join(t.TempDir(), "saved.json")
+	if err := os.WriteFile(file, []byte(saved), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, page := f.viewPage("--readout", file, "--read-old-after", "3h")
+	if got := firstOld(t, page); got != 3*time.Hour {
+		t.Errorf("a saved readout's read turns old after %s, want 3h", got)
+	}
+}
+
 func TestViewRefusesBadUsage(t *testing.T) {
 	for name, args := range map[string][]string{
 		"an argument":              {"view", "billing"},
 		"--readout and --setting":  {"view", "--readout", "saved.json", "--setting", "personal"},
 		"--readout without a file": {"view", "--readout", ""},
+		"a zero --read-old-after":  {"view", "--read-old-after", "0s"},
+		"a negative threshold":     {"view", "--read-old-after", "-1h"},
+		"a threshold with no unit": {"view", "--read-old-after", "90"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
