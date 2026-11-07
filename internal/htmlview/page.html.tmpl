@@ -15,8 +15,9 @@
 <header>
   <h1>lookout &middot; <bdi>{{.Setting}}</bdi></h1>
   <span class="asof">as of {{.AsOf}}</span>
-  <span class="note">a snapshot: run lookout view again, then reload, to refresh it &middot; read <code class="read">{{.Read}}</code>, as in view.json beside this page</span>
   <span class="readage" role="status" hidden></span>
+  <span class="note">a snapshot: run lookout view again, then reload, to refresh it</span>
+  <span class="exact">read <code class="read">{{.Read}}</code>, as in view.json beside this page</span>
 </header>
 
 {{if .Health}}<ul class="health">

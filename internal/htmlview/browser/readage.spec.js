@@ -17,23 +17,41 @@ test.describe("the read's age", () => {
   test("says how long ago the page was read", async ({ page }) => {
     await page.clock.install({ time: read + 5 * minute + 20 * 1000 });
     await page.goto(pageURL("busy"));
-    await expect(cue(page)).toHaveText("read 5m ago");
+    await expect(cue(page)).toHaveText("5m ago");
     await expect(cue(page)).not.toHaveClass(/\bold\b/);
   });
 
   test("moves on while the page stays open, and turns old at two hours", async ({ page }) => {
     await page.clock.install({ time: read + 2 * hour - 2 * minute });
     await page.goto(pageURL("busy"));
-    await expect(cue(page)).toHaveText("read 1h ago");
+    await expect(cue(page)).toHaveText("1h ago");
     await page.clock.runFor(3 * minute);
-    await expect(cue(page)).toHaveText("read 2h ago; run lookout view again, then reload, to see the latest");
+    await expect(cue(page)).toHaveText("2h ago, old");
     await expect(cue(page)).toHaveClass(/\bold\b/);
+  });
+
+  test("sits on the as-of line, with the note and the exact read each on a line below", async ({ page }) => {
+    await page.clock.install({ time: read + 5 * minute });
+    await page.goto(pageURL("busy"));
+    const box = async (/** @type {string} */ selector) => {
+      const b = await page.locator(`header ${selector}`).boundingBox();
+      if (!b) throw new Error(`${selector} is not shown`);
+      return b;
+    };
+    const asof = await box(".asof");
+    const age = await box(".readage");
+    const note = await box(".note");
+    const exact = await box(".exact");
+    expect(age.y).toBeLessThan(asof.y + asof.height);
+    expect(age.y + age.height).toBeGreaterThan(asof.y);
+    expect(note.y).toBeGreaterThanOrEqual(asof.y + asof.height);
+    expect(exact.y).toBeGreaterThanOrEqual(note.y + note.height);
   });
 
   test("is shown on a page with no workstreams too", async ({ page }) => {
     await page.clock.install({ time: read + 3 * hour });
     await page.goto(pageURL("empty"));
-    await expect(cue(page)).toHaveText(/^read 3h ago; /);
+    await expect(cue(page)).toHaveText("3h ago, old");
   });
 
   test("stays hidden while the read is dated after the browser's clock", async ({ page }) => {

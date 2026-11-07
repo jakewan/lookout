@@ -67,16 +67,17 @@ func readAge(read time.Time, oldAfter time.Duration) []ageStep {
 	return steps
 }
 
+// ageText sits beside the page's as-of time, which it qualifies, so it names
+// only the age. How to refresh is the header's note, shown with script off as
+// well, so an old read says only that it is old.
 func ageText(off time.Duration, old bool) string {
-	text := "read under a minute ago"
+	text := "under a minute ago"
 	if off >= time.Minute {
 		s := int64(off / time.Second)
-		text = "read " + viewrules.Age(&s) + " ago"
+		text = viewrules.Age(&s) + " ago"
 	}
 	if old {
-		// The page belongs to every lookout user, most with no timer
-		// rewriting it, so it names the one refresh every user has.
-		text += "; run lookout view again, then reload, to see the latest"
+		text += ", old"
 	}
 	return text
 }

@@ -45,7 +45,7 @@ func TestTheReadAgeStartsAtTheReadItself(t *testing.T) {
 	if got := steps[0].At; got != "2030-06-15T12:00:00Z" {
 		t.Errorf("first step at %s, want the read's own moment", got)
 	}
-	if got := stepAt(t, steps, 30*time.Second).Text; got != "read under a minute ago" {
+	if got := stepAt(t, steps, 30*time.Second).Text; got != "under a minute ago" {
 		t.Errorf("half a minute in reads %q", got)
 	}
 }
@@ -56,11 +56,11 @@ func TestTheReadAgeCountsInTheLargestWholeUnitAsLookoutShowDoes(t *testing.T) {
 		after time.Duration
 		want  string
 	}{
-		{5*time.Minute + 30*time.Second, "read 5m ago"},
-		{59 * time.Minute, "read 59m ago"},
-		{90 * time.Minute, "read 1h ago"},
-		{30 * time.Hour, "read 1d ago"},
-		{5 * 24 * time.Hour, "read 5d ago"},
+		{5*time.Minute + 30*time.Second, "5m ago"},
+		{59 * time.Minute, "59m ago"},
+		{90 * time.Minute, "1h ago"},
+		{30 * time.Hour, "1d ago"},
+		{5 * 24 * time.Hour, "5d ago"},
 	} {
 		if got := stepAt(t, steps, c.after).Text; !strings.HasPrefix(got, c.want) {
 			t.Errorf("%s after the read shows %q, want it to start %q", c.after, got, c.want)
@@ -77,7 +77,7 @@ func TestTheReadTurnsOldAtTwoHoursByDefault(t *testing.T) {
 	if !s.Old {
 		t.Errorf("two hours after the read is not old: %+v", s)
 	}
-	if want := "read 2h ago; run lookout view again, then reload, to see the latest"; s.Text != want {
+	if want := "2h ago, old"; s.Text != want {
 		t.Errorf("an old read says %q, want %q", s.Text, want)
 	}
 	if s := stepAt(t, steps, 9*24*time.Hour); !s.Old {
@@ -90,7 +90,7 @@ func TestAThresholdBetweenStepsTurnsOldExactlyThere(t *testing.T) {
 	if s := stepAt(t, steps, 90*time.Minute-time.Second); s.Old {
 		t.Errorf("a second before the threshold is already old: %+v", s)
 	}
-	if s := stepAt(t, steps, 90*time.Minute); !s.Old || !strings.HasPrefix(s.Text, "read 1h ago;") {
+	if s := stepAt(t, steps, 90*time.Minute); !s.Old || !strings.HasPrefix(s.Text, "1h ago, old") {
 		t.Errorf("at the threshold: %+v, want old and reading 1h", s)
 	}
 }
