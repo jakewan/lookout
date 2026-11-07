@@ -133,8 +133,12 @@ type page struct {
 	AsOf    string
 	// Read is the readout's generated_at exactly as written, so a person
 	// and an agent reading view.json can tell they are on the same read.
-	Read   string
-	Window string
+	Read string
+	// Datetime is the read to the millisecond for the as-of time's datetime
+	// attribute, since HTML's date-time grammar takes at most three
+	// fractional digits; Read, exact, rides in its tooltip.
+	Datetime string
+	Window   string
 	// Map is what the page's script draws; html/template writes it into the
 	// page's data block escaped as JSON.
 	Map viewModel
@@ -241,8 +245,8 @@ type mark struct {
 func (m mark) Left() string { return fmt.Sprintf("%.2f%%", m.X*100) }
 
 // Render writes the page for data, a readout.v1 document, to w.
-func Render(w io.Writer, data []byte) error {
-	p, err := build(data)
+func Render(w io.Writer, data []byte, opts Options) error {
+	p, err := build(data, opts)
 	if err != nil {
 		return err
 	}
@@ -252,7 +256,7 @@ func Render(w io.Writer, data []byte) error {
 	return nil
 }
 
-func build(data []byte) (page, error) {
+func build(data []byte, opts Options) (page, error) {
 	var r readout
 	if err := json.Unmarshal(data, &r); err != nil {
 		return page{}, fmt.Errorf("reading the readout: %w", err)
@@ -268,6 +272,7 @@ func build(data []byte) (page, error) {
 		Setting:   viewrules.Clean(r.Setting),
 		AsOf:      stamp(r.GeneratedAt),
 		Read:      viewrules.Clean(as.GeneratedAt),
+		Datetime:  r.GeneratedAt.UTC().Format("2006-01-02T15:04:05.000Z07:00"),
 		Window:    viewrules.Span(window),
 		Dismissed: r.DismissedCount,
 		Completed: r.CompletedCount,
@@ -292,6 +297,11 @@ func build(data []byte) (page, error) {
 		p.Workstreams = append(p.Workstreams, shown)
 	}
 	p.Map = mapOf(r, p.Workstreams, order)
+	oldAfter := opts.ReadOldAfter
+	if oldAfter <= 0 {
+		oldAfter = DefaultReadOldAfter
+	}
+	p.Map.ReadAge = readAge(r.GeneratedAt, oldAfter)
 	p.UnplacedItems = unplacedOf(r.Unplaced, r.GeneratedAt)
 	return p, nil
 }

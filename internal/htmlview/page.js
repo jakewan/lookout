@@ -36,10 +36,19 @@
  */
 
 /**
+ * What the page says about its read's age from `at` on.
+ * @typedef {object} AgeStep
+ * @property {string} at an RFC 3339 moment
+ * @property {string} text
+ * @property {boolean} old
+ */
+
+/**
  * @typedef {object} ViewModel
  * @property {number} hub
  * @property {MapNode[]} nodes
  * @property {CrossLink[]} links
+ * @property {AgeStep[]} read_age
  */
 
 /**
@@ -556,6 +565,52 @@ class MapView {
   }
 }
 
+/**
+ * The step Go wrote for this moment: the latest whose moment has passed, or
+ * null while none has, as for a read dated after the browser's clock. Picking
+ * among Go's steps by the clock is what is shown, not a rule: the wording, the
+ * grain and when a read turns old are all Go's.
+ * @param {AgeStep[]} steps
+ * @param {number} now
+ * @returns {AgeStep | null}
+ */
+export function ageAt(steps, now) {
+  /** @type {AgeStep | null} */
+  let shown = null;
+  for (const step of steps) {
+    if (Date.parse(step.at) > now) break;
+    shown = step;
+  }
+  return shown;
+}
+
+/**
+ * Keeps the header's read-age slot on the step for the moment, for as long
+ * as the page stays open. It runs apart from the map, since a page with no
+ * workstreams has no map but still ages.
+ */
+export function age() {
+  const slot = document.querySelector(".readage");
+  const data = document.getElementById("lookout-map");
+  if (!(slot instanceof HTMLElement) || !data) return;
+  /** @type {ViewModel} */
+  const model = JSON.parse(data.textContent ?? "");
+  const steps = model.read_age ?? [];
+  const show = () => {
+    const step = ageAt(steps, Date.now());
+    slot.hidden = step === null;
+    // The slot is not a live region: it changes each minute for the first
+    // hour, and announcing each change would interrupt a screen reader that
+    // often. A reader finds the age where the header says it.
+    if (step && slot.textContent !== step.text) {
+      slot.textContent = step.text;
+      slot.classList.toggle("old", step.old);
+    }
+  };
+  show();
+  setInterval(show, 30 * 1000);
+}
+
 export function main() {
   const map = document.getElementById("map");
   const lists = document.getElementById("lists");
@@ -603,4 +658,7 @@ export function main() {
   choose(true);
 }
 
-if (typeof document !== "undefined") main();
+if (typeof document !== "undefined") {
+  age();
+  main();
+}

@@ -84,7 +84,7 @@ func encode(t *testing.T, doc map[string]any) []byte {
 
 func pageOf(t *testing.T, doc map[string]any) page {
 	t.Helper()
-	p, err := build(encode(t, doc))
+	p, err := build(encode(t, doc), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func pageOf(t *testing.T, doc map[string]any) page {
 func render(t *testing.T, doc map[string]any) string {
 	t.Helper()
 	var b bytes.Buffer
-	if err := Render(&b, encode(t, doc)); err != nil {
+	if err := Render(&b, encode(t, doc), Options{}); err != nil {
 		t.Fatal(err)
 	}
 	return b.String()
@@ -253,7 +253,7 @@ func TestAnUnknownHealthStatusIsAFaultNeverOk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := build(data)
+	p, err := build(data, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

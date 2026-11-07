@@ -299,7 +299,14 @@ test.describe("using the map", () => {
 test.describe("a reader who must be able to trust it", () => {
   test("names the exact read it was drawn from", async ({ page }) => {
     await page.goto(pageURL("map"));
-    await expect(page.locator("header")).toContainText("2030-06-15T12:00:00.123456789Z");
+    // Exactly in the as-of time's tooltip, and to the millisecond in its
+    // datetime, which HTML's grammar caps at three fractional digits.
+    const asof = page.locator("header time.asof");
+    await expect(asof).toHaveAttribute(
+      "title",
+      "read 2030-06-15T12:00:00.123456789Z, as in view.json beside this page",
+    );
+    await expect(asof).toHaveAttribute("datetime", "2030-06-15T12:00:00.123Z");
   });
 
   test("keeps today's lists where its script fails", async ({ page }) => {

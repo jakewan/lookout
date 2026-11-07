@@ -17,7 +17,14 @@ header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; m
 h1 { font-size: 20px; margin: 0; }
 h2 { font-size: 13px; margin: 22px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .asof { font-size: 16px; font-weight: 600; }
-.note { color: var(--muted); font-size: 12px; }
+/* The note takes a line of its own beneath the title, so the header stays
+   narrow; the read's age stays beside the as-of time it qualifies. */
+.note { flex-basis: 100%; color: var(--muted); font-size: 12px; }
+/* An old read is drawn in ink, boxed, rather than in a tone: amber and red
+   already mean a workstream behind its rank and a failing input, and the age
+   of the page is neither. */
+.readage { color: var(--muted); font-size: 16px; }
+.readage.old { color: var(--ink); font-weight: 700; border: 1px solid var(--ink); border-radius: 4px; padding: 1px 6px; }
 .id { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
 a { color: inherit; }
 
@@ -95,7 +102,6 @@ summary { cursor: pointer; }
    selected. */
 /* biome-ignore lint/complexity/noImportantStyles: no other rule may show what the page hides, or a failed script could show the map and the lists at once. */
 [hidden] { display: none !important; }
-.read { font-size: 11px; }
 .viewswitch { margin: 14px 0 6px; display: flex; gap: 4px; }
 .viewswitch button, .panel button, .crumbs button { font: inherit; font-size: 12px; padding: 2px 10px; border: 1px solid var(--rule); border-radius: 4px; background: var(--panel); color: var(--ink); cursor: pointer; }
 .viewswitch button[aria-pressed="true"] { border-color: var(--ink); font-weight: 600; }
