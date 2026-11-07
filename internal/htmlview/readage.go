@@ -60,7 +60,7 @@ func readAge(read time.Time, oldAfter time.Duration) []ageStep {
 	for _, off := range offsets {
 		old := off >= oldAfter
 		steps = append(steps, ageStep{
-			At:   read.Add(off).UTC().Format(time.RFC3339),
+			At:   stepMoment(read.Add(off)),
 			Text: ageText(off, old),
 			Old:  old,
 		})
@@ -71,6 +71,17 @@ func readAge(read time.Time, oldAfter time.Duration) []ageStep {
 // ageText sits beside the page's as-of time, which it qualifies, so it names
 // only the age. How to refresh is the header's note, shown with script off as
 // well, so an old read says only that it is old.
+// stepMoment writes t to the millisecond, the browser clock's resolution,
+// rounded up: a read carries nanoseconds, and a step written any earlier than
+// its moment would show its age, or turn the read old, before it is true.
+func stepMoment(t time.Time) string {
+	ms := t.Truncate(time.Millisecond)
+	if ms.Before(t) {
+		ms = ms.Add(time.Millisecond)
+	}
+	return ms.UTC().Format("2006-01-02T15:04:05.000Z07:00")
+}
+
 func ageText(off time.Duration, old bool) string {
 	text := "under a minute ago"
 	switch {

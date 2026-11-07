@@ -42,7 +42,7 @@ func stepAt(t *testing.T, steps []ageStep, after time.Duration) ageStep {
 
 func TestTheReadAgeStartsAtTheReadItself(t *testing.T) {
 	steps := ageOf(t, Options{})
-	if got := steps[0].At; got != "2030-06-15T12:00:00Z" {
+	if got := steps[0].At; got != "2030-06-15T12:00:00.000Z" {
 		t.Errorf("first step at %s, want the read's own moment", got)
 	}
 	if got := stepAt(t, steps, 30*time.Second).Text; got != "under a minute ago" {
@@ -114,6 +114,51 @@ func TestTheStepsRunInOrderAndStayFew(t *testing.T) {
 	}
 }
 
+// stepsFor is the schedule for a read at read with threshold oldAfter.
+func stepsFor(t *testing.T, read string, oldAfter time.Duration) []ageStep {
+	t.Helper()
+	doc := busy(t)
+	doc["generated_at"] = read
+	p, err := build(encode(t, doc), Options{ReadOldAfter: oldAfter})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p.Map.ReadAge
+}
+
+func TestNoStepTakesEffectBeforeItsMoment(t *testing.T) {
+	// The browser compares steps to its clock in milliseconds, so each step
+	// is written to the millisecond, rounded up: a step can show at most a
+	// millisecond late, never early.
+	read := time.Date(2030, 6, 15, 12, 0, 0, 900_400_000, time.UTC)
+	steps := stepsFor(t, read.Format(time.RFC3339Nano), DefaultReadOldAfter)
+	for _, s := range steps {
+		at, err := time.Parse(time.RFC3339Nano, s.At)
+		if err != nil {
+			t.Fatalf("step at %q: %v", s.At, err)
+		}
+		if at.Before(read) {
+			t.Errorf("step %q at %s comes before the read at %s", s.Text, s.At, read.Format(time.RFC3339Nano))
+		}
+		if s.Old && at.Before(read.Add(DefaultReadOldAfter)) {
+			t.Errorf("the old step at %s comes before two hours after the read", s.At)
+		}
+	}
+	if got := steps[0].At; got != "2030-06-15T12:00:00.901Z" {
+		t.Errorf("first step at %s, want the read rounded up to the millisecond", got)
+	}
+}
+
+func TestASubSecondThresholdTurnsOldAtItsOwnMoment(t *testing.T) {
+	steps := stepsFor(t, "2030-06-15T12:00:00Z", 500*time.Millisecond)
+	if steps[0].Old {
+		t.Errorf("the read is old from its first moment: %+v", steps[0])
+	}
+	if len(steps) < 2 || !steps[1].Old || steps[1].At != "2030-06-15T12:00:00.500Z" {
+		t.Errorf("want the second step old at 12:00:00.500Z, got %+v", steps[:2])
+	}
+}
+
 func TestPastTheScheduleTheLastStepStaysTrue(t *testing.T) {
 	steps := ageOf(t, Options{})
 	if got := stepAt(t, steps, 400*24*time.Hour).Text; got != "30d or more ago, old" {
@@ -139,7 +184,7 @@ func TestTheAsOfTimeCarriesAValidDatetimeAndTheExactReadInItsTooltip(t *testing.
 
 func TestThePageCarriesTheScheduleForItsScriptAndShowsNothingWithout(t *testing.T) {
 	out := render(t, busy(t))
-	if !strings.Contains(out, `"read_age":[{"at":"2030-06-15T12:00:00Z"`) {
+	if !strings.Contains(out, `"read_age":[{"at":"2030-06-15T12:00:00.000Z"`) {
 		t.Error("the page's data block holds no read-age schedule")
 	}
 	if !strings.Contains(out, `<span class="readage" hidden></span>`) {
