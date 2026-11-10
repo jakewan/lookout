@@ -19,7 +19,7 @@ lookout is the data layer of this dashboard: it gathers the activity, groups it 
 1. **The workstreams**, with key statistics for each — above all, when each was last touched.
 2. **A prominent ranking.** It answers "is what I'm doing right now okay, given what I've already done today?" and suggests where attention goes early in the day, without hiding lower-ranked workstreams.
 3. **Critical items the tracker does not account for:**
-   - questions awaiting an answer, in chat or the tracker
+   - questions awaiting an answer, wherever the user is asked: chat, the tracker, a code review, a wiki or a shared document
    - time-critical tasks, tracked or not
    - stop-the-line signals in a critical area — not every one stops every line
 4. **A drill-down into each workstream**, including a map of how its tickets and issues relate.
