@@ -396,6 +396,21 @@ func TestAddingAnAwaitingInputLeavesDiscoveryUnchanged(t *testing.T) {
 	}
 }
 
+// TestAddingTheOnlyInputAsAwaitingLeavesDiscoveryUnchanged pins the same for a
+// setting that had no input at all, whose digest must not tell an empty list
+// from a list of awaiting inputs alone.
+func TestAddingTheOnlyInputAsAwaitingLeavesDiscoveryUnchanged(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", "inputs: []\nworkstreams: []\n")
+	f.snapshot()
+
+	f.nextDay()
+	f.write("personal.yml", "inputs:\n  - {name: asks, kind: awaiting, supplied: asks.json, max_age: 24h}\nworkstreams: []\n")
+	if b := f.snapshot(); b.DiscoveryChanged {
+		t.Error("discovery_changed = true after adding a setting's only input as an awaiting one")
+	}
+}
+
 // TestShowKeepsAFailingAwaitingInputOffTheCounts pins that the footer's
 // counts, read from inputs an awaiting input is not among, are not flagged by
 // it, while its own line still says it failed.

@@ -494,6 +494,12 @@ const parentRules = 1
 // it offers nothing.
 func discoveryDigest(cfg *config.Config) (string, error) {
 	inputs := slices.DeleteFunc(slices.Clone(cfg.Inputs), func(in config.Input) bool { return in.Kind == config.KindAwaiting })
+	// A setting with no inputs reads them as nil, which encodes as null, while
+	// leaving out every input of one with only awaiting inputs leaves an empty
+	// list, which encodes as []; both offer nothing, so both hash alike.
+	if len(inputs) == 0 {
+		inputs = nil
+	}
 	for i := range inputs {
 		inputs[i].ExpectRecords = false
 		inputs[i].ReposMayBeEmpty = false
