@@ -453,6 +453,37 @@ func TestCountsAreFlaggedWhileAnyInputIsUnhealthy(t *testing.T) {
 	}
 }
 
+// TestAFailingAwaitingInputDoesNotFlagTheCounts pins that the counts, which
+// no awaiting input feeds, are not flagged by one failing, while its health
+// still shows.
+func TestAFailingAwaitingInputDoesNotFlagTheCounts(t *testing.T) {
+	doc := busy(t)
+	for _, h := range health(doc) {
+		if record(h)["status"] != "absent_by_design" {
+			withStatus(h, "ok")
+			record(h)["reasons"] = []any{}
+		}
+	}
+	for _, w := range workstreams(doc) {
+		record(w)["inputs_incomplete"] = []any{}
+	}
+	doc["health"] = append(health(doc), map[string]any{
+		"input": "asks", "status": "error", "reasons": []any{"missing"}, "fetched_at": nil, "record_count": 0,
+		"missing_fields": []any{}, "schema_violations": []any{}, "supplier_reason": nil, "details": []any{}, "excluded_count": 0,
+	})
+	doc["awaiting_inputs"] = []any{"asks"}
+	doc["awaiting"] = []any{}
+
+	p := pageOf(t, doc)
+
+	if p.AnyUnhealthy {
+		t.Error("counts flagged by an awaiting input, which feeds none of them")
+	}
+	if !slices.ContainsFunc(p.Health, func(in input) bool { return in.Input == "asks" }) {
+		t.Errorf("health = %+v, want the failing awaiting input listed", p.Health)
+	}
+}
+
 func TestTheLanePlotsEachItemsLastTouchAcrossTheWindow(t *testing.T) {
 	p := pageOf(t, busy(t))
 	marks := lane(t, p, "search-revamp").Lane

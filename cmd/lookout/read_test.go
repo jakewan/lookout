@@ -143,6 +143,24 @@ type readoutDoc struct {
 	// WorkstreamLinks is a pointer so a spec can tell an omitted list from an
 	// empty one.
 	WorkstreamLinks *[]linkDoc `json:"workstream_links"`
+	// Awaiting and AwaitingInputs are pointers for the same reason.
+	Awaiting       *[]awaitingEntryDoc `json:"awaiting"`
+	AwaitingInputs *[]string           `json:"awaiting_inputs"`
+}
+
+// awaitingEntryDoc is one reply owed, as the readout publishes it.
+type awaitingEntryDoc struct {
+	Input       string         `json:"input"`
+	ID          string         `json:"id"`
+	Title       string         `json:"title"`
+	Kind        string         `json:"kind"`
+	AskedAt     string         `json:"asked_at"`
+	AnsweredAt  *string        `json:"answered_at"`
+	Subject     *string        `json:"subject"`
+	Links       []any          `json:"links"`
+	Attrs       map[string]any `json:"attrs"`
+	Workstreams []string       `json:"workstreams"`
+	Unplaced    bool           `json:"unplaced"`
 }
 
 // linkDoc is one relation between two workstreams and the items behind it.
@@ -453,6 +471,15 @@ func TestReadHealth(t *testing.T) {
 		{name: "duplicate item id", file: suppliedDoc("tracker", []any{
 			item("ABC-1", time.Hour, nil), item("ABC-1", 2*time.Hour, nil),
 		}, nil), status: "degraded", reasons: []string{"duplicate_id"}},
+		// health.v1 publishes reasons in the order they were found, so a
+		// renderer may lead with the first; every finding at once pins it.
+		{name: "every finding at once keeps its order", file: suppliedDoc("tracker", []any{
+			item("ABC-1", time.Hour, map[string]any{"started_at": now.Add(24 * time.Hour).Format(time.RFC3339)}),
+			item("ABC-1", 2*time.Hour, nil),
+		}, map[string]any{
+			"supplier_status": "degraded", "missing_fields": []any{"estimate"},
+			"fetched_at": stamp(30 * time.Hour), "attempted_at": stamp(time.Hour),
+		}), status: "degraded", reasons: []string{"stale", "supplier_failed", "clock_skew", "supplier_degraded", "missing_fields", "duplicate_id"}, missing: []string{"estimate"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -823,12 +850,18 @@ func TestReadRefusesAnInvalidConfiguration(t *testing.T) {
 		"supplied input with repos_may_be_empty false":    "inputs:\n  - {name: tracker, kind: supplied, supplied: t.json, max_age: 1h, repos_may_be_empty: false}\nworkstreams: []\n",
 		"github input with repos_may_be_empty false":      "forge_owners: [alice]\ninputs:\n  - {name: hub, kind: github, repos_may_be_empty: false}\nworkstreams: []\n",
 		"claude_code input with repos_may_be_empty false": "forge_owners: [alice]\ninputs:\n  - {name: claude, kind: claude_code, config_dirs: [~/.claude], repos_may_be_empty: false}\nworkstreams: []\n",
+		"awaiting input without a supplied path":          "inputs:\n  - {name: asks, kind: awaiting, max_age: 1h}\nworkstreams: []\n",
+		"awaiting input without max_age":                  "inputs:\n  - {name: asks, kind: awaiting, supplied: a.json}\nworkstreams: []\n",
+		"awaiting input that expects records":             "inputs:\n  - {name: asks, kind: awaiting, supplied: a.json, max_age: 1h, expect_records: true}\nworkstreams: []\n",
+		"awaiting input that is windowed":                 "inputs:\n  - {name: asks, kind: awaiting, supplied: a.json, max_age: 1h, windowed: true}\nworkstreams: []\n",
+		"awaiting input with repos":                       "inputs:\n  - {name: asks, kind: awaiting, supplied: a.json, max_age: 1h, repos: [/x]}\nworkstreams: []\n",
+		"member names an awaiting input":                  "inputs:\n  - {name: asks, kind: awaiting, supplied: a.json, max_age: 1h}\nworkstreams:\n  - name: a\n    members: [\"asks:T-1\"]\n",
 	}
 	// mentions is what a refusal must say beyond the file's path, where another
 	// refusal of the same file could otherwise pass for it.
 	mentions := map[string]string{
 		"input without kind":                              "needs kind",
-		"input of an unknown kind":                        `kind "jira" is not one lookout reads: use supplied, git, github or claude_code`,
+		"input of an unknown kind":                        `kind "jira" is not one lookout reads: use supplied, awaiting, git, github or claude_code`,
 		"git input with a supplied path":                  "remove supplied",
 		"git input with max_age":                          "remove max_age",
 		"git input without repos":                         "needs repos",
@@ -871,6 +904,12 @@ func TestReadRefusesAnInvalidConfiguration(t *testing.T) {
 		"supplied input with repos_may_be_empty false":    "repos_may_be_empty applies only to kind git",
 		"github input with repos_may_be_empty false":      "repos_may_be_empty applies only to kind git",
 		"claude_code input with repos_may_be_empty false": "repos_may_be_empty applies only to kind git",
+		"awaiting input without a supplied path":          "needs supplied",
+		"awaiting input without max_age":                  "needs max_age",
+		"awaiting input that expects records":             "an empty awaiting file is a quiet day",
+		"awaiting input that is windowed":                 "windowed applies only to kind supplied",
+		"awaiting input with repos":                       "repos applies only to kind git",
+		"member names an awaiting input":                  "a reply owed is never a workstream member",
 	}
 	for name, config := range cases {
 		t.Run(name, func(t *testing.T) {

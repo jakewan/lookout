@@ -8,26 +8,51 @@ import (
 	"testing"
 )
 
-// TestNamePatternMatchesTheContract pins the one rule config and supplied.v1
-// state separately: an input name a configuration accepts must be one a
-// supplier can write.
+// TestNamePatternMatchesTheContract pins the one rule config and each
+// supplier contract state separately: an input name a configuration accepts
+// must be one a supplier can write.
 func TestNamePatternMatchesTheContract(t *testing.T) {
-	data, err := os.ReadFile("../../schema/supplied.v1.json")
+	for _, contract := range []string{"supplied.v1", "awaiting.v1"} {
+		data, err := os.ReadFile("../../schema/" + contract + ".json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			Defs struct {
+				Name struct {
+					Pattern string `json:"pattern"`
+				} `json:"name"`
+			} `json:"$defs"`
+		}
+		if err := json.Unmarshal(data, &doc); err != nil {
+			t.Fatal(err)
+		}
+		if got := namePattern.String(); got != doc.Defs.Name.Pattern {
+			t.Errorf("namePattern = %q, %s $defs.name.pattern = %q", got, contract, doc.Defs.Name.Pattern)
+		}
+	}
+	// An awaiting entry's subject leads with an input name, written out in its
+	// pattern rather than referred to, so it is held to the same rule here.
+	data, err := os.ReadFile("../../schema/awaiting.v1.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var doc struct {
+	var awaiting struct {
 		Defs struct {
-			Name struct {
-				Pattern string `json:"pattern"`
-			} `json:"name"`
+			Entry struct {
+				Properties struct {
+					Subject struct {
+						Pattern string `json:"pattern"`
+					} `json:"subject"`
+				} `json:"properties"`
+			} `json:"entry"`
 		} `json:"$defs"`
 	}
-	if err := json.Unmarshal(data, &doc); err != nil {
+	if err := json.Unmarshal(data, &awaiting); err != nil {
 		t.Fatal(err)
 	}
-	if got := namePattern.String(); got != doc.Defs.Name.Pattern {
-		t.Errorf("namePattern = %q, supplied.v1 $defs.name.pattern = %q", got, doc.Defs.Name.Pattern)
+	if got, want := awaiting.Defs.Entry.Properties.Subject.Pattern, strings.TrimSuffix(namePattern.String(), "$")+":.+$"; got != want {
+		t.Errorf("awaiting.v1 subject pattern = %q, want %q", got, want)
 	}
 }
 

@@ -258,6 +258,11 @@ func Derive(history []Record, cfg *config.Config, out readout.Readout, gestures 
 	r.Staleness = staleness(out.Workstreams)
 	for _, h := range out.Health {
 		r.Health = append(r.Health, Health{Input: h.Input, Status: h.Status})
+		// Nothing the record counts is read from an awaiting input, so its
+		// failing leaves the counts whole; its status is still kept above.
+		if slices.Contains(out.AwaitingInputs, h.Input) {
+			continue
+		}
 		r.Incomplete = r.Incomplete || h.Status == health.Error || h.Status == health.Degraded
 	}
 	if read != nil {
@@ -485,9 +490,16 @@ const parentRules = 1
 // change to any of them changes what is unplaced with no item having moved.
 // Whether an input expects records, or may find no repository, is left out:
 // each decides only the input's health, and adopting or removing a supplied
-// input's member changes the first.
+// input's member changes the first. An awaiting input is left out whole, since
+// it offers nothing.
 func discoveryDigest(cfg *config.Config) (string, error) {
-	inputs := slices.Clone(cfg.Inputs)
+	inputs := slices.DeleteFunc(slices.Clone(cfg.Inputs), func(in config.Input) bool { return in.Kind == config.KindAwaiting })
+	// A setting with no inputs reads them as nil, which encodes as null, while
+	// leaving out every input of one with only awaiting inputs leaves an empty
+	// list, which encodes as []; both offer nothing, so both hash alike.
+	if len(inputs) == 0 {
+		inputs = nil
+	}
 	for i := range inputs {
 		inputs[i].ExpectRecords = false
 		inputs[i].ReposMayBeEmpty = false

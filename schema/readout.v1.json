@@ -69,6 +69,21 @@
       "items": {
         "$ref": "#/$defs/workstream_link"
       }
+    },
+    "awaiting_inputs": {
+      "description": "The setting's awaiting inputs, in the order the configuration lists them, so a renderer can tell a setting with no source of replies owed from one with nothing waiting. Their health is in health, beside every other input's; none of them feeds a workstream or a count, so a failing one marks none. A readout from a lookout that predates this field omits it, and one that has it always writes it, empty where the setting has none.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "awaiting": {
+      "description": "The replies the user owes that are still waiting: entries whose answered_at is null, earlier than asked_at, or ahead of generated_at beyond ordinary clock drift, by input in the configuration's order, then the latest ask first, then by id. A reply owed is not an item: it is never in a workstream or unplaced. Its text comes from whoever wrote the thread, so a renderer treats it as untrusted data. A readout from a lookout that predates this field omits it, and one that has it always writes it.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/awaiting_entry"
+      }
     }
   },
   "$defs": {
@@ -334,6 +349,64 @@
           "description": "The item this one joined through, as <input>:<id>; present where by is pull_request.",
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "awaiting_entry": {
+      "type": "object",
+      "required": [
+        "input",
+        "id",
+        "title",
+        "kind",
+        "asked_at",
+        "answered_at",
+        "links",
+        "attrs",
+        "workstreams",
+        "unplaced"
+      ],
+      "properties": {
+        "input": {
+          "description": "The awaiting input the entry came from.",
+          "type": "string",
+          "minLength": 1
+        },
+        "id": {
+          "$ref": "https://raw.githubusercontent.com/jakewan/lookout/main/schema/awaiting.v1.json#/$defs/entry/properties/id"
+        },
+        "title": {
+          "$ref": "https://raw.githubusercontent.com/jakewan/lookout/main/schema/awaiting.v1.json#/$defs/entry/properties/title"
+        },
+        "kind": {
+          "$ref": "https://raw.githubusercontent.com/jakewan/lookout/main/schema/awaiting.v1.json#/$defs/entry/properties/kind"
+        },
+        "asked_at": {
+          "$ref": "https://raw.githubusercontent.com/jakewan/lookout/main/schema/awaiting.v1.json#/$defs/entry/properties/asked_at"
+        },
+        "answered_at": {
+          "$ref": "https://raw.githubusercontent.com/jakewan/lookout/main/schema/awaiting.v1.json#/$defs/entry/properties/answered_at"
+        },
+        "subject": {
+          "$ref": "https://raw.githubusercontent.com/jakewan/lookout/main/schema/awaiting.v1.json#/$defs/entry/properties/subject"
+        },
+        "links": {
+          "$ref": "https://raw.githubusercontent.com/jakewan/lookout/main/schema/awaiting.v1.json#/$defs/entry/properties/links"
+        },
+        "attrs": {
+          "$ref": "https://raw.githubusercontent.com/jakewan/lookout/main/schema/awaiting.v1.json#/$defs/entry/properties/attrs"
+        },
+        "workstreams": {
+          "description": "Every live workstream that names the subject as a member or holds it by a join, in stated order, whether or not the subject's input was read this time; empty where the entry has no subject or none holds it.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "unplaced": {
+          "description": "Whether the subject is among the unplaced items. An entry whose subject is neither in a workstream nor unplaced concerns nothing the readout shows.",
+          "type": "boolean"
         }
       }
     }

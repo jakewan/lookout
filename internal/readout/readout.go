@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jakewan/lookout/internal/config"
@@ -38,10 +39,50 @@ type Item struct {
 }
 
 // Reading is what one input contributed: its health, and the items a
-// workstream may use.
+// workstream may use, or, from an awaiting input, the replies owed it reported.
 type Reading struct {
-	Health health.Record
-	Items  []Item
+	Health   health.Record
+	Items    []Item
+	Awaiting []Awaiting
+}
+
+// Awaiting is one reply owed as its input reported it: the facts only. Build
+// alone decides whether it is still waiting, so every input that reports one
+// is judged by the same rule.
+type Awaiting struct {
+	ID         string
+	Title      string
+	Kind       string
+	AskedAt    time.Time
+	AnsweredAt *time.Time
+	// Subject is the item the thread concerns, as <input>:<id>, or empty.
+	Subject string
+	Links   json.RawMessage
+	Attrs   json.RawMessage
+}
+
+// waiting reports whether a is still owed as of now: the user has not answered
+// since the latest ask. An answer in the same instant as the ask is the later
+// word. An answer stamped ahead of now, beyond ordinary drift, is no evidence
+// of one, so it never hides the ask; the input's health reports the skew.
+func (a Awaiting) waiting(now time.Time) bool {
+	return a.AnsweredAt == nil || a.AnsweredAt.Before(a.AskedAt) || a.AnsweredAt.After(now.Add(health.ClockTolerance))
+}
+
+// AwaitingEntry is one reply still owed, as the readout publishes it, with
+// where its subject is shown.
+type AwaitingEntry struct {
+	Input       string          `json:"input"`
+	ID          string          `json:"id"`
+	Title       string          `json:"title"`
+	Kind        string          `json:"kind"`
+	AskedAt     time.Time       `json:"asked_at"`
+	AnsweredAt  *time.Time      `json:"answered_at"`
+	Subject     string          `json:"subject,omitempty"`
+	Links       json.RawMessage `json:"links"`
+	Attrs       json.RawMessage `json:"attrs"`
+	Workstreams []string        `json:"workstreams"`
+	Unplaced    bool            `json:"unplaced"`
 }
 
 // Scope is what a setting admits from an input lookout reads itself.
@@ -71,6 +112,8 @@ type Readout struct {
 	DismissedCount     int             `json:"dismissed_count"`
 	CompletedCount     int             `json:"completed_count"`
 	WorkstreamLinks    []Link          `json:"workstream_links"`
+	AwaitingInputs     []string        `json:"awaiting_inputs"`
+	Awaiting           []AwaitingEntry `json:"awaiting"`
 }
 
 // Link relates two live workstreams through the items behind it, each as
@@ -313,9 +356,11 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 			add(s.workstream, o.input, o.item, Joined{By: byPullRequest, Member: s.member, Via: s.via})
 		}
 	}
+	unplaced := map[key]bool{}
 	for _, o := range free {
 		if !joinedAny[key{o.input, o.item.ID}] {
 			out.Unplaced = append(out.Unplaced, Placed{Input: o.input, Item: o.item.Raw})
+			unplaced[key{o.input, o.item.ID}] = true
 		}
 	}
 
@@ -373,10 +418,10 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 		// join from it. Apart from its parent, which is in its member's own
 		// input, a supplied item joins only through the keys in its notes, so
 		// only a workstream a key places work in draws on another supplied
-		// input.
+		// input. An awaiting input places nothing, so no workstream draws on it.
 		if placed := keys.Places(ws.Name); placed || sourced[ws.Name] {
 			for _, in := range cfg.Inputs {
-				if placed || in.Kind != config.KindSupplied {
+				if in.Kind != config.KindAwaiting && (placed || in.Kind != config.KindSupplied) {
 					incomplete(in.Name)
 				}
 			}
@@ -444,6 +489,43 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 	slices.SortFunc(out.WorkstreamLinks, func(a, b Link) int {
 		return cmp.Or(cmp.Compare(rank(a.From), rank(b.From)), cmp.Compare(rank(a.To), rank(b.To)), cmp.Compare(a.Kind, b.Kind))
 	})
+
+	out.AwaitingInputs = make([]string, 0)
+	out.Awaiting = make([]AwaitingEntry, 0)
+	for _, in := range cfg.Inputs {
+		if in.Kind != config.KindAwaiting {
+			continue
+		}
+		out.AwaitingInputs = append(out.AwaitingInputs, in.Name)
+		var entries []AwaitingEntry
+		for _, a := range readings[in.Name].Awaiting {
+			if !a.waiting(now) {
+				continue
+			}
+			e := AwaitingEntry{Input: in.Name, ID: a.ID, Title: a.Title, Kind: a.Kind, AskedAt: a.AskedAt.UTC(), Subject: a.Subject, Links: a.Links, Attrs: a.Attrs, Workstreams: make([]string, 0)}
+			if a.AnsweredAt != nil {
+				answered := a.AnsweredAt.UTC()
+				e.AnsweredAt = &answered
+			}
+			// A subject is pointed at wherever the readout shows it. A member is
+			// named even where its input failed this run, since the workstream
+			// still holds it by configuration.
+			if input, id, ok := strings.Cut(a.Subject, ":"); ok {
+				k := key{input, id}
+				for _, ws := range cfg.Workstreams {
+					if ws.Completed == "" && (slices.Contains(ws.Members, config.Member{Input: input, ID: id}) || slices.Contains(held[k], ws.Name)) {
+						e.Workstreams = append(e.Workstreams, ws.Name)
+					}
+				}
+				e.Unplaced = unplaced[k]
+			}
+			entries = append(entries, e)
+		}
+		slices.SortStableFunc(entries, func(a, b AwaitingEntry) int {
+			return cmp.Or(b.AskedAt.Compare(a.AskedAt), cmp.Compare(a.ID, b.ID))
+		})
+		out.Awaiting = append(out.Awaiting, entries...)
+	}
 	return out
 }
 

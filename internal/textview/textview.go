@@ -41,6 +41,7 @@ type view struct {
 	Health         []health     `json:"health"`
 	DismissedCount int          `json:"dismissed_count"`
 	CompletedCount int          `json:"completed_count"`
+	AwaitingInputs []string     `json:"awaiting_inputs"`
 }
 
 type workstream struct {
@@ -199,10 +200,13 @@ func writeWarnings(b *strings.Builder, v view) {
 }
 
 func footer(v view) string {
-	// The counts are drawn from every input, so a failing one can leave them
-	// short; the line says so where it is read, as a row does.
+	// The counts are drawn from every input but the awaiting ones, so a
+	// failing one can leave them short; the line says so where it is read, as
+	// a row does.
 	flag := ""
-	if slices.ContainsFunc(v.Health, unhealthy) {
+	if slices.ContainsFunc(v.Health, func(h health) bool {
+		return unhealthy(h) && !slices.Contains(v.AwaitingInputs, h.Input)
+	}) {
 		flag = "! "
 	}
 	parts := []string{fmt.Sprintf("%d unplaced", len(v.Unplaced))}

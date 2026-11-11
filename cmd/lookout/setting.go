@@ -9,6 +9,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/jakewan/lookout/internal/awaiting"
 	"github.com/jakewan/lookout/internal/claudecode"
 	"github.com/jakewan/lookout/internal/config"
 	"github.com/jakewan/lookout/internal/git"
@@ -117,6 +118,10 @@ func readInputs(ctx context.Context, env environment, cfg *config.Config, now ti
 	if err != nil {
 		return nil, err
 	}
+	asks, err := awaiting.NewReader()
+	if err != nil {
+		return nil, err
+	}
 	repos := git.NewReader(env.getenv)
 	sessions := claudecode.NewReader(env.getenv)
 	readings := make(map[string]readout.Reading, len(cfg.Inputs))
@@ -126,6 +131,8 @@ func readInputs(ctx context.Context, env environment, cfg *config.Config, now ti
 		switch in.Kind {
 		case config.KindSupplied:
 			readings[in.Name] = files.Read(ctx, in, now)
+		case config.KindAwaiting:
+			readings[in.Name] = asks.Read(ctx, in, now)
 		case config.KindGit:
 			readings[in.Name] = repos.Read(ctx, in, scope, now)
 		case config.KindGitHub:

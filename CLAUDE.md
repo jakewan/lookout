@@ -10,7 +10,7 @@ It is the data layer: it emits a readout for a renderer to consume. `lookout vie
 
 ## Status and layout
 
-Early. `lookout read --json`, `lookout show`, `lookout view` and `lookout unplaced` report on supplied files, local git repositories, GitHub and Claude Code sessions; `adopt`, `move`, `remove`, `rename`, `order`, `complete` and `delete` edit the configuration file, and `dismiss` writes state, each recording a gesture; `snapshot` records a daily baseline in state.
+Early. `lookout read --json`, `lookout show`, `lookout view` and `lookout unplaced` report on supplied files, local git repositories, GitHub and Claude Code sessions; `read --json` also publishes the replies owed that `awaiting.v1` files supply, whose inputs' health `show` and `view` report though they do not draw the entries yet; `adopt`, `move`, `remove`, `rename`, `order`, `complete` and `delete` edit the configuration file, and `dismiss` writes state, each recording a gesture; `snapshot` records a daily baseline in state.
 
 ```
 cmd/lookout/              # binary entry point and its behavior specs
@@ -21,7 +21,8 @@ internal/github/          # reading owner-fenced pull requests and issues on git
 internal/claudecode/      # reading owner-fenced Claude Code sessions, one item per repository and branch
 internal/execpath/        # finding an executable on the invocation's own PATH
 internal/fsx/             # the one rule filesystem errors are sorted by
-internal/supplied/        # reading a supplied file and judging its input's health
+internal/supplied/        # reading a supplied file and judging its input's health, for every contract sharing its envelope
+internal/awaiting/        # reading a file of replies owed in the awaiting.v1 contract
 internal/health/          # the health record every input reports
 internal/readout/         # assembling the readout, and deciding each workstream's active and behind verdicts
 internal/textview/        # the plain-text view of a readout, read only through its published JSON

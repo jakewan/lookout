@@ -65,6 +65,9 @@ const (
 	// KindSupplied is a file an outside supplier writes in the supplied.v1
 	// contract.
 	KindSupplied = "supplied"
+	// KindAwaiting is a file an outside supplier writes in the awaiting.v1
+	// contract: replies the user owes, which feed no workstream.
+	KindAwaiting = "awaiting"
 	// KindGit is the local branches of git repositories, read live.
 	KindGit = "git"
 	// KindGitHub is pull requests and issues on github.com, read live.
@@ -631,8 +634,17 @@ func parse(data []byte, path string) (*Config, error) {
 		}
 		switch in.Kind {
 		case "":
-			return nil, fmt.Errorf("input %q needs kind: supplied, for a file an outside tool writes, git, for local repositories, github, for pull requests and issues on github.com, or claude_code, for Claude Code sessions", in.Name)
+			return nil, fmt.Errorf("input %q needs kind: supplied, for a file an outside tool writes, awaiting, for a file of replies owed an outside tool writes, git, for local repositories, github, for pull requests and issues on github.com, or claude_code, for Claude Code sessions", in.Name)
 		case KindSupplied:
+		case KindAwaiting:
+			// An awaiting file holds no items, so nothing is offered from it and
+			// an empty one is a quiet day rather than a fault.
+			if in.ExpectRecords {
+				return nil, fmt.Errorf("input %q is kind awaiting, and an empty awaiting file is a quiet day: remove expect_records", in.Name)
+			}
+			if in.Windowed != nil {
+				return nil, fmt.Errorf("input %q is kind awaiting, which offers nothing as unplaced, so windowed applies only to kind supplied: remove it", in.Name)
+			}
 		case KindGit:
 			git, gitErr := gitInput(in, base)
 			if gitErr != nil {
@@ -661,19 +673,19 @@ func parse(data []byte, path string) (*Config, error) {
 			cfg.Inputs = append(cfg.Inputs, sessions)
 			continue
 		default:
-			return nil, fmt.Errorf("input %q kind %q is not one lookout reads: use supplied, git, github or claude_code", in.Name, in.Kind)
+			return nil, fmt.Errorf("input %q kind %q is not one lookout reads: use supplied, awaiting, git, github or claude_code", in.Name, in.Kind)
 		}
 		if len(in.Repos) > 0 {
-			return nil, fmt.Errorf("input %q is kind supplied, so repos applies only to kind git: remove it", in.Name)
+			return nil, fmt.Errorf("input %q is kind %s, so repos applies only to kind git: remove it", in.Name, in.Kind)
 		}
 		if len(in.IgnoreBranches) > 0 {
-			return nil, fmt.Errorf("input %q is kind supplied, so ignore_branches applies only to kinds git and claude_code: remove it", in.Name)
+			return nil, fmt.Errorf("input %q is kind %s, so ignore_branches applies only to kinds git and claude_code: remove it", in.Name, in.Kind)
 		}
 		if len(in.ConfigDirs) > 0 {
-			return nil, fmt.Errorf("input %q is kind supplied, so config_dirs applies only to kind claude_code: remove it", in.Name)
+			return nil, fmt.Errorf("input %q is kind %s, so config_dirs applies only to kind claude_code: remove it", in.Name, in.Kind)
 		}
 		if in.ReposMayBeEmpty != nil {
-			return nil, fmt.Errorf("input %q is kind supplied, so repos_may_be_empty applies only to kind git: remove it", in.Name)
+			return nil, fmt.Errorf("input %q is kind %s, so repos_may_be_empty applies only to kind git: remove it", in.Name, in.Kind)
 		}
 		if in.Supplied == "" {
 			return nil, fmt.Errorf("input %q needs supplied: the path of the file its supplier writes", in.Name)
@@ -727,8 +739,12 @@ func parse(data []byte, path string) (*Config, error) {
 			if !ok || id == "" {
 				return nil, fmt.Errorf("workstream %q member %q must be <input>:<id>", ws.Name, m)
 			}
-			if !slices.ContainsFunc(cfg.Inputs, func(i Input) bool { return i.Name == input }) {
+			at := slices.IndexFunc(cfg.Inputs, func(i Input) bool { return i.Name == input })
+			if at < 0 {
 				return nil, fmt.Errorf("workstream %q member %q names input %q, which the configuration does not list", ws.Name, m, input)
+			}
+			if cfg.Inputs[at].Kind == KindAwaiting {
+				return nil, fmt.Errorf("workstream %q member %q names awaiting input %q, and a reply owed is never a workstream member: remove it", ws.Name, m, input)
 			}
 			member := Member{Input: input, ID: id}
 			if slices.Contains(w.Members, member) {

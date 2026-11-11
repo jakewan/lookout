@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jakewan/lookout/main/schema/awaiting.v1.json",
+  "title": "lookout awaiting file, version 1",
+  "description": "What an outside supplier writes for lookout to read: one input's replies the user owes, each a thread where someone else is waiting on the user's answer, with the supplier's own account of how the fetch went. An entry is not a work item: it never joins a workstream and is never offered for adoption. The supplier reports facts, when the user was last asked and when they last answered, and lookout decides what is still waiting, so answered entries may be listed. A thread the source marks resolved or closed is left out; one it marks open or reopened is listed. An empty awaiting list is a quiet day, not a fault. Entry text comes from whoever wrote the thread, so lookout carries it as untrusted data and every view escapes it. lookout asserts every format keyword, which JSON Schema 2020-12 validators skip by default, so enable format validation when checking against this file. The contract is closed: a field it does not list is a violation. Version 1 gains only optional fields, which a lookout built before a field was added refuses, so update lookout before a supplier writes a new one; any other change is a later version with another name.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "input",
+    "supplier",
+    "fetched_at",
+    "attempted_at",
+    "supplier_status",
+    "awaiting"
+  ],
+  "if": {
+    "required": [
+      "missing_fields"
+    ],
+    "properties": {
+      "missing_fields": {
+        "contains": {
+          "const": "answered_at"
+        }
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "awaiting": {
+        "items": {
+          "properties": {
+            "answered_at": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    }
+  },
+  "properties": {
+    "schema": {
+      "const": "awaiting.v1"
+    },
+    "input": {
+      "description": "The input name the setting's configuration gives this file.",
+      "$ref": "#/$defs/name"
+    },
+    "supplier": {
+      "description": "What wrote the file, for a reader tracing a bad reading back to its source.",
+      "type": "string",
+      "minLength": 1
+    },
+    "fetched_at": {
+      "description": "When the supplier last read its source successfully. lookout measures staleness from this.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "attempted_at": {
+      "description": "When the supplier last tried. Later than fetched_at means the latest attempt failed.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "supplier_status": {
+      "description": "How the supplier's own run went. degraded or error reports a fault, such as a source that refused part of a request. A thread the account cannot see is a standing limit of the source, not a fault in the run.",
+      "enum": [
+        "ok",
+        "degraded",
+        "error"
+      ]
+    },
+    "reason": {
+      "description": "The supplier's explanation of a degraded or error status, or of its missing_fields, for people.",
+      "type": "string"
+    },
+    "missing_fields": {
+      "description": "Fields the supplier failed to fill where its source should have had a value. Any entry makes the input at least degraded. A supplier that cannot read the user's responses at all names answered_at here and must write every answered_at as null, so each entry shows as waiting; a file naming it here with any answered_at set fails this contract. One that reads responses but misses some, such as an answer posted outside its thread, names nothing here: a missed answer shows the entry as still waiting, never hides it.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "awaiting": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    }
+  },
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "kind",
+        "asked_at",
+        "answered_at",
+        "links",
+        "attrs"
+      ],
+      "properties": {
+        "id": {
+          "description": "One per thread and kind, unique within the input, and stable across fetches: a new ask in the same thread keeps the id, so a gesture the user makes on the entry holds until that newer ask. Where the source has no reply link, such as a tracker comment answered by another top-level comment, the issue or page is the thread.",
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "description": "What a person reads to recognize the thread, such as the issue or page it sits on.",
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "description": "Why a reply is owed, free-form so a source may add its own. Known values: review_requested, a review asked of the user; mentioned, a comment naming the user, whether a question or only a mention, which the source cannot tell apart; changes_requested, changes asked on the user's own work; replied, a reviewer's reply in a thread on the user's own work.",
+          "type": "string",
+          "minLength": 1
+        },
+        "asked_at": {
+          "description": "The latest ask to the user in this thread.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "answered_at": {
+          "description": "The user's latest response in this thread, or null for none. A reaction is not a response. lookout counts the entry as waiting while answered_at is null, earlier than asked_at, or ahead of lookout's own clock, which is no evidence of an answer.",
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "subject": {
+          "description": "The item the thread concerns, as <input>:<id>, where another input of the same setting holds it, such as a ticket whose comments the thread sits in. The supplier is told that input's name by configuration. lookout matches the id exactly and points at wherever the item is shown rather than showing it twice.",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]*:.+$"
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "rel",
+              "href"
+            ],
+            "properties": {
+              "rel": {
+                "type": "string",
+                "minLength": 1
+              },
+              "href": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        },
+        "attrs": {
+          "description": "Source-specific detail that has no field of its own.",
+          "type": "object"
+        }
+      }
+    }
+  }
+}
