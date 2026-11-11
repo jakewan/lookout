@@ -66,6 +66,7 @@ type readout struct {
 	Health             []rawHealth `json:"health"`
 	DismissedCount     int         `json:"dismissed_count"`
 	CompletedCount     int         `json:"completed_count"`
+	AwaitingInputs     []string    `json:"awaiting_inputs"`
 }
 
 type rawStream struct {
@@ -280,7 +281,9 @@ func build(data []byte, opts Options) (page, error) {
 	names := make([]string, 0, len(r.Health))
 	for _, h := range r.Health {
 		names = append(names, h.Input)
-		p.AnyUnhealthy = p.AnyUnhealthy || viewrules.Unhealthy(h.Status)
+		// The counts are drawn from every input but the awaiting ones, so only
+		// another input failing can leave them short.
+		p.AnyUnhealthy = p.AnyUnhealthy || (viewrules.Unhealthy(h.Status) && !slices.Contains(r.AwaitingInputs, h.Input))
 		if viewrules.Hidden(h.Status) {
 			continue
 		}

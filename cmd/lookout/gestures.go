@@ -212,8 +212,14 @@ func dismiss(_ context.Context, args []string, env environment, _ io.Writer, dia
 		if err != nil {
 			return err
 		}
-		if !slices.ContainsFunc(cfg.Inputs, func(i config.Input) bool { return i.Name == m.Input }) {
+		at := slices.IndexFunc(cfg.Inputs, func(i config.Input) bool { return i.Name == m.Input })
+		if at < 0 {
 			return config.Refuse("input %q is not in this configuration", m.Input)
+		}
+		// Dismissing says an item is not part of the user's work, which never
+		// answers a reply owed, so it would hide a thread still waiting.
+		if cfg.Inputs[at].Kind == config.KindAwaiting {
+			return config.Refuse("%q is a reply owed from awaiting input %q, which dismiss never hides", g.Item, m.Input)
 		}
 		// A completed workstream's member returns to unplaced once it moves, so
 		// only a live workstream's claim rules a dismissal out.

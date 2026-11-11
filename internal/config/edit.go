@@ -76,8 +76,12 @@ func (d *Document) Adopt(member Member, workstream string, create bool) ([]strin
 	if workstream == "" {
 		return nil, Refuse("a workstream name cannot be empty")
 	}
-	if !slices.ContainsFunc(d.cfg.Inputs, func(i Input) bool { return i.Name == member.Input }) {
+	at := slices.IndexFunc(d.cfg.Inputs, func(i Input) bool { return i.Name == member.Input })
+	if at < 0 {
 		return nil, Refuse("input %q is not in this configuration: add it under inputs first", member.Input)
+	}
+	if d.cfg.Inputs[at].Kind == KindAwaiting {
+		return nil, Refuse("%q is a reply owed from awaiting input %q, which is never a workstream member", token, member.Input)
 	}
 	var from []int
 	for i, w := range d.cfg.Workstreams {
