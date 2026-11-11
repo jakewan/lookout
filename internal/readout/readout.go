@@ -61,10 +61,12 @@ type Awaiting struct {
 	Attrs   json.RawMessage
 }
 
-// waiting reports whether a is still owed: the user has not answered since
-// the latest ask. An answer in the same instant as the ask is the later word.
-func (a Awaiting) waiting() bool {
-	return a.AnsweredAt == nil || a.AnsweredAt.Before(a.AskedAt)
+// waiting reports whether a is still owed as of now: the user has not answered
+// since the latest ask. An answer in the same instant as the ask is the later
+// word. An answer stamped ahead of now, beyond ordinary drift, is no evidence
+// of one, so it never hides the ask; the input's health reports the skew.
+func (a Awaiting) waiting(now time.Time) bool {
+	return a.AnsweredAt == nil || a.AnsweredAt.Before(a.AskedAt) || a.AnsweredAt.After(now.Add(health.ClockTolerance))
 }
 
 // AwaitingEntry is one reply still owed, as the readout publishes it, with
@@ -497,7 +499,7 @@ func Build(cfg *config.Config, readings map[string]Reading, dismissed map[string
 		out.AwaitingInputs = append(out.AwaitingInputs, in.Name)
 		var entries []AwaitingEntry
 		for _, a := range readings[in.Name].Awaiting {
-			if !a.waiting() {
+			if !a.waiting(now) {
 				continue
 			}
 			e := AwaitingEntry{Input: in.Name, ID: a.ID, Title: a.Title, Kind: a.Kind, AskedAt: a.AskedAt.UTC(), Subject: a.Subject, Links: a.Links, Attrs: a.Attrs, Workstreams: make([]string, 0)}

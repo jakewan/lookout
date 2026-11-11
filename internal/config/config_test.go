@@ -31,6 +31,29 @@ func TestNamePatternMatchesTheContract(t *testing.T) {
 			t.Errorf("namePattern = %q, %s $defs.name.pattern = %q", got, contract, doc.Defs.Name.Pattern)
 		}
 	}
+	// An awaiting entry's subject leads with an input name, written out in its
+	// pattern rather than referred to, so it is held to the same rule here.
+	data, err := os.ReadFile("../../schema/awaiting.v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var awaiting struct {
+		Defs struct {
+			Entry struct {
+				Properties struct {
+					Subject struct {
+						Pattern string `json:"pattern"`
+					} `json:"subject"`
+				} `json:"properties"`
+			} `json:"entry"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(data, &awaiting); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := awaiting.Defs.Entry.Properties.Subject.Pattern, strings.TrimSuffix(namePattern.String(), "$")+":.+$"; got != want {
+		t.Errorf("awaiting.v1 subject pattern = %q, want %q", got, want)
+	}
 }
 
 func TestParseReadsExplicitOnly(t *testing.T) {

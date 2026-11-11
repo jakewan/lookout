@@ -150,6 +150,9 @@ func (d *Document) Move(member Member, workstream string, create bool) ([]string
 	if workstream == "" {
 		return nil, Refuse("a workstream name cannot be empty")
 	}
+	if slices.ContainsFunc(d.cfg.Inputs, func(i Input) bool { return i.Name == member.Input && i.Kind == KindAwaiting }) {
+		return nil, Refuse("%q is a reply owed from awaiting input %q, which is never a workstream member", token, member.Input)
+	}
 	idx := slices.IndexFunc(d.cfg.Workstreams, func(w Workstream) bool { return w.Name == workstream })
 	var from []int
 	live, inTarget := false, false

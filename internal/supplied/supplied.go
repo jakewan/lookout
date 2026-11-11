@@ -120,8 +120,8 @@ func (rd *Reader) Read(ctx context.Context, in config.Input, now time.Time) read
 
 // Decoded is what a contract's own decoding of a file that passed its schema
 // hands back for judging: the envelope, how many records the file holds, every
-// record time that a clock running ahead of this machine's would make look
-// fresh, and each record's id.
+// record time that a clock running ahead of this machine's would distort, and
+// each record's id.
 type Decoded struct {
 	Envelope Envelope
 	Count    int

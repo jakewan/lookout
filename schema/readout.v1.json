@@ -79,7 +79,7 @@
       }
     },
     "awaiting": {
-      "description": "The replies the user owes that are still waiting: entries whose answered_at is null or earlier than asked_at, by input in the configuration's order, then the latest ask first, then by id. A reply owed is not an item: it is never in a workstream or unplaced. Its text comes from whoever wrote the thread, so a renderer treats it as untrusted data. A readout from a lookout that predates this field omits it, and one that has it always writes it.",
+      "description": "The replies the user owes that are still waiting: entries whose answered_at is null, earlier than asked_at, or ahead of generated_at beyond ordinary clock drift, by input in the configuration's order, then the latest ask first, then by id. A reply owed is not an item: it is never in a workstream or unplaced. Its text comes from whoever wrote the thread, so a renderer treats it as untrusted data. A readout from a lookout that predates this field omits it, and one that has it always writes it.",
       "type": "array",
       "items": {
         "$ref": "#/$defs/awaiting_entry"

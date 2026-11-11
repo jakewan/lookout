@@ -14,6 +14,31 @@
     "supplier_status",
     "awaiting"
   ],
+  "if": {
+    "required": [
+      "missing_fields"
+    ],
+    "properties": {
+      "missing_fields": {
+        "contains": {
+          "const": "answered_at"
+        }
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "awaiting": {
+        "items": {
+          "properties": {
+            "answered_at": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    }
+  },
   "properties": {
     "schema": {
       "const": "awaiting.v1"
@@ -50,7 +75,7 @@
       "type": "string"
     },
     "missing_fields": {
-      "description": "Fields the supplier failed to fill where its source should have had a value. Any entry makes the input at least degraded. A supplier that cannot read the user's responses at all names answered_at here and writes every answered_at as null, so each entry shows as waiting. One that reads responses but misses some, such as an answer posted outside its thread, names nothing here: a missed answer shows the entry as still waiting, never hides it.",
+      "description": "Fields the supplier failed to fill where its source should have had a value. Any entry makes the input at least degraded. A supplier that cannot read the user's responses at all names answered_at here and must write every answered_at as null, so each entry shows as waiting; a file naming it here with any answered_at set fails this contract. One that reads responses but misses some, such as an answer posted outside its thread, names nothing here: a missed answer shows the entry as still waiting, never hides it.",
       "type": "array",
       "items": {
         "type": "string",
@@ -104,7 +129,7 @@
           "format": "date-time"
         },
         "answered_at": {
-          "description": "The user's latest response in this thread, or null for none. A reaction is not a response. lookout counts the entry as waiting while answered_at is null or earlier than asked_at.",
+          "description": "The user's latest response in this thread, or null for none. A reaction is not a response. lookout counts the entry as waiting while answered_at is null, earlier than asked_at, or ahead of lookout's own clock, which is no evidence of an answer.",
           "anyOf": [
             {
               "type": "string",

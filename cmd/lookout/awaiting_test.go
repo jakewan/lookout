@@ -190,9 +190,14 @@ func TestReadAwaitingHealth(t *testing.T) {
 		{name: "asked in the future", file: awaitingDoc("asks", []any{
 			map[string]any{"id": "T-1", "title": "Q", "kind": "mentioned", "asked_at": future, "answered_at": nil, "links": []any{}, "attrs": map[string]any{}},
 		}, nil), status: "degraded", reasons: []string{"clock_skew"}, waiting: []string{"T-1"}},
+		// An answer stamped ahead of the clock is no evidence of an answer, so
+		// it never hides the ask it would otherwise outdate.
 		{name: "answered in the future", file: awaitingDoc("asks", []any{
 			map[string]any{"id": "T-1", "title": "Q", "kind": "mentioned", "asked_at": stamp(time.Hour), "answered_at": future, "links": []any{}, "attrs": map[string]any{}},
-		}, nil), status: "degraded", reasons: []string{"clock_skew"}},
+		}, nil), status: "degraded", reasons: []string{"clock_skew"}, waiting: []string{"T-1"}},
+		{name: "answered within clock tolerance", file: awaitingDoc("asks", []any{
+			map[string]any{"id": "T-1", "title": "Q", "kind": "mentioned", "asked_at": stamp(time.Hour), "answered_at": now.Add(time.Minute).Format(time.RFC3339), "links": []any{}, "attrs": map[string]any{}},
+		}, nil), status: "ok"},
 		{name: "duplicate id", file: awaitingDoc("asks", []any{
 			entry("T-1", "mentioned", time.Hour, nil, nil), entry("T-1", "replied", 2*time.Hour, nil, nil),
 		}, nil), status: "degraded", reasons: []string{"duplicate_id"}, waiting: []string{"T-1", "T-1"}},
@@ -200,6 +205,11 @@ func TestReadAwaitingHealth(t *testing.T) {
 		// entry then shows as waiting rather than quietly answered.
 		{name: "responses unreadable", file: awaitingDoc("asks", one, map[string]any{"missing_fields": []any{"answered_at"}}),
 			status: "degraded", reasons: []string{"missing_fields"}, missing: []string{"answered_at"}, waiting: []string{"T-1"}},
+		// Claiming responses unreadable while writing one would let it hide an
+		// ask the claim says should show.
+		{name: "responses unreadable yet one written", file: awaitingDoc("asks", []any{
+			entry("T-1", "mentioned", 2*time.Hour, ago(time.Hour), nil),
+		}, map[string]any{"missing_fields": []any{"answered_at"}}), status: "degraded", reasons: []string{"schema"}},
 		{name: "an entry without a title", file: awaitingDoc("asks", []any{
 			map[string]any{"id": "T-1", "kind": "mentioned", "asked_at": stamp(time.Hour), "answered_at": nil, "links": []any{}, "attrs": map[string]any{}},
 		}, nil), status: "degraded", reasons: []string{"schema"}},
@@ -330,8 +340,8 @@ func TestGesturesRefuseARepliesOwedEntry(t *testing.T) {
 			if got := f.config("personal.yml"); got != withAsksHandWritten {
 				t.Errorf("configuration changed by a refused %s:\n%s", args[0], got)
 			}
-			if gs := f.gestures("personal"); len(gs) != 1 || gs[0].Outcome != "refused" || gs[0].Reason == "" {
-				t.Errorf("gestures = %+v, want one refused gesture with its reason", gs)
+			if gs := f.gestures("personal"); len(gs) != 1 || gs[0].Outcome != "refused" || !strings.Contains(gs[0].Reason, "reply owed") {
+				t.Errorf("gestures = %+v, want one refused gesture saying it is a reply owed", gs)
 			}
 		})
 	}
