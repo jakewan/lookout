@@ -6,7 +6,7 @@
 <meta name="referrer" content="no-referrer">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>lookout</title>
+<title>example &middot; lookout</title>
 <style>
 :root {
   --bg: #fbfbfa; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --rule: #e4e3df;
