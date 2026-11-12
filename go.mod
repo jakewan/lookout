@@ -1,6 +1,6 @@
 module github.com/jakewan/lookout
 
-go 1.27.3
+go 1.27.4
 
 // The page's npm tools install here; ./... patterns must not reach any Go
 // source a package ships.
