@@ -5,6 +5,11 @@ import { cspViolations, pageURL, showLists, watchPolicy } from "./support.js";
 
 watchPolicy();
 
+test("names its setting first in the browser tab", async ({ page }) => {
+  await page.goto(pageURL("busy"));
+  await expect(page).toHaveTitle("example · lookout");
+});
+
 test.describe("the overview", () => {
   test("lists every workstream in stated order, by title with its id beside it, or by its id", async ({ page }) => {
     await page.goto(pageURL("busy"));

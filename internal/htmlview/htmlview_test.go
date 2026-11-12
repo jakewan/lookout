@@ -565,14 +565,28 @@ func TestTheStylesheetCannotCloseItsElement(t *testing.T) {
 	}
 }
 
-func TestTheTitleNamesNoSettingOrWorkstream(t *testing.T) {
+func TestTheTitleNamesTheSettingAndNoWorkstream(t *testing.T) {
 	out := render(t, busy(t))
-	if !strings.Contains(out, "<title>lookout</title>") {
-		t.Error("the title is not the generic one")
+	if !strings.Contains(out, "<title>example &middot; lookout</title>") {
+		t.Error("the title does not lead with the setting")
 	}
 	// A workstream's own title is no more fit for the browser tab than its id.
 	if strings.Contains(out, "<title>Billing") {
 		t.Error("a workstream title reached the page's title")
+	}
+}
+
+// Render does not check the setting's name; its caller does. The title
+// still shows whatever name it is given rather than obeying it.
+func TestTheSettingIsShownInTheTitleNotObeyed(t *testing.T) {
+	doc := busy(t)
+	doc["setting"] = "</title><b>x"
+	out := render(t, doc)
+	if strings.Contains(out, "<b>x") {
+		t.Error("markup in the setting reached the page unescaped")
+	}
+	if !strings.Contains(out, "<title>&lt;/title&gt;&lt;b&gt;x &middot; lookout</title>") {
+		t.Error("the setting is not shown escaped in the title")
 	}
 }
 
