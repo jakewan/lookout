@@ -577,7 +577,8 @@ func TestTheTitleNamesTheSettingAndNoWorkstream(t *testing.T) {
 }
 
 // Render does not check the setting's name; its caller does. The title
-// still shows whatever name it is given rather than obeying it.
+// still shows the name it is given, cleaned as every view cleans one,
+// rather than obeying it.
 func TestTheSettingIsShownInTheTitleNotObeyed(t *testing.T) {
 	doc := busy(t)
 	doc["setting"] = "</title><b>x"

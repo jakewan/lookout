@@ -6,7 +6,7 @@
 <meta name="referrer" content="no-referrer">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{.Setting}} &middot; lookout</title>{{/* The setting leads, unlike the header: a browser cuts a narrowed tab's title from the end, and the setting is what tells two pages apart. */}}
+<title>{{.Setting}} &middot; lookout</title>{{/* The setting leads because it is what tells two pages apart, and Chromium and Firefox shorten a narrowed tab's title at its end. Were a browser to shorten from the start instead, the order would only stop helping there; nothing breaks. */}}
 <style>
 {{style}}</style>
 </head>
