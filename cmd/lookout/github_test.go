@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -896,6 +897,41 @@ func TestReadGitHubHealth(t *testing.T) {
 				t.Errorf("fetched_at = %v, want set: %v", h.FetchedAt, tc.fetched)
 			}
 		})
+	}
+}
+
+// TestReadSaysWhenItWaitsForTheNetwork pins a run that starts before the
+// network is up and stays that way: it says on stderr, once, that it is
+// waiting, then reports the input failed with what failed, and stdout stays
+// the readout alone.
+func TestReadSaysWhenItWaitsForTheNetwork(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", githubOnly)
+	f.withGitHub()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.api = "http://" + l.Addr().String() + "/graphql"
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := f.run("read", "--json")
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	validate(t, "readout.v1", stdout)
+	var doc readoutDoc
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatal(err)
+	}
+	h := doc.health(t, "hub")
+	if h.Status != "error" || !slices.Equal(h.Reasons, []string{"github_failed"}) || !slices.Contains(h.Details, "github.com refused the connection") {
+		t.Errorf("health = %+v, want error github_failed saying the connection was refused", h)
+	}
+	if n := strings.Count(stderr, "lookout: waiting for the network before reading github.com\n"); n != 1 {
+		t.Errorf("stderr = %q, want the waiting line once", stderr)
 	}
 }
 

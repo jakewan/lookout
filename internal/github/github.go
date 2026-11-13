@@ -6,16 +6,21 @@ package github
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
+	"net"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jakewan/lookout/internal/config"
@@ -54,6 +59,12 @@ const (
 	keyText       = 256
 	ghTimeout     = 10 * time.Second
 	httpTimeout   = 30 * time.Second
+	// dialTimeout ends a connection attempt well before httpTimeout would, so
+	// a connect that hangs, as one into a network still coming up can, is
+	// seen as a dial that failed: net/http replaces the error a client
+	// timeout ends with by one that carries only its text, which says nothing
+	// of whether github.com was ever reached.
+	dialTimeout = 5 * time.Second
 	// maxResponse bounds what lookout reads of one response.
 	maxResponse = 16 << 20
 )
@@ -66,16 +77,44 @@ type Reader struct {
 	missing string // why there is no gh, when there is none
 	api     string
 	client  *http.Client
+	notice  *log.Logger
 
 	asked    bool
 	token    string
 	tokenErr string
+
+	// waits are the pauses taken before trying again a request the network
+	// was not ready for. They are spent once per invocation, not once per
+	// request: deadline, set at the first such failure, is where their sum
+	// runs out, and answered ends them early, since once github.com has
+	// answered, a failure is no longer the network coming up.
+	waits    []time.Duration
+	waited   int
+	deadline time.Time
+	answered bool
 }
 
-// NewReader finds gh on the invocation's PATH and sends queries to api.
-func NewReader(getenv func(string) string, api string) *Reader {
-	r := &Reader{getenv: getenv, api: api, client: &http.Client{
-		Timeout: httpTimeout,
+// settleWaits are the waits a reader is given when its caller names none:
+// long enough to cover a network that comes up a few seconds after a run
+// starts, as at login or on resume, and short enough that a command run
+// with no network still answers.
+var settleWaits = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}
+
+// NewReader finds gh on the invocation's PATH and sends queries to api. A
+// request the network was not ready for is tried again after each of waits,
+// or of settleWaits where waits is nil, and the first wait is announced on
+// notice.
+func NewReader(getenv func(string) string, api string, notice io.Writer, waits []time.Duration) *Reader {
+	if waits == nil {
+		waits = settleWaits
+	}
+	// The reader keeps net/http's default transport, proxy settings included,
+	// changing only how long a dial may take.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = (&net.Dialer{Timeout: dialTimeout}).DialContext
+	r := &Reader{getenv: getenv, api: api, notice: log.New(notice, "", 0), waits: waits, client: &http.Client{
+		Timeout:   httpTimeout,
+		Transport: transport,
 		// A redirect is answered as the response it is, never followed, so
 		// the token goes to the one endpoint lookout names and nowhere else.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
@@ -759,6 +798,10 @@ func unreadable() *failure {
 	return &failure{health.GitHubFailed, "github.com sent a response lookout could not read"}
 }
 
+func interrupted() *failure {
+	return &failure{health.GitHubFailed, "github.com: interrupted"}
+}
+
 // query sends one GraphQL request and decodes its data into into. A failure
 // is a request that gave no answer; errs are what an answered request
 // reported alongside its data.
@@ -780,12 +823,24 @@ func (r *Reader) query(ctx context.Context, token, query string, vars map[string
 	// baseline stored from changing under it.
 	req.Header.Set("X-Github-Next-Global-ID", "1")
 	resp, err := r.client.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, &failure{health.GitHubFailed, "github.com: interrupted"}
+	for err != nil {
+		f, notReady := transportFailure(ctx, err, r.client.Timeout)
+		if !notReady {
+			return nil, f
 		}
-		return nil, &failure{health.GitHubFailed, "github.com could not be reached"}
+		if !r.wait(ctx) {
+			if ctx.Err() != nil {
+				return nil, interrupted()
+			}
+			return nil, f
+		}
+		// A request that was sent has had its body read, so each attempt
+		// carries a fresh one.
+		req = req.Clone(ctx)
+		req.Body = io.NopCloser(bytes.NewReader(body))
+		resp, err = r.client.Do(req)
 	}
+	r.answered = true
 	data, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponse))
 	if closeErr := resp.Body.Close(); readErr == nil {
 		readErr = closeErr
@@ -794,6 +849,16 @@ func (r *Reader) query(ctx context.Context, token, query string, vars map[string
 		return nil, f
 	}
 	if readErr != nil {
+		timedOut, _ := errors.AsType[interface {
+			error
+			Timeout() bool
+		}](readErr)
+		switch {
+		case ctx.Err() != nil:
+			return nil, interrupted()
+		case timedOut != nil && timedOut.Timeout():
+			return nil, &failure{health.GitHubFailed, "github.com: response not finished within " + r.client.Timeout.String()}
+		}
 		return nil, unreadable()
 	}
 	var doc struct {
@@ -817,6 +882,129 @@ func (r *Reader) query(ctx context.Context, token, query string, vars map[string
 		return nil, unreadable()
 	}
 	return slices.DeleteFunc(doc.Errors, gqlError.aboutParent), nil
+}
+
+// wait pauses before a request the network was not ready for is tried again,
+// and reports whether to try it. No attempt starts once the deadline has
+// passed, and the time attempts take counts against it, so a resolver or a
+// dial that is slow to fail does not stretch the waits; an attempt already
+// under way still runs to its own limit.
+func (r *Reader) wait(ctx context.Context) bool {
+	if r.answered || r.waited == len(r.waits) {
+		return false
+	}
+	now := time.Now()
+	if r.deadline.IsZero() {
+		var total time.Duration
+		for _, w := range r.waits {
+			total += w
+		}
+		r.deadline = now.Add(total)
+		r.notice.Print("lookout: waiting for the network before reading github.com")
+	}
+	left := r.deadline.Sub(now)
+	if left <= 0 {
+		return false
+	}
+	pause := min(r.waits[r.waited], left)
+	r.waited++
+	timer := time.NewTimer(pause)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+// transportFailure names why a request got no response, and reports whether
+// it is a network not ready yet: a name that does not resolve, a connection
+// refused, no route, or a dial that does not finish, any of which can clear
+// within seconds of a run that started as the network came up. A TLS
+// failure, or no answer from a connection that was made, is not.
+func transportFailure(ctx context.Context, err error, timeout time.Duration) (*failure, bool) {
+	fail := func(detail string) *failure { return &failure{health.GitHubFailed, detail} }
+	if ctx.Err() != nil {
+		return interrupted(), false
+	}
+	// TLS is checked first: a handshake with github.com made through a
+	// proxy's tunnel fails wrapped as the proxy's error.
+	if tlsFailed(err) {
+		return fail("github.com: TLS failed"), false
+	}
+	kind := notReadyKind(err)
+	switch {
+	case hasOp(err, "proxyconnect") && kind != "":
+		return fail("the proxy to github.com could not be reached"), true
+	case hasOp(err, "proxyconnect"):
+		return fail("the proxy to github.com failed"), false
+	case kind != "":
+		return fail("github.com" + kind), true
+	}
+	if u, ok := errors.AsType[*url.Error](err); ok && u.Timeout() {
+		return fail("github.com: no answer within " + timeout.String()), false
+	}
+	return fail("github.com could not be reached"), false
+}
+
+// notReadyKind completes a detail naming a network not ready yet, or is empty
+// where err is not one.
+func notReadyKind(err error) string {
+	if _, ok := errors.AsType[*net.DNSError](err); ok {
+		return ": name not resolved"
+	}
+	switch {
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return " refused the connection"
+	case errors.Is(err, syscall.ENETUNREACH), errors.Is(err, syscall.EHOSTUNREACH),
+		errors.Is(err, syscall.ENETDOWN), errors.Is(err, syscall.EHOSTDOWN),
+		errors.Is(err, syscall.EADDRNOTAVAIL):
+		return ": no route to it"
+	}
+	if op, ok := errors.AsType[*net.OpError](err); ok && op.Op == "dial" && op.Timeout() {
+		return ": no connection within " + dialTimeout.String()
+	}
+	return ""
+}
+
+// tlsFailed reports a failure of TLS itself: a certificate not trusted, a
+// reply that is not TLS, an alert the server sent, or a handshake that took
+// too long.
+func tlsFailed(err error) bool {
+	if _, ok := errors.AsType[*tls.CertificateVerificationError](err); ok {
+		return true
+	}
+	if _, ok := errors.AsType[tls.RecordHeaderError](err); ok {
+		return true
+	}
+	if hasOp(err, "remote error") {
+		return true
+	}
+	// net/http reports its own handshake timeout as an unexported error with
+	// this text (net/http's transport.go). Were the text to change, such a
+	// timeout would be named as no answer within the client's timeout.
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		if e.Error() == "net/http: TLS handshake timeout" {
+			return true
+		}
+	}
+	return false
+}
+
+// hasOp reports whether err wraps a *net.OpError for op. errors.As stops at
+// the outermost one, and a proxy's dial wraps the dial's own inside it.
+func hasOp(err error, op string) bool {
+	for {
+		o, ok := errors.AsType[*net.OpError](err)
+		switch {
+		case !ok:
+			return false
+		case o.Op == op:
+			return true
+		}
+		err = o.Err
+	}
 }
 
 // classify reads a response's status. GitHub signals a rate limit as 429, or

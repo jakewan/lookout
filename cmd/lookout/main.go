@@ -47,8 +47,14 @@ type environment struct {
 	// read from the environment or the configuration, where one line could
 	// send the github.com token to another host.
 	github string
+	// githubWaits are the pauses before a GitHub request the network was not
+	// ready for is tried again; nil takes the reader's own.
+	githubWaits []time.Duration
 	// stdin is read only where a command's arguments name it, as `-`.
 	stdin io.Reader
+	// stderr is where a reader says what it is waiting on; run sets it to
+	// the invocation's diagnostics.
+	stderr io.Writer
 }
 
 func main() {
@@ -67,6 +73,7 @@ func main() {
 // stops the reading of inputs.
 func run(ctx context.Context, args []string, env environment, stdout, stderr io.Writer) int {
 	diag := log.New(stderr, "", 0)
+	env.stderr = stderr
 	if len(args) == 0 {
 		diag.Print(usage)
 		return exitUsage
