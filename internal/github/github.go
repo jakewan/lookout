@@ -891,10 +891,11 @@ func (r *Reader) query(ctx context.Context, token, query string, vars map[string
 }
 
 // wait pauses before a request the network was not ready for is tried again,
-// and reports whether to try it. No attempt starts once the deadline has
-// passed, and the time attempts take counts against it, so a resolver or a
-// dial that is slow to fail does not stretch the waits; an attempt already
-// under way still runs to its own limit.
+// and reports whether to try it. The time attempts take counts against the
+// deadline, so a resolver or a dial that is slow to fail does not stretch the
+// waits. A pause longer than the time left is cut to end at the deadline, so
+// a network still coming up gets one last attempt there; none starts after
+// it, and that last attempt runs to its own limit.
 func (r *Reader) wait(ctx context.Context) bool {
 	if r.answered || r.waited == len(r.waits) {
 		return false

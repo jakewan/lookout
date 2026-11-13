@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -98,16 +99,22 @@ func read(ctx context.Context, r *Reader) readout.Reading {
 }
 
 // flaky fails the attempts fail says to with err, after delay, and sends the
-// rest through next.
+// rest through next. starts records when each attempt began.
 type flaky struct {
 	next     http.RoundTripper
 	fail     func(attempt int) bool
 	err      error
 	delay    time.Duration
 	attempts atomic.Int32
+
+	mu     sync.Mutex
+	starts []time.Time
 }
 
 func (f *flaky) RoundTrip(req *http.Request) (*http.Response, error) {
+	f.mu.Lock()
+	f.starts = append(f.starts, time.Now())
+	f.mu.Unlock()
 	n := int(f.attempts.Add(1))
 	if f.fail(n) {
 		time.Sleep(f.delay)
@@ -207,6 +214,38 @@ func TestTimeSpentInAttemptsCountsAgainstTheWaits(t *testing.T) {
 	// pauses would try the first request once per wait.
 	if n := fl.attempts.Load(); n >= int32(len(waits)) {
 		t.Errorf("attempts = %d, want the deadline to end the retries well before every wait is taken", n)
+	}
+}
+
+// TestTheLastAttemptStartsAtTheDeadline pins the boundary of the waits: a
+// pause longer than the time left is cut to end at the deadline, one last
+// attempt starts there, and none starts after it.
+func TestTheLastAttemptStartsAtTheDeadline(t *testing.T) {
+	// Each attempt takes 100ms to fail. The first sets the deadline 310ms on;
+	// the second starts 10ms later and fails with 200ms left, so the 300ms
+	// pause is cut to those 200ms, and a third attempt starts at the
+	// deadline. Not cutting it would start the third 100ms late; stopping
+	// at the deadline would leave no third at all.
+	r, _ := testReader("http://"+closedAddress(t)+"/graphql", 10*time.Millisecond, 300*time.Millisecond)
+	fl := &flaky{next: r.client.Transport, fail: func(int) bool { return true }, err: refusal(t), delay: 100 * time.Millisecond}
+	r.client.Transport = fl
+
+	var into any
+	_, f := r.query(t.Context(), r.token, "query { viewer { login } }", nil, &into)
+	if f == nil || f.detail != "github.com refused the connection" {
+		t.Fatalf("failure = %+v, want the refusal", f)
+	}
+	if len(fl.starts) != 3 {
+		t.Fatalf("attempts = %d, want 3", len(fl.starts))
+	}
+	for _, s := range fl.starts[:2] {
+		if !s.Before(r.deadline) {
+			t.Errorf("an attempt before the last started %s after the deadline", s.Sub(r.deadline))
+		}
+	}
+	last := fl.starts[2]
+	if last.Before(r.deadline) || last.Sub(r.deadline) > 50*time.Millisecond {
+		t.Errorf("last attempt started %s from the deadline, want at it", last.Sub(r.deadline))
 	}
 }
 
