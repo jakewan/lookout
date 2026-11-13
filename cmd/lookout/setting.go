@@ -83,7 +83,7 @@ func readSetting(ctx context.Context, env environment, setting string) (reading,
 		return reading{}, again, err
 	}
 	now := env.now()
-	hub := github.NewReader(env.getenv, env.github)
+	hub := github.NewReader(env.getenv, env.github, env.stderr, env.githubWaits)
 	readings, err := readInputs(ctx, env, cfg, now, hub)
 	if err != nil {
 		return reading{}, false, err

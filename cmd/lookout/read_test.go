@@ -79,6 +79,9 @@ func (f *fixture) runIn(ctx context.Context, args ...string) (int, string, strin
 		now:    func() time.Time { return f.clock },
 		github: f.api,
 		stdin:  strings.NewReader(f.stdin),
+		// A spec whose network is not ready should not sit through the
+		// waits a real one is given.
+		githubWaits: []time.Duration{time.Millisecond},
 	}
 	code := run(ctx, args, e, &stdout, &stderr)
 	return code, stdout.String(), stderr.String()
