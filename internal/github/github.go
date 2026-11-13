@@ -84,8 +84,8 @@ type Reader struct {
 	tokenErr string
 
 	// waits are the pauses taken before trying again a request the network
-	// was not ready for. They are spent once per invocation, not once per
-	// request: deadline, set at the first such failure, is where their sum
+	// was not ready for. They are spent once per reader, which serves every
+	// github input of one read, not once per request: deadline, set at the first such failure, is where their sum
 	// runs out, and answered ends them early, since once github.com has
 	// answered, a failure is no longer the network coming up.
 	waits    []time.Duration
@@ -109,7 +109,7 @@ func NewReader(getenv func(string) string, api string, notice io.Writer, waits [
 		waits = settleWaits
 	}
 	// The reader keeps net/http's default transport, proxy settings included,
-	// changing only how long a dial may take.
+	// with a dialer of its own bounding how long a dial may take.
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = (&net.Dialer{Timeout: dialTimeout}).DialContext
 	r := &Reader{getenv: getenv, api: api, notice: log.New(notice, "", 0), waits: waits, client: &http.Client{
@@ -928,17 +928,21 @@ func transportFailure(ctx context.Context, err error, timeout time.Duration) (*f
 	if ctx.Err() != nil {
 		return interrupted(), false
 	}
-	// TLS is checked first: a handshake with github.com made through a
-	// proxy's tunnel fails wrapped as the proxy's error.
-	if tlsFailed(err) {
-		return fail("github.com: TLS failed"), false
-	}
+	// net/http wraps what fails between lookout and a proxy, its dial and a
+	// TLS handshake with the proxy itself, as a proxyconnect error, and
+	// returns failures past it, such as the handshake with github.com through
+	// the proxy's tunnel, unwrapped (net/http's transport.go, dialConn).
 	kind := notReadyKind(err)
+	proxy := findOp(err, "proxyconnect") != nil
 	switch {
-	case hasOp(err, "proxyconnect") && kind != "":
+	case proxy && tlsFailed(err):
+		return fail("the proxy to github.com: TLS failed"), false
+	case proxy && kind != "":
 		return fail("the proxy to github.com could not be reached"), true
-	case hasOp(err, "proxyconnect"):
+	case proxy:
 		return fail("the proxy to github.com failed"), false
+	case tlsFailed(err):
+		return fail("github.com: TLS failed"), false
 	case kind != "":
 		return fail("github.com" + kind), true
 	}
@@ -962,7 +966,7 @@ func notReadyKind(err error) string {
 		errors.Is(err, syscall.EADDRNOTAVAIL):
 		return ": no route to it"
 	}
-	if op, ok := errors.AsType[*net.OpError](err); ok && op.Op == "dial" && op.Timeout() {
+	if op := findOp(err, "dial"); op != nil && op.Timeout() {
 		return ": no connection within " + dialTimeout.String()
 	}
 	return ""
@@ -978,7 +982,7 @@ func tlsFailed(err error) bool {
 	if _, ok := errors.AsType[tls.RecordHeaderError](err); ok {
 		return true
 	}
-	if hasOp(err, "remote error") {
+	if findOp(err, "remote error") != nil {
 		return true
 	}
 	// net/http reports its own handshake timeout as an unexported error with
@@ -992,16 +996,17 @@ func tlsFailed(err error) bool {
 	return false
 }
 
-// hasOp reports whether err wraps a *net.OpError for op. errors.As stops at
-// the outermost one, and a proxy's dial wraps the dial's own inside it.
-func hasOp(err error, op string) bool {
+// findOp is the *net.OpError for op that err wraps, or nil. errors.As stops at
+// the outermost one, and net/http wraps a failure on the way to a proxy, its
+// dial among them, in one of its own.
+func findOp(err error, op string) *net.OpError {
 	for {
 		o, ok := errors.AsType[*net.OpError](err)
 		switch {
 		case !ok:
-			return false
+			return nil
 		case o.Op == op:
-			return true
+			return o
 		}
 		err = o.Err
 	}

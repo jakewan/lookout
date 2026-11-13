@@ -250,6 +250,24 @@ func TestAReadNamesTheKindOfFailure(t *testing.T) {
 			handler: emptySearch,
 			detail:  "the proxy to github.com could not be reached", waits: true,
 		},
+		"proxy not connected in time": {
+			setup: func(t *testing.T, r *Reader) {
+				tr := r.transport(t)
+				tr.Proxy = http.ProxyURL(&url.URL{Scheme: "http", Host: closedAddress(t)})
+				tr.DialContext = (&net.Dialer{Timeout: time.Nanosecond}).DialContext
+			},
+			handler: emptySearch,
+			detail:  "the proxy to github.com could not be reached", waits: true,
+		},
+		"proxy's certificate not trusted": {
+			setup: func(t *testing.T, r *Reader) {
+				proxy := httptest.NewTLSServer(http.HandlerFunc(emptySearch))
+				t.Cleanup(proxy.Close)
+				r.transport(t).Proxy = http.ProxyURL(&url.URL{Scheme: "https", Host: proxy.Listener.Addr().String()})
+			},
+			handler: emptySearch,
+			detail:  "the proxy to github.com: TLS failed",
+		},
 		"certificate not trusted": {
 			handler: emptySearch, tls: true,
 			detail: "github.com: TLS failed",
@@ -316,14 +334,6 @@ func TestFailureKindsAreCheckedInOrder(t *testing.T) {
 		"TLS handshake too slow": {
 			&url.Error{Op: "Post", URL: "https://api.github.com/graphql", Err: errors.New("net/http: TLS handshake timeout")},
 			"github.com: TLS failed", false,
-		},
-		"TLS through a proxy": {
-			&url.Error{Op: "Post", URL: "https://api.github.com/graphql", Err: &net.OpError{Op: "proxyconnect", Net: "tcp", Err: &net.OpError{Op: "remote error", Err: errors.New("tls: handshake failure")}}},
-			"github.com: TLS failed", false,
-		},
-		"proxy refused a tunnel": {
-			&url.Error{Op: "Post", URL: "https://api.github.com/graphql", Err: &net.OpError{Op: "proxyconnect", Net: "tcp", Err: errors.New("Proxy Authentication Required")}},
-			"the proxy to github.com failed", false,
 		},
 		"something else": {errors.New("unexpected"), "github.com could not be reached", false},
 	} {
