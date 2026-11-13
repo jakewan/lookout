@@ -64,11 +64,18 @@ func refusal(t *testing.T) error {
 }
 
 // testReader is a reader holding a token, sending queries to api, waiting
-// waits before retrying, and writing its notices to the returned buffer.
+// waits before retrying, and writing its notices to the returned buffer. It
+// uses no proxy, whatever the environment running the specs names, so a spec
+// reaches only what it set up; one about a proxy installs its own.
 func testReader(api string, waits ...time.Duration) (*Reader, *bytes.Buffer) {
 	var notice bytes.Buffer
 	r := NewReader(func(string) string { return "" }, api, &notice, waits)
 	r.asked, r.token = true, "fixture-token-not-a-secret"
+	tr, ok := r.client.Transport.(*http.Transport)
+	if !ok {
+		panic("the reader's transport is not an *http.Transport")
+	}
+	tr.Proxy = nil
 	return r, &notice
 }
 
