@@ -114,6 +114,22 @@ func (f *flaky) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f.next.RoundTrip(req)
 }
 
+// connectProxy routes the reader through a proxy that answers every CONNECT
+// with status, as one that cannot or will not open a tunnel does.
+func connectProxy(status int) func(*testing.T, *Reader) {
+	return func(t *testing.T, r *Reader) {
+		t.Helper()
+		proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if req.Method != http.MethodConnect {
+				t.Errorf("proxy got %s, want CONNECT", req.Method)
+			}
+			w.WriteHeader(status)
+		}))
+		t.Cleanup(proxy.Close)
+		r.transport(t).Proxy = http.ProxyURL(&url.URL{Scheme: "http", Host: proxy.Listener.Addr().String()})
+	}
+}
+
 func wantHealth(t *testing.T, got readout.Reading, status, detail string) {
 	t.Helper()
 	h := got.Health
@@ -259,6 +275,16 @@ func TestAReadNamesTheKindOfFailure(t *testing.T) {
 			handler: emptySearch,
 			detail:  "the proxy to github.com could not be reached", waits: true,
 		},
+		"proxy cannot reach github.com yet": {
+			api:    "https://lookout-spec.invalid/graphql",
+			setup:  connectProxy(http.StatusBadGateway),
+			detail: "the proxy to github.com answered 502", waits: true,
+		},
+		"proxy refuses the tunnel": {
+			api:    "https://lookout-spec.invalid/graphql",
+			setup:  connectProxy(http.StatusProxyAuthRequired),
+			detail: "the proxy to github.com answered 407",
+		},
 		"proxy's certificate not trusted": {
 			setup: func(t *testing.T, r *Reader) {
 				proxy := httptest.NewTLSServer(http.HandlerFunc(emptySearch))
@@ -310,7 +336,9 @@ func TestAReadNamesTheKindOfFailure(t *testing.T) {
 
 // TestFailureKindsAreCheckedInOrder pins which kind wins where an error
 // carries several, and names the kinds no spec above can produce on demand,
-// in the shapes the standard library builds them.
+// in the shapes the standard library builds them. The handshake timeout is
+// stood in for by its text, the only part of it lookout can read, and the
+// last case by any error lookout does not recognize.
 func TestFailureKindsAreCheckedInOrder(t *testing.T) {
 	dial := func(err error) error {
 		return &url.Error{Op: "Post", URL: "https://api.github.com/graphql", Err: &net.OpError{Op: "dial", Net: "tcp", Err: err}}

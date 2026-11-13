@@ -112,6 +112,12 @@ func NewReader(getenv func(string) string, api string, notice io.Writer, waits [
 	// with a dialer of its own bounding how long a dial may take.
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = (&net.Dialer{Timeout: dialTimeout}).DialContext
+	transport.OnProxyConnectResponse = func(_ context.Context, _ *url.URL, _ *http.Request, resp *http.Response) error {
+		if resp.StatusCode != http.StatusOK {
+			return &proxyAnswer{status: resp.StatusCode}
+		}
+		return nil
+	}
 	r := &Reader{getenv: getenv, api: api, notice: log.New(notice, "", 0), waits: waits, client: &http.Client{
 		Timeout:   httpTimeout,
 		Transport: transport,
@@ -932,6 +938,16 @@ func transportFailure(ctx context.Context, err error, timeout time.Duration) (*f
 	// TLS handshake with the proxy itself, as a proxyconnect error, and
 	// returns failures past it, such as the handshake with github.com through
 	// the proxy's tunnel, unwrapped (net/http's transport.go, dialConn).
+	if a, ok := errors.AsType[*proxyAnswer](err); ok {
+		detail := "the proxy to github.com answered " + strconv.Itoa(a.status)
+		switch a.status {
+		case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			// The proxy is up but cannot reach github.com, as one beyond a
+			// network still coming up cannot.
+			return fail(detail), true
+		}
+		return fail(detail), false
+	}
 	kind := notReadyKind(err)
 	proxy := findOp(err, "proxyconnect") != nil
 	switch {
@@ -994,6 +1010,17 @@ func tlsFailed(err error) bool {
 		}
 	}
 	return false
+}
+
+// proxyAnswer is a proxy's refusal to open a tunnel to github.com. net/http
+// reports one only as its status text, so the reader's transport records the
+// status itself.
+type proxyAnswer struct {
+	status int
+}
+
+func (a *proxyAnswer) Error() string {
+	return "proxy answered " + strconv.Itoa(a.status)
 }
 
 // findOp is the *net.OpError for op that err wraps, or nil. errors.As stops at
