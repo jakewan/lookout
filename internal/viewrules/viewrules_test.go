@@ -2,22 +2,20 @@ package viewrules
 
 import "testing"
 
-func ptr(v int64) *int64 { return &v }
-
 func TestAgeIsTheLargestWholeUnitFloored(t *testing.T) {
 	for _, tc := range []struct {
 		idle *int64
 		want string
 	}{
 		{nil, "--"},
-		{ptr(0), "0s"},
-		{ptr(59), "59s"},
-		{ptr(60), "1m"},
-		{ptr(60*60 - 1), "59m"},
-		{ptr(60 * 60), "1h"},
-		{ptr(24*60*60 - 1), "23h"},
-		{ptr(24 * 60 * 60), "1d"},
-		{ptr(400 * 24 * 60 * 60), "400d"},
+		{new(int64(0)), "0s"},
+		{new(int64(59)), "59s"},
+		{new(int64(60)), "1m"},
+		{new(int64(60*60 - 1)), "59m"},
+		{new(int64(60 * 60)), "1h"},
+		{new(int64(24*60*60 - 1)), "23h"},
+		{new(int64(24 * 60 * 60)), "1d"},
+		{new(int64(400 * 24 * 60 * 60)), "400d"},
 	} {
 		if got := Age(tc.idle); got != tc.want {
 			t.Errorf("Age(%v) = %q, want %q", tc.idle, got, tc.want)
@@ -35,8 +33,8 @@ func TestMarkerTellsUnreadFromStale(t *testing.T) {
 		want   string
 	}{
 		{"nothing read", nil, false, Unread},
-		{"active", ptr(50), true, ""},
-		{"read but not active", ptr(100), false, Stale},
+		{"active", new(int64(50)), true, ""},
+		{"read but not active", new(int64(100)), false, Stale},
 	} {
 		if got := Marker(tc.idle, tc.active); got != tc.want {
 			t.Errorf("%s: Marker = %q, want %q", tc.name, got, tc.want)

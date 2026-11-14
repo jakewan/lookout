@@ -27,8 +27,6 @@ func entry(id, kind string, asked time.Duration, answered *time.Duration, extra 
 	return e
 }
 
-func ago(d time.Duration) *time.Duration { return &d }
-
 func awaitingDoc(input string, entries []any, extra map[string]any) map[string]any {
 	doc := map[string]any{
 		"schema":          "awaiting.v1",
@@ -83,10 +81,10 @@ func TestReadListsOnlyTheRepliesStillOwed(t *testing.T) {
 			"links": []any{map[string]any{"rel": "thread", "href": "https://tracker.example/ABC-5#c1"}},
 			"attrs": map[string]any{"space": "DOCS"},
 		}),
-		entry("asked-again", "replied", 2*time.Hour, ago(3*time.Hour), nil),
-		entry("answered", "mentioned", 3*time.Hour, ago(2*time.Hour), nil),
+		entry("asked-again", "replied", 2*time.Hour, new(3*time.Hour), nil),
+		entry("answered", "mentioned", 3*time.Hour, new(2*time.Hour), nil),
 		// Asked and answered in the same second: the answer is the latest word.
-		entry("answered-together", "review_requested", 4*time.Hour, ago(4*time.Hour), nil),
+		entry("answered-together", "review_requested", 4*time.Hour, new(4*time.Hour), nil),
 		entry("a-kind-lookout-has-not-seen", "approval_requested", 5*time.Hour, nil, nil),
 	}, nil))
 
@@ -208,7 +206,7 @@ func TestReadAwaitingHealth(t *testing.T) {
 		// Claiming responses unreadable while writing one would let it hide an
 		// ask the claim says should show.
 		{name: "responses unreadable yet one written", file: awaitingDoc("asks", []any{
-			entry("T-1", "mentioned", 2*time.Hour, ago(time.Hour), nil),
+			entry("T-1", "mentioned", 2*time.Hour, new(time.Hour), nil),
 		}, map[string]any{"missing_fields": []any{"answered_at"}}), status: "degraded", reasons: []string{"schema"}},
 		{name: "an entry without a title", file: awaitingDoc("asks", []any{
 			map[string]any{"id": "T-1", "kind": "mentioned", "asked_at": stamp(time.Hour), "answered_at": nil, "links": []any{}, "attrs": map[string]any{}},

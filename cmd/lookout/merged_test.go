@@ -172,6 +172,11 @@ func TestSnapshotOpensEachWindowWhereTheLastEnded(t *testing.T) {
 	if m.Since != "2030-06-15T12:00:00Z" {
 		t.Errorf("since = %q, want the previous record's through", m.Since)
 	}
+
+	f.nextDay()
+	if third := f.mergedRecord(); third.Since != "2030-06-16T12:00:00Z" {
+		t.Errorf("since = %q, want the latest record's through, never an earlier one's", third.Since)
+	}
 }
 
 func TestSnapshotListsAMergeTheSearchIndexFoundLate(t *testing.T) {

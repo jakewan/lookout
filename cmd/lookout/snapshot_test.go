@@ -948,6 +948,29 @@ func TestSnapshotCountsARemovedItemThatReappearsAsArriving(t *testing.T) {
 	}
 }
 
+func TestSnapshotCountsAnItemAHealthyReadingDroppedAsArrivingAgain(t *testing.T) {
+	f := newFixture(t)
+	f.write("personal.yml", handWritten)
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	f.snapshot()
+
+	f.nextDay()
+	f.tracker(map[string]time.Time{"ABC-1": now, "ABC-5": f.clock.Add(-time.Hour)})
+	if b := f.snapshot(); !slices.Equal(b.Arrivals, []string{"tracker:ABC-5"}) {
+		t.Fatalf("day 2 arrivals = %v", b.Arrivals)
+	}
+
+	f.nextDay()
+	f.tracker(map[string]time.Time{"ABC-1": now})
+	f.snapshot()
+
+	f.nextDay()
+	f.tracker(map[string]time.Time{"ABC-1": now, "ABC-5": f.clock.Add(-time.Hour)})
+	if b := f.snapshot(); !slices.Equal(b.Arrivals, []string{"tracker:ABC-5"}) {
+		t.Errorf("arrivals = %v, want an item a healthy reading no longer showed counted when it returns", b.Arrivals)
+	}
+}
+
 func TestSnapshotCountsACompletionUnderANameARenameFreed(t *testing.T) {
 	f := newFixture(t)
 	f.write("personal.yml", strings.Replace(handWritten, "  - name: onboarding\n", "  - name: onboarding\n    completed: 2030-06-01\n", 1))
