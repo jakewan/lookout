@@ -269,7 +269,7 @@ func (g *githubFake) matches(n ghNode, q string) bool {
 	// look in, and the qualifiers apply to every alternative.
 	var phrases []string
 	inBody := false
-	for _, term := range strings.Fields(q) {
+	for term := range strings.FieldsSeq(q) {
 		if term == "OR" {
 			continue
 		}

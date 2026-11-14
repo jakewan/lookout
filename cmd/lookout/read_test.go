@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -223,9 +224,7 @@ func item(id string, touched time.Duration, extra map[string]any) map[string]any
 		"links":        []any{},
 		"attrs":        map[string]any{},
 	}
-	for k, v := range extra {
-		it[k] = v
-	}
+	maps.Copy(it, extra)
 	return it
 }
 
@@ -239,9 +238,7 @@ func suppliedDoc(input string, items []any, extra map[string]any) map[string]any
 		"supplier_status": "ok",
 		"items":           items,
 	}
-	for k, v := range extra {
-		doc[k] = v
-	}
+	maps.Copy(doc, extra)
 	return doc
 }
 

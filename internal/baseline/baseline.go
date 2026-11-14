@@ -111,8 +111,8 @@ const (
 func MergedWindow(history []Record, now time.Time) (since, from time.Time) {
 	y, m, d := now.Date()
 	since = time.Date(y, m, d, 0, 0, 0, 0, now.Location())
-	for i := len(history) - 1; i >= 0; i-- {
-		if p := history[i].MergedPRs; p != nil {
+	for _, h := range slices.Backward(history) {
+		if p := h.MergedPRs; p != nil {
 			since = p.Through
 			if p.Failed != "" {
 				since = p.Since
@@ -391,8 +391,8 @@ func arrivals(history []Record, candidates, older []string) (arrived, backlog []
 			return s
 		}
 		var s map[string]bool
-		for i := len(history) - 1; i >= 0; i-- {
-			if !healthy(history[i], input) {
+		for i, h := range slices.Backward(history) {
+			if !healthy(h, input) {
 				continue
 			}
 			s = map[string]bool{}
